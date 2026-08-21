@@ -1,0 +1,254 @@
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.stat-card {
+    background: #f7f8fd;
+    border: 1px solid #d6dceb;
+    border-radius: 12px;
+    padding: 10px 12px;
+}
+
+.stat-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.stat-top h2 {
+    font-size: 52px;
+    color: #2f3445;
+    line-height: 1;
+}
+
+.metric-icon {
+    width: 38px;
+    height: 33px;
+    border-radius: 7px;
+    display: grid;
+    place-items: center;
+    color: #fff;
+}
+
+.metric-icon.blue {
+    background: #3b82f6;
+}
+
+.metric-icon.green {
+    background: #2eb85d;
+}
+
+.metric-icon.red {
+    background: #ef4444;
+}
+
+.metric-icon.lime {
+    background: #84cc16;
+}
+
+.stat-card h3 {
+    margin-top: 5px;
+    font-size: 24px;
+    color: #2b3042;
+}
+
+.trend {
+    margin-top: 2px;
+    font-size: 20px;
+}
+
+.trend.up {
+    color: #1f9c4a;
+}
+
+.trend.down {
+    color: #dc5252;
+}
+
+.table-panel {
+    background: #f7f8fd;
+    border: 1px solid #d6dceb;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.table-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px;
+    border-bottom: 1px solid #dfe4f1;
+}
+
+.search-box {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #eceff7;
+    border: 1px solid #d8ddea;
+    border-radius: 18px;
+    height: 34px;
+    padding: 0 10px;
+    min-width: 230px;
+}
+
+.search-box i {
+    color: #8a90a0;
+}
+
+.search-box input {
+    border: none;
+    background: transparent;
+    outline: none;
+    width: 100%;
+}
+
+.table-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sort-btn,
+.export-btn {
+    border: 1px solid #d3d8e5;
+    background: #f3f5fc;
+    color: #5c6374;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.blacklist-btn {
+    border: 1px solid #c42d3b;
+    background: #cf3342;
+    color: #fff;
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.customers-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.customers-table th,
+.customers-table td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e2e7f4;
+}
+
+.customers-table th {
+    font-size: 20px;
+    color: #bd2b36;
+}
+
+.customers-table td {
+    font-size: 22px;
+    color: #3b4150;
+}
+
+.customers-table .amount {
+    color: #27924e;
+    font-weight: 600;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 14px;
+    background: #20b15a;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.status-pill i {
+    font-size: 7px;
+}
+
+.table-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    color: #5f6678;
+    font-size: 14px;
+}
+
+.pagination {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pagination button {
+    width: 24px;
+    height: 24px;
+    border: 1px solid #d3d8e5;
+    border-radius: 5px;
+    background: #fff;
+    color: #6a7283;
+    cursor: pointer;
+}
+
+.current-page {
+    color: #c22e3a;
+    font-weight: 600;
+}
+
+@media (max-width: 1400px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .customers-table th {
+        font-size: 16px;
+    }
+
+    .customers-table td {
+        font-size: 15px;
+    }
+
+    .status-pill {
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 900px) {
+    .dashboard-container {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        border-radius: 0;
+    }
+
+    .page-title {
+        font-size: 32px;
+    }
+
+    .table-toolbar,
+    .table-footer {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .table-actions {
+        flex-wrap: wrap;
+    }
+}
