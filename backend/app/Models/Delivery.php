@@ -1,0 +1,159 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Delivery extends Model
+{
+    protected $primaryKey = 'delivery_id';
+
+    protected $fillable = [
+        'request_id',
+        'driver_id',
+        'vehicle_id',
+        'assigned_by',
+        'permit_id',
+        'status',
+        'trip_cost',
+        'receipt_photo',
+        'payment_verification',
+        'start_time',
+        'end_time'
+    ];
+
+    /*
+    |--------------------------------------------------------------------------
+    | Delivery Request
+    |--------------------------------------------------------------------------
+    */
+
+    public function request()
+    {
+        return $this->belongsTo(
+            DeliveryRequest::class,
+            'request_id',
+            'request_id'
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Driver
+    |--------------------------------------------------------------------------
+    */
+
+    public function driver()
+    {
+        return $this->belongsTo(
+            Driver::class,
+            'driver_id',
+            'driver_id'
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Vehicle
+    |--------------------------------------------------------------------------
+    */
+
+    public function vehicle()
+    {
+        return $this->belongsTo(
+            Vehicle::class,
+            'vehicle_id',
+            'vehicle_id'
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | User Who Assigned Delivery
+    |--------------------------------------------------------------------------
+    */
+
+    public function assignedBy()
+    {
+        return $this->belongsTo(
+            User::class,
+            'assigned_by',
+            'user_id'
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Permit
+    |--------------------------------------------------------------------------
+    */
+
+    public function permit()
+    {
+        return $this->belongsTo(
+            Permit::class,
+            'permit_id',
+            'permit_id'
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Tracking
+    |--------------------------------------------------------------------------
+    */
+
+    public function tracking()
+    {
+        return $this->hasMany(
+            DeliveryTracking::class,
+            'delivery_id',
+            'delivery_id'
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Incidents
+    |--------------------------------------------------------------------------
+    */
+
+    public function incidents()
+    {
+        return $this->hasMany(
+            IncidentReport::class,
+            'delivery_id',
+            'delivery_id'
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Reviews
+    |--------------------------------------------------------------------------
+    */
+
+    public function reviews()
+    {
+        return $this->hasMany(
+            Review::class,
+            'delivery_id',
+            'delivery_id'
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Driver Logs
+    |--------------------------------------------------------------------------
+    */
+
+    public function driverLogs()
+    {
+        return $this->hasMany(
+            DriverLog::class,
+            'delivery_id',
+            'delivery_id'
+        );
+    }
+}
