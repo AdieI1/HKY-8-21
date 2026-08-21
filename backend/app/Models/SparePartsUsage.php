@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class SparePartsUsage extends Model
+class SparePartUsage extends Model
 {
     protected $table = 'spare_parts_usage';
 
