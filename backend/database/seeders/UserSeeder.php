@@ -2,37 +2,44 @@
 
 namespace Database\Seeders;
 
+use App\Models\Role;
+use App\Models\User;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class UserSeeder extends Seeder
 {
     public function run(): void
     {
-        DB::table('users')->insert([
+        $users = [
             [
-                'role_id' => 1,
+                'role_name' => 'Super Admin',
                 'full_name' => 'Super Administrator',
                 'email' => 'superadmin@hjytrucking.com',
                 'phone' => '09123456789',
-                'password' => Hash::make('password123'),
-                'email_verified_at' => now(),
-                'status' => 'active',
-                'created_at' => now(),
-                'updated_at' => now(),
             ],
             [
-                'role_id' => 2,
+                'role_name' => 'Admin',
                 'full_name' => 'Admin User',
                 'email' => 'admin@hjytrucking.com',
                 'phone' => '09123456788',
-                'password' => Hash::make('password123'),
-                'email_verified_at' => now(),
-                'status' => 'active',
-                'created_at' => now(),
-                'updated_at' => now(),
             ],
-        ]);
+        ];
+
+        foreach ($users as $seedUser) {
+            $role = Role::where('role_name', $seedUser['role_name'])->firstOrFail();
+
+            User::firstOrCreate(
+                ['email' => $seedUser['email']],
+                [
+                    'role_id' => $role->role_id,
+                    'full_name' => $seedUser['full_name'],
+                    'phone' => $seedUser['phone'],
+                    'password' => Hash::make('password123'),
+                    'email_verified_at' => now(),
+                    'status' => 'active',
+                ]
+            );
+        }
     }
 }

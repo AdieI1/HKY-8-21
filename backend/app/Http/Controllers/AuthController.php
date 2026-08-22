@@ -15,11 +15,15 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         $request->validate([
-            'email' => 'required|email',
+            'login' => 'nullable|string|required_without:email',
+            'email' => 'nullable|email|required_without:login',
             'password' => 'required|string',
         ]);
 
-        $user = User::where('email', $request->email)->first();
+        $identifier = $request->input('login', $request->email);
+        $user = User::where('username', $identifier)
+            ->orWhere('email', $identifier)
+            ->first();
 
         if (! $user || ! Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages([
@@ -35,10 +39,15 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
+        $user->load('role');
+
         return response()->json([
-            'user' => $user->load('role'),
+            'user' => $user,
             'token' => $token,
             'token_type' => 'Bearer',
+            'requires_verification' =>
+                strcasecmp($user->role?->role_name ?? '', 'Customer') === 0 &&
+                !$user->email_verified_at,
         ]);
     }
 

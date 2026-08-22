@@ -10,6 +10,7 @@ class DeliveryRequest extends Model
 
     protected $fillable = [
         'customer_id',
+        'item_name',
         'cargo_type',
         'fragility',
         'weight',

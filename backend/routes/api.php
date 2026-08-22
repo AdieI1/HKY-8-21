@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CustomerAuthController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\DriverController;
@@ -32,6 +33,16 @@ Route::post('/login', [
     AuthController::class,
     'login'
 ]);
+
+Route::post('/customer/register', [
+    CustomerAuthController::class,
+    'register'
+]);
+
+Route::get('/customer/email/verify/{user}', [
+    CustomerAuthController::class,
+    'verify'
+])->middleware('signed')->name('customer.email.verify');
 
 
 /*
@@ -91,6 +102,31 @@ Route::middleware('auth:sanctum')->group(function () {
     | Delivery Requests
     |--------------------------------------------------------------------------
     */
+
+    Route::get('customer/delivery-requests', [
+        DeliveryRequestController::class,
+        'myRequests'
+    ]);
+
+    Route::post('customer/delivery-requests', [
+        DeliveryRequestController::class,
+        'storeForCustomer'
+    ]);
+
+    Route::post('customer/email/resend', [
+        CustomerAuthController::class,
+        'resend'
+    ]);
+
+    Route::get('customer/email/status', [
+        CustomerAuthController::class,
+        'status'
+    ]);
+
+    Route::patch('customer/profile', [
+        CustomerAuthController::class,
+        'updateProfile'
+    ]);
 
     Route::apiResource(
         'delivery-requests',

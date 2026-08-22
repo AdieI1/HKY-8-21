@@ -7,6 +7,26 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
+## Gmail verification setup
+
+Customer email verification requires a Gmail account with two-step verification
+and an App Password. Add these values to the backend `.env` file:
+
+```env
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=youraccount@gmail.com
+MAIL_PASSWORD=your_16_character_app_password
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS=youraccount@gmail.com
+MAIL_FROM_NAME="HJY Trucking Services"
+```
+
+Set `APP_URL` to a backend URL that the device opening Gmail can access. After
+changing `.env`, run `php artisan config:clear` before resending verification.
+Do not use the normal Gmail password or commit the App Password.
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:

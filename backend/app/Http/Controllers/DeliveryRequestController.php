@@ -21,6 +21,7 @@ class DeliveryRequestController extends Controller
     {
         $request->validate([
             'customer_id' => 'required|exists:users,user_id',
+            'item_name' => 'nullable|string|max:150',
             'cargo_type' => 'nullable|string|max:100',
             'fragility' => 'nullable|in:low,medium,high',
             'weight' => 'nullable|numeric',
@@ -51,6 +52,7 @@ class DeliveryRequestController extends Controller
             'email' => 'required|email|unique:users,email',
             'username' => 'nullable|string|max:50|unique:users,username',
             'password' => 'required|min:6',
+            'item_name' => 'nullable|string|max:150',
             'cargo_type' => 'nullable|string|max:100',
             'fragility' => 'nullable|in:low,medium,high',
             'weight' => 'nullable|numeric',
@@ -82,6 +84,7 @@ class DeliveryRequestController extends Controller
 
             return DeliveryRequest::create([
                 'customer_id' => $user->user_id,
+                'item_name' => $request->item_name,
                 'cargo_type' => $request->cargo_type,
                 'fragility' => $request->fragility,
                 'weight' => $request->weight,
@@ -100,6 +103,49 @@ class DeliveryRequestController extends Controller
         });
 
         return $deliveryRequest->load('customer');
+    }
+
+    public function storeForCustomer(Request $request)
+    {
+        $user = $request->user()->load('role');
+
+        if (strcasecmp($user->role?->role_name ?? '', 'Customer') !== 0) {
+            return response()->json(['message' => 'Only customers can create delivery requests.'], 403);
+        }
+
+        $fieldRule = $request->boolean('is_draft') ? 'nullable' : 'required';
+        $validated = $request->validate([
+            'item_name' => "$fieldRule|string|max:150",
+            'cargo_type' => "$fieldRule|string|max:100",
+            'fragility' => "$fieldRule|in:low,medium,high",
+            'weight' => "$fieldRule|numeric|min:0.01",
+            'pickup_address' => "$fieldRule|string",
+            'pickup_lat' => "$fieldRule|numeric|between:-90,90",
+            'pickup_lng' => "$fieldRule|numeric|between:-180,180",
+            'dropoff_address' => "$fieldRule|string",
+            'dropoff_lat' => "$fieldRule|numeric|between:-90,90",
+            'dropoff_lng' => "$fieldRule|numeric|between:-180,180",
+            'distance_km' => 'nullable|numeric|min:0',
+            'total_price' => 'nullable|numeric|min:0',
+            'payment_term' => "$fieldRule|in:downpayment,full",
+            'payment_method' => "$fieldRule|in:bank_transfer,cash",
+            'is_draft' => 'nullable|boolean',
+        ]);
+
+        $deliveryRequest = DeliveryRequest::create(array_merge($validated, [
+            'customer_id' => $user->user_id,
+            'status' => $request->boolean('is_draft') ? 'draft' : 'pending',
+        ]));
+
+        return response()->json($deliveryRequest->load('customer'), 201);
+    }
+
+    public function myRequests(Request $request)
+    {
+        return DeliveryRequest::with(['customer', 'delivery.driver.user', 'delivery.vehicle'])
+            ->where('customer_id', $request->user()->user_id)
+            ->orderByDesc('request_id')
+            ->get();
     }
 
     public function show(DeliveryRequest $deliveryRequest)

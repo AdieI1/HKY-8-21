@@ -219,6 +219,7 @@ const EMPTY_FORM = {
   username: '',
   password: '',
   confirmPassword: '',
+  item_name: '',
   cargo_type: 'Construction',
   fragility: 'low',
   weight: '',
@@ -360,6 +361,7 @@ function RequestsPage() {
         email: form.email,
         username: form.username || null,
         password: form.password,
+        item_name: form.item_name || null,
         cargo_type: form.cargo_type,
         fragility: form.fragility,
         weight: form.weight || null,
@@ -604,6 +606,7 @@ function RequestsPage() {
                 <div className="request-right">
                   <div className="request-info-item"><span className="request-label">Contact Number:</span><span className="request-value">{selectedRequest.customer?.phone || '—'}</span></div>
                   <div className="request-info-item"><span className="request-label">Date requested:</span><span className="request-value">{formatDate(selectedRequest.created_at)}</span></div>
+                  <div className="request-info-item"><span className="request-label">Item name:</span><span className="request-value">{selectedRequest.item_name || '—'}</span></div>
                   <div className="request-info-item"><span className="request-label">Cargo type:</span><span className="request-value">{selectedRequest.cargo_type || '—'}</span></div>
                   <div className="request-info-item">
                     <span className="request-label">Cargo Fragility:</span>
@@ -732,6 +735,10 @@ function RequestsPage() {
               <div className="form-row two-column">
                 <div className="form-section half-width">
                   <h3 className="section-title-form">Cargo Information:</h3>
+                  <div className="form-group">
+                    <label>Item Name:</label>
+                    <input type="text" className="form-input" value={form.item_name} onChange={(e) => setForm({ ...form, item_name: e.target.value })} />
+                  </div>
                   <div className="form-group">
                     <label>Cargo Type:</label>
                     <select className="form-select" value={form.cargo_type} onChange={(e) => setForm({ ...form, cargo_type: e.target.value })}>
