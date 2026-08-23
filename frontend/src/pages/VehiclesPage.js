@@ -246,9 +246,6 @@ function VehiclesPage() {
     }
   };
 
-  if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center' }}>Loading vehicles...</div>;
-  }
 
   return (
     <>
@@ -379,7 +376,10 @@ function VehiclesPage() {
                         </td>
                       </tr>
                     ))}
-                    {filteredVehicles.length === 0 && (
+                    {loading && (
+                      <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading vehicles...</td></tr>
+                    )}
+                    {!loading && filteredVehicles.length === 0 && (
                       <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24 }}>No vehicles found.</td></tr>
                     )}
                   </tbody>

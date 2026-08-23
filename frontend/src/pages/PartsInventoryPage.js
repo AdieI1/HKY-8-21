@@ -54,8 +54,8 @@ function DonutChart({ data, total }) {
   const circ = 2 * Math.PI * r;
   let offset = 0;
   const slices = data.map((d) => {
-    const dash  = (d.pct / 100) * circ;
-    const gap   = circ - dash;
+    const dash = (d.pct / 100) * circ;
+    const gap = circ - dash;
     const slice = { ...d, dash, gap, offset };
     offset += dash;
     return slice;
@@ -75,7 +75,7 @@ function DonutChart({ data, total }) {
           style={{ transform: 'rotate(-90deg)', transformOrigin: `${cx}px ${cy}px` }}
         />
       ))}
-      <text x={cx} y={cy - 8}  textAnchor="middle" className="pi-donut-total-num">{total}</text>
+      <text x={cx} y={cy - 8} textAnchor="middle" className="pi-donut-total-num">{total}</text>
       <text x={cx} y={cy + 14} textAnchor="middle" className="pi-donut-total-lbl">Total Parts</text>
     </svg>
   );
@@ -163,8 +163,8 @@ function PartPanel({ part, onClose, onEdit }) {
 function RecentUsageModal({ usages, onClose }) {
   const [page, setPage] = useState(1);
   const rowsPerPage = 8;
-  const totalPages  = Math.max(1, Math.ceil(usages.length / rowsPerPage));
-  const rows        = usages.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  const totalPages = Math.max(1, Math.ceil(usages.length / rowsPerPage));
+  const rows = usages.slice((page - 1) * rowsPerPage, page * rowsPerPage);
 
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
@@ -241,8 +241,8 @@ function RecentUsageModal({ usages, onClose }) {
 function LowStockModal({ parts, onClose }) {
   const [page, setPage] = useState(1);
   const rowsPerPage = 5;
-  const totalPages  = Math.max(1, Math.ceil(parts.length / rowsPerPage));
-  const rows        = parts.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  const totalPages = Math.max(1, Math.ceil(parts.length / rowsPerPage));
+  const rows = parts.slice((page - 1) * rowsPerPage, page * rowsPerPage);
 
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
@@ -365,7 +365,7 @@ function PartFormModal({ part, suppliers, onClose, onSaved }) {
 
   const totalValue = (() => {
     const price = parseFloat(form.unit_price) || 0;
-    const qty   = parseFloat(form.quantity_in_stock) || 0;
+    const qty = parseFloat(form.quantity_in_stock) || 0;
     return money(price * qty);
   })();
 
@@ -606,14 +606,14 @@ function PartsInventoryPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
-  const [search, setSearch]         = useState('');
-  const [category, setCategory]     = useState('All Categories');
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('All Categories');
   const [stockStatus, setStockStatus] = useState('All Status');
   const [currentPage, setCurrentPage] = useState(1);
 
-  const [selectedPart, setSelectedPart]     = useState(null);
-  const [formModal, setFormModal]           = useState(null); // { mode: 'add' } | { mode: 'edit', part }
-  const [lowStockOpen, setLowStockOpen]     = useState(false);
+  const [selectedPart, setSelectedPart] = useState(null);
+  const [formModal, setFormModal] = useState(null); // { mode: 'add' } | { mode: 'edit', part }
+  const [lowStockOpen, setLowStockOpen] = useState(false);
   const [recentUsageOpen, setRecentUsageOpen] = useState(false);
   const rowsPerPage = 8;
 
@@ -668,11 +668,11 @@ function PartsInventoryPage() {
   }), [parts, search, category, stockStatus]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
-  const pageRows   = filtered.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
+  const pageRows = filtered.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
 
-  const totalParts      = useMemo(() => parts.reduce((s, p) => s + Number(p.quantity_in_stock || 0), 0), [parts]);
+  const totalParts = useMemo(() => parts.reduce((s, p) => s + Number(p.quantity_in_stock || 0), 0), [parts]);
   const totalStockValue = useMemo(() => parts.reduce((s, p) => s + Number(p.quantity_in_stock || 0) * Number(p.unit_price || 0), 0), [parts]);
-  const lowStockCount   = useMemo(() => parts.filter((p) => p.status === 'low_stock').length, [parts]);
+  const lowStockCount = useMemo(() => parts.filter((p) => p.status === 'low_stock').length, [parts]);
   const outOfStockCount = useMemo(() => parts.filter((p) => p.status === 'out_of_stock').length, [parts]);
 
   // "Running low" = at or under reorder level — matches the note text at
@@ -719,9 +719,6 @@ function PartsInventoryPage() {
     }
   };
 
-  if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center' }}>Loading parts inventory...</div>;
-  }
 
   return (
     <>
@@ -928,7 +925,10 @@ function PartsInventoryPage() {
                       </td>
                     </tr>
                   ))}
-                  {pageRows.length === 0 && (
+                  {loading && (
+                    <tr><td colSpan="10" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading parts inventory...</td></tr>
+                  )}
+                  {!loading && pageRows.length === 0 && (
                     <tr><td colSpan="10" style={{ textAlign: 'center', padding: 24 }}>No parts match your filters.</td></tr>
                   )}
                 </tbody>

@@ -100,8 +100,8 @@ function DispatchPage() {
         const point = req.dropoff_lat && req.dropoff_lng
           ? { lat: parseFloat(req.dropoff_lat), lng: parseFloat(req.dropoff_lng) }
           : req.pickup_lat && req.pickup_lng
-          ? { lat: parseFloat(req.pickup_lat), lng: parseFloat(req.pickup_lng) }
-          : null;
+            ? { lat: parseFloat(req.pickup_lat), lng: parseFloat(req.pickup_lng) }
+            : null;
         if (!point) return null;
         return { ...point, type: inc.incident_type, description: inc.description };
       })
@@ -209,9 +209,6 @@ function DispatchPage() {
     setDispatching(false);
   };
 
-  if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center' }}>Loading dispatch data...</div>;
-  }
 
   return (
     <>
@@ -250,7 +247,10 @@ function DispatchPage() {
                       <td><button className="btn-assign" onClick={() => openAssignPanel(d)}>Assign</button></td>
                     </tr>
                   ))}
-                  {unassigned.length === 0 && (
+                  {loading && (
+                    <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading dispatch...</td></tr>
+                  )}
+                  {!loading && unassigned.length === 0 && (
                     <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24 }}>No approved requests waiting for dispatch.</td></tr>
                   )}
                 </tbody>

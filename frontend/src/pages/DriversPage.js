@@ -295,9 +295,6 @@ function DriversPage() {
     }
   };
 
-  if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center' }}>Loading drivers...</div>;
-  }
 
   return (
     <>
@@ -403,7 +400,10 @@ function DriversPage() {
                         </td>
                       </tr>
                     ))}
-                    {filteredDrivers.length === 0 && (
+                    {loading && (
+                      <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading drivers...</td></tr>
+                    )}
+                    {!loading && filteredDrivers.length === 0 && (
                       <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24 }}>No drivers found.</td></tr>
                     )}
                   </tbody>

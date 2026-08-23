@@ -148,8 +148,6 @@ function DeliveryPage() {
     return entry ? formatTime(entry.timestamp) : '';
   };
 
-  if (loading) return <div style={{ padding: 60, textAlign: 'center' }}>Loading deliveries...</div>;
-
   return (
     <>
       <div className="dashboard-container">
@@ -241,8 +239,11 @@ function DeliveryPage() {
                       </td>
                     </tr>
                   ))}
-                  {filteredDeliveries.length === 0 && (
+                  {!loading && filteredDeliveries.length === 0 && (
                     <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24 }}>No deliveries found.</td></tr>
+                  )}
+                  {loading && (
+                    <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24 }}>Loading deliveries...</td></tr>
                   )}
                 </tbody>
               </table>

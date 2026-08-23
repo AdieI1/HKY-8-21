@@ -271,9 +271,6 @@ function AnalyticsPage() {
     URL.revokeObjectURL(url);
   };
 
-  if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center' }}>Loading analytics...</div>;
-  }
 
   return (
     <>
@@ -537,7 +534,10 @@ function AnalyticsPage() {
                     <td>{formatMoney(d.trip_cost)}</td>
                   </tr>
                 ))}
-                {pagedHistory.length === 0 && (
+                {loading && (
+                  <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading analytics...</td></tr>
+                )}
+                {!loading && pagedHistory.length === 0 && (
                   <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24 }}>No deliveries found.</td></tr>
                 )}
               </tbody>

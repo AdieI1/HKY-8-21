@@ -407,10 +407,6 @@ function RequestsPage() {
     }
   };
 
-  if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center' }}>Loading requests...</div>;
-  }
-
   return (
     <>
       <div className="dashboard-container">
@@ -536,7 +532,10 @@ function RequestsPage() {
                           </tr>
                         );
                       })}
-                      {shownRequests.length === 0 && (
+                      {loading && (
+                        <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading requests...</td></tr>
+                      )}
+                      {!loading && shownRequests.length === 0 && (
                         <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24 }}>No requests found.</td></tr>
                       )}
                     </tbody>

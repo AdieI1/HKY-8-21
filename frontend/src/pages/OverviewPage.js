@@ -250,9 +250,6 @@ function OverviewPage() {
     }
   };
 
-  if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center' }}>Loading dashboard...</div>;
-  }
 
   return (
     <>
@@ -379,7 +376,10 @@ function OverviewPage() {
                             <td>{formatDate(d.created_at)}</td>
                           </tr>
                         ))}
-                        {recentDeliveries.length === 0 && (
+                        {loading && (
+                          <tr><td colSpan="4" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading overview...</td></tr>
+                        )}
+                        {!loading && recentDeliveries.length === 0 && (
                           <tr><td colSpan="4" style={{ textAlign: 'center', padding: 24 }}>No deliveries yet.</td></tr>
                         )}
                       </tbody>

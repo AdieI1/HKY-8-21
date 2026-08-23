@@ -255,9 +255,6 @@ function FuelInventoryPage() {
     }
   };
 
-  if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center' }}>Loading fuel inventory...</div>;
-  }
 
   return (
     <>
@@ -410,7 +407,10 @@ function FuelInventoryPage() {
                       </tr>
                     );
                   })}
-                  {filteredFuels.length === 0 && (
+                  {loading && (
+                    <tr><td colSpan="8" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading fuel inventory...</td></tr>
+                  )}
+                  {!loading && filteredFuels.length === 0 && (
                     <tr><td colSpan="8" style={{ textAlign: 'center', padding: 24 }}>No fuel types yet — click "Receive Fuel" to add one.</td></tr>
                   )}
                 </tbody>

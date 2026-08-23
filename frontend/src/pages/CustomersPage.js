@@ -165,9 +165,6 @@ function CustomersPage() {
     URL.revokeObjectURL(url);
   };
 
-  if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center' }}>Loading customers...</div>;
-  }
 
   return (
     <>
@@ -321,7 +318,10 @@ function CustomersPage() {
                     </td>
                   </tr>
                 ))}
-                {filteredCustomers.length === 0 && (
+                {loading && (
+                  <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading customers...</td></tr>
+                )}
+                {!loading && filteredCustomers.length === 0 && (
                   <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24 }}>No customers found.</td></tr>
                 )}
               </tbody>
