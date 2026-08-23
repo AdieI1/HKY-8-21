@@ -2,7 +2,16 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/api-client';
 
-const ACTIVE_DELIVERY_STATUSES = ['assigned', 'accepted', 'arrived_pickup', 'out_for_delivery', 'arrived_dropoff', 'returning_to_hq'];
+const ACTIVE_DELIVERY_STATUSES = [
+  'assigned',
+  'accepted',
+  'arrived_pickup',
+  'loading_cargo',
+  'out_for_delivery',
+  'arrived_dropoff',
+  'unloading_cargo',
+  'returning_to_hq',
+];
 
 function formatDate(dateString) {
   if (!dateString) return '—';

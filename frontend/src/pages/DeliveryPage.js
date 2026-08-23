@@ -1,46 +1,23 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import 'leaflet-routing-machine';
-import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
 import api from '../api/api-client';
-
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
-
-async function geocode(address) {
-  if (!address) return null;
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address)}`
-    );
-    const data = await res.json();
-    if (!data.length) return null;
-    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-  } catch (err) {
-    return null;
-  }
-}
+import ViewLocationMap from '../components/delivery/ViewLocationMap';
 
 const STATUS_STEPS = [
   { key: 'assigned', label: 'Dispatched' },
   { key: 'accepted', label: 'In Transit' },
   { key: 'arrived_pickup', label: 'Arrived at Pickup' },
+  { key: 'loading_cargo', label: 'Loading Cargo' },
   { key: 'out_for_delivery', label: 'Out for Delivery' },
   { key: 'arrived_dropoff', label: 'Arrived at Drop-off' },
+  { key: 'unloading_cargo', label: 'Unloading Cargo' },
   { key: 'returning_to_hq', label: 'Returning to HQ' },
   { key: 'completed', label: 'Completed' },
 ];
 
 function statusLabel(status) {
   const step = STATUS_STEPS.find((s) => s.key === status);
-  if (step) return step.label;
-  return status === 'rejected' ? 'Rejected' : status;
+  return step ? step.label : status === 'rejected' ? 'Rejected' : status;
 }
 
 function statusBadgeClass(status) {
@@ -48,7 +25,7 @@ function statusBadgeClass(status) {
   if (status === 'completed') return 'completed';
   if (status === 'assigned') return 'dispatched';
   if (status === 'rejected') return 'delayed';
-  return 'in-transit'; // accepted, arrived_pickup, out_for_delivery, arrived_dropoff
+  return 'in-transit';
 }
 
 function formatRelativeTime(dateString) {
@@ -64,88 +41,11 @@ function formatRelativeTime(dateString) {
 }
 
 function formatTime(dateString) {
-  if (!dateString) return '';
-  return new Date(dateString).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return dateString ? new Date(dateString).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
 }
 
 function deliveryCode(id) {
   return `DLV${String(id).padStart(4, '0')}`;
-}
-
-/**
- * Read-only route map for "View Location" — same OSRM road-routing setup
- * used on Dispatch/Requests, plus an ETA estimate derived from the route's
- * driving time (not live GPS, since no driver app exists yet to report a
- * current position).
- */
-function ViewLocationMap({ pickupAddress, dropoffAddress, driverLocation, onEtaChange }) {
-  const [mapEl, setMapEl] = useState(null);
-  const [status, setStatus] = useState('loading');
-
-  useEffect(() => {
-    let cancelled = false;
-    let map = null;
-    let resizeTimer = null;
-    setStatus('loading');
-
-    (async () => {
-      const [pickup, dropoff] = await Promise.all([geocode(pickupAddress), geocode(dropoffAddress)]);
-      const routeStart = driverLocation || pickup;
-      if (cancelled || !routeStart || !dropoff || !mapEl) {
-        setStatus('failed');
-        return;
-      }
-
-      mapEl.innerHTML = '';
-      map = L.map(mapEl);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors',
-      }).addTo(map);
-
-      L.Routing.control({
-        waypoints: [L.latLng(routeStart.lat, routeStart.lng), L.latLng(dropoff.lat, dropoff.lng)],
-        routeWhileDragging: false,
-        addWaypoints: false,
-        draggableWaypoints: false,
-        fitSelectedRoutes: true,
-        show: false,
-        lineOptions: { styles: [{ color: '#c0392b', weight: 4 }] },
-        createMarker: (i, wp) => L.marker(wp.latLng).bindPopup(i === 0 && driverLocation ? 'Driver Location' : i === 0 ? 'Pickup' : 'Drop-off'),
-      })
-        .on('routesfound', (e) => {
-          if (cancelled) return;
-          setStatus('ready');
-          const totalSeconds = e.routes[0].summary.totalTime;
-          const hrs = Math.floor(totalSeconds / 3600);
-          const mins = Math.round((totalSeconds % 3600) / 60);
-          onEtaChange(hrs > 0 ? `${hrs}hr${hrs > 1 ? 's' : ''} ${mins}mins` : `${mins}mins`);
-        })
-        .on('routingerror', () => {
-          if (!cancelled) setStatus('failed');
-        })
-        .addTo(map);
-
-      resizeTimer = setTimeout(() => map?.invalidateSize(), 150);
-    })();
-
-    return () => {
-      cancelled = true;
-      clearTimeout(resizeTimer);
-      map?.remove();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickupAddress, dropoffAddress, driverLocation, mapEl]);
-
-  return (
-    <div className="map-area" style={{ position: 'relative', height: '100%' }}>
-      <div ref={setMapEl} style={{ height: '100%', width: '100%' }} />
-      {status === 'failed' && (
-        <div style={{ position: 'absolute', top: 12, left: 12, background: '#fff', padding: '6px 10px', borderRadius: 6, fontSize: 13, color: '#888' }}>
-          Couldn't load the route for this address.
-        </div>
-      )}
-    </div>
-  );
 }
 
 function DeliveryPage() {
@@ -153,21 +53,14 @@ function DeliveryPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [currentDate, setCurrentDate] = useState('');
-
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('recent');
-
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   const [showMapModal, setShowMapModal] = useState(false);
   const [eta, setEta] = useState(null);
-  const [advancing, setAdvancing] = useState(false);
 
   useEffect(() => {
-    const update = () => {
-      setCurrentDate(
-        new Date().toLocaleDateString('en-PH', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' })
-      );
-    };
+    const update = () => setCurrentDate(new Date().toLocaleDateString('en-PH', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' }));
     update();
     const interval = setInterval(update, 60000);
     return () => clearInterval(interval);
@@ -179,7 +72,7 @@ function DeliveryPage() {
     try {
       const res = await api.get('/deliveries');
       setDeliveries(res.data);
-    } catch (err) {
+    } catch {
       setLoadError('Could not load deliveries. Is the backend running and are you logged in?');
     } finally {
       setLoading(false);
@@ -199,29 +92,23 @@ function DeliveryPage() {
         console.error('Delivery monitoring refresh failed:', err);
       }
     }, 10000);
-
     return () => clearInterval(interval);
   }, []);
 
-  // Refresh selectedDelivery whenever the underlying list reloads (e.g. after Advance Status)
   useEffect(() => {
     if (!selectedDelivery) return;
     const fresh = deliveries.find((d) => d.delivery_id === selectedDelivery.delivery_id);
     if (fresh) setSelectedDelivery(fresh);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deliveries]);
+  }, [deliveries, selectedDelivery]);
 
   const stats = useMemo(() => {
     const active = deliveries.filter((d) => !['completed', 'rejected'].includes(d.status)).length;
-    const inTransit = deliveries.filter((d) =>
-      ['accepted', 'arrived_pickup', 'out_for_delivery', 'arrived_dropoff'].includes(d.status)
-    ).length;
+    const inTransit = deliveries.filter((d) => ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo'].includes(d.status)).length;
     const returning = deliveries.filter((d) => d.status === 'returning_to_hq').length;
     const dispatched = deliveries.filter((d) => d.status === 'assigned').length;
     const delayed = deliveries.filter((d) => {
       if (d.status !== 'assigned' || !d.start_time) return false;
-      const hoursSince = (Date.now() - new Date(d.start_time).getTime()) / (1000 * 60 * 60);
-      return hoursSince >= 3; // heuristic: still not accepted 3+ hours after dispatch
+      return (Date.now() - new Date(d.start_time).getTime()) / 3600000 >= 3;
     }).length;
     const completed = deliveries.filter((d) => d.status === 'completed').length;
     return { active, inTransit, returning, dispatched, delayed, completed };
@@ -243,25 +130,8 @@ function DeliveryPage() {
 
   const openDeliveryPanel = (delivery) => setSelectedDelivery(delivery);
   const closeDeliveryPanel = () => setSelectedDelivery(null);
-
-  const openMapModal = () => {
-    setEta(null);
-    setShowMapModal(true);
-  };
+  const openMapModal = () => { setEta(null); setShowMapModal(true); };
   const closeMapModal = () => setShowMapModal(false);
-
-  const advanceStatus = async () => {
-    if (!selectedDelivery) return;
-    setAdvancing(true);
-    try {
-      await api.post(`/deliveries/${selectedDelivery.delivery_id}/advance-status`);
-      await loadData();
-    } catch (err) {
-      console.error('Advance status failed:', err.response?.data || err);
-    } finally {
-      setAdvancing(false);
-    }
-  };
 
   const currentStepIndex = selectedDelivery ? STATUS_STEPS.findIndex((s) => s.key === selectedDelivery.status) : -1;
 
@@ -269,14 +139,7 @@ function DeliveryPage() {
     const tracking = selectedDelivery?.tracking || [];
     const locations = tracking.filter((entry) => entry.latitude != null && entry.longitude != null);
     const latest = locations[locations.length - 1];
-
-    return latest
-      ? {
-          lat: Number(latest.latitude),
-          lng: Number(latest.longitude),
-          timestamp: latest.timestamp,
-        }
-      : null;
+    return latest ? { lat: Number(latest.latitude), lng: Number(latest.longitude), timestamp: latest.timestamp } : null;
   }, [selectedDelivery]);
 
   const timeForStep = (stepKey) => {
@@ -285,17 +148,13 @@ function DeliveryPage() {
     return entry ? formatTime(entry.timestamp) : '';
   };
 
-  if (loading) {
-    return <div style={{ padding: 60, textAlign: 'center' }}>Loading deliveries...</div>;
-  }
+  if (loading) return <div style={{ padding: 60, textAlign: 'center' }}>Loading deliveries...</div>;
 
   return (
     <>
       <div className="dashboard-container">
         <div className="sidebar">
-          <div className="logo">
-            <img src="images/HJY LOGO 2 1.png" alt="HJY Trucking Services Logo" />
-          </div>
+          <div className="logo"><img src="images/HJY LOGO 2 1.png" alt="HJY Trucking Services Logo" /></div>
           <nav className="navigation">
             <ul>
               <li><Link to="/overview"><i className="fas fa-chart-pie"></i> Overview</Link></li>
@@ -331,18 +190,10 @@ function DeliveryPage() {
 
         <div className="main-content">
           <header className="header">
-            <div className="page-info">
-              <span className="breadcrumb">Page/Delivery Monitoring</span>
-              <h1 className="page-title">DELIVERY MONITORING</h1>
-            </div>
+            <div className="page-info"><span className="breadcrumb">Page/Delivery Monitoring</span><h1 className="page-title">DELIVERY MONITORING</h1></div>
             <div className="header-actions">
-              <div className="date-picker">
-                <span>{currentDate}</span>
-                <i className="far fa-calendar-alt"></i>
-              </div>
-              <div className="notification">
-                <div className="bell-container"><div className="bell"></div></div>
-              </div>
+              <div className="date-picker"><span>{currentDate}</span><i className="far fa-calendar-alt"></i></div>
+              <div className="notification"><div className="bell-container"><div className="bell"></div></div></div>
             </div>
           </header>
 
@@ -361,10 +212,7 @@ function DeliveryPage() {
             <div className="section-header">
               <h3 className="section-title">All Deliveries</h3>
               <div className="section-controls">
-                <div className="search-bar">
-                  <i className="fas fa-search"></i>
-                  <input type="text" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
-                </div>
+                <div className="search-bar"><i className="fas fa-search"></i><input type="text" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
                 <div className="sort-dropdown">
                   <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ border: 'none', background: 'transparent' }}>
                     <option value="recent">Most Recent</option>
@@ -387,10 +235,7 @@ function DeliveryPage() {
                       <td>{d.vehicle ? `${d.vehicle.model} – ${d.vehicle.plate_number}` : 'Unassigned'}</td>
                       <td>{formatRelativeTime(d.updated_at)}</td>
                       <td>
-                        <span
-                          className={`status-badge-monitor ${statusBadgeClass(d.status)}`}
-                          onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}
-                        >
+                        <span className={`status-badge-monitor ${statusBadgeClass(d.status)}`} onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}>
                           {statusLabel(d.status)}
                         </span>
                       </td>
@@ -450,10 +295,7 @@ function DeliveryPage() {
                       <div className="timeline-marker">{state === 'completed' && <i className="fas fa-check"></i>}</div>
                       <div className="timeline-text">{step.label}</div>
                       {state === 'active' ? (
-                        <div className="timeline-meta">
-                          <span className="timeline-tag">Current</span>
-                          <span className="timeline-time">{time}</span>
-                        </div>
+                        <div className="timeline-meta"><span className="timeline-tag">Current</span><span className="timeline-time">{time}</span></div>
                       ) : (
                         <div className="timeline-time">{time}</div>
                       )}
@@ -461,17 +303,6 @@ function DeliveryPage() {
                   );
                 })}
               </div>
-
-              {selectedDelivery.status !== 'completed' && selectedDelivery.status !== 'rejected' && (
-                <button
-                  className="btn-view-location"
-                  style={{ marginTop: 10, background: '#555' }}
-                  onClick={advanceStatus}
-                  disabled={advancing}
-                >
-                  <i className="fas fa-forward"></i> {advancing ? 'Advancing...' : `Advance to "${STATUS_STEPS[currentStepIndex + 1]?.label || '...'}"`}
-                </button>
-              )}
 
               <button className="btn-view-location" onClick={openMapModal}>
                 <i className="fas fa-map-marker-alt"></i> View Location
@@ -492,9 +323,7 @@ function DeliveryPage() {
                 <div className="map-header-id">{deliveryCode(selectedDelivery.delivery_id)}</div>
                 <div className="map-header-name">{selectedDelivery.request?.customer?.full_name}</div>
               </div>
-              <button className="map-back-btn" onClick={closeMapModal}>
-                <i className="fas fa-arrow-left"></i>
-              </button>
+              <button className="map-back-btn" onClick={closeMapModal}><i className="fas fa-arrow-left"></i></button>
             </div>
             <div className="map-modal-body">
               <div className="map-info-card">
@@ -519,9 +348,7 @@ function DeliveryPage() {
                         <div className="map-driver-name">{selectedDelivery.driver.user.full_name}</div>
                         <div className="map-driver-contact">Contact Number: {selectedDelivery.driver.user.phone || '—'}</div>
                         <div className="map-driver-lastseen" style={{ color: '#888' }}>
-                          {latestDriverLocation
-                            ? `Live GPS updated ${formatRelativeTime(latestDriverLocation.timestamp)}`
-                            : 'Waiting for the driver app to share its location.'}
+                          {latestDriverLocation ? `Live GPS updated ${formatRelativeTime(latestDriverLocation.timestamp)}` : 'Waiting for the driver app to share its location.'}
                         </div>
                       </div>
                     </div>

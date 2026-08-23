@@ -27,8 +27,10 @@ const statusToNavigationState = (status) => {
     assigned: "preview",
     accepted: "in_transit_pickup",
     arrived_pickup: "arrived_pickup",
+    loading_cargo: "loading",
     out_for_delivery: "in_transit_dropoff",
     arrived_dropoff: "arrived_dropoff",
+    unloading_cargo: "unloading",
     returning_to_hq: "completed",
     completed: "completed",
   };

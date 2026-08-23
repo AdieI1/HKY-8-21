@@ -54,8 +54,10 @@ return new class extends Migration
                 'accepted',
                 'rejected',
                 'arrived_pickup',
+                'loading_cargo',
                 'out_for_delivery',
                 'arrived_dropoff',
+                'unloading_cargo',
                 'returning_to_hq',
                 'completed'
             ])->default('assigned');

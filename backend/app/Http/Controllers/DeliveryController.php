@@ -15,8 +15,10 @@ class DeliveryController extends Controller
         'assigned',
         'accepted',
         'arrived_pickup',
+        'loading_cargo',
         'out_for_delivery',
         'arrived_dropoff',
+        'unloading_cargo',
         'returning_to_hq',
         'completed',
     ];
@@ -36,7 +38,8 @@ class DeliveryController extends Controller
             'assignedBy',
             'permit',
             'tracking',
-            'checklists'
+            'checklists',
+            'reviews',
         ])->get();
     }
 
@@ -167,7 +170,8 @@ class DeliveryController extends Controller
             'assignedBy',
             'permit',
             'tracking',
-            'checklists'
+            'checklists',
+            'reviews',
         ])
             ->where('driver_id', $driver->driver_id)
             ->orderByDesc('delivery_id')
@@ -506,7 +510,7 @@ class DeliveryController extends Controller
         }
 
         $validated = $request->validate([
-            'status' => 'required|in:accepted,arrived_pickup,out_for_delivery,arrived_dropoff,returning_to_hq,completed',
+            'status' => 'required|in:accepted,arrived_pickup,loading_cargo,out_for_delivery,arrived_dropoff,unloading_cargo,returning_to_hq,completed',
         ]);
 
         $targetStatus = $validated['status'];
@@ -680,6 +684,7 @@ class DeliveryController extends Controller
             'permit',
             'tracking',
             'checklists',
+            'reviews',
         ]);
     }
 

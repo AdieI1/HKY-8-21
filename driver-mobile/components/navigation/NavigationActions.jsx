@@ -26,11 +26,11 @@ export default function NavigationActions({
     }
 
     if (navigationState === "arrived_pickup") {
-      return "Start Loading";
+      return "Start loading cargo";
     }
 
     if (navigationState === "loading") {
-      return "Finished Loading";
+      return "Finished loading cargo";
     }
 
     if (navigationState === "in_transit_dropoff") {
@@ -38,7 +38,7 @@ export default function NavigationActions({
     }
 
     if (navigationState === "arrived_dropoff") {
-      return "Start Unloading";
+      return "Start unloading cargo";
     }
 
     if (navigationState === "unloading") {
@@ -52,10 +52,10 @@ export default function NavigationActions({
     const transitions = {
       preview: ["in_transit_pickup", "accepted"],
       in_transit_pickup: ["arrived_pickup", "arrived_pickup"],
-      arrived_pickup: ["loading", null],
+      arrived_pickup: ["loading", "loading_cargo"],
       loading: ["in_transit_dropoff", "out_for_delivery"],
       in_transit_dropoff: ["arrived_dropoff", "arrived_dropoff"],
-      arrived_dropoff: ["unloading", null],
+      arrived_dropoff: ["unloading", "unloading_cargo"],
       unloading: ["completed", "returning_to_hq"],
     };
 

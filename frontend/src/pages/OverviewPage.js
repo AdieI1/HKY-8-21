@@ -6,8 +6,10 @@ const ACTIVE_STATUSES = [
   'assigned',
   'accepted',
   'arrived_pickup',
+  'loading_cargo',
   'out_for_delivery',
   'arrived_dropoff',
+  'unloading_cargo',
   'returning_to_hq',
 ];
 

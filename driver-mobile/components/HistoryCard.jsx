@@ -67,7 +67,19 @@ export default function HistoryCard({ delivery }) {
       <Text style={styles.ratingLabel}>
         Customer Rating:{" "}
         <Text style={styles.stars}>
-          ★★★★★
+          {[1, 2, 3, 4, 5].map((star) => (
+            <Text
+              key={star}
+              style={{
+                color:
+                  delivery.rating && star <= delivery.rating
+                    ? "#F29A38"
+                    : "#C8C9D0",
+              }}
+            >
+              ★
+            </Text>
+          ))}
         </Text>
       </Text>
     </TouchableOpacity>
@@ -148,7 +160,6 @@ const styles = StyleSheet.create({
   },
 
   stars: {
-    color: "#F29A38",
     fontSize: 16,
     letterSpacing: 1,
   },

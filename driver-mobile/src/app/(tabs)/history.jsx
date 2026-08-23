@@ -1,88 +1,109 @@
-import {StyleSheet,View,Text,ScrollView,TouchableOpacity,} from "react-native";
-import { useMemo, useState } from "react";
+import {
+  StyleSheet,
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
+} from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import HomeHeader from "../../../components/HomeHeader";
 import HistoryCard from "../../../components/HistoryCard";
+import EmptyAssignment from "../../../components/EmptyAssignment";
+import { getMyDeliveries } from "../../../services/api";
+
+const SORT_OPTIONS = ["Newest", "Oldest", "A-Z", "Z-A"];
 
 export default function History() {
   const [sortOption, setSortOption] = useState("Newest");
   const [sortVisible, setSortVisible] = useState(false);
+  const [completedDeliveries, setCompletedDeliveries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const deliveries = [
-    {
-      id: "1",
-      customer: "Stark Enterprises",
-      cargo: "Construction",
-      weight: "10,700kg",
-      pickup:
-        "Gusa Purok 3A, Cagayan De Oro City",
-      dropoff:
-        "Zone 7, GHQ8+QMR, Molugan, City of El Salvador, 9017 Misamis Oriental",
-      date: "March 26 2027",
-      dateValue: new Date("2027-03-26"),
-    },
+  const fetchHistory = useCallback(async (isRefresh = false) => {
+    try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
 
-    {
-      id: "2",
-      customer: "Sean Benedict",
-      cargo: "Furniture",
-      weight: "12,700kg",
-      pickup:
-        "HQMC+666, Villanueva, Misamis Oriental",
-      dropoff:
-        "Zone 7, GHQ8+QMR, Molugan, City of El Salvador, 9017 Misamis Oriental",
-      date: "March 25 2027",
-      dateValue: new Date("2027-03-25"),
-    },
+      const deliveries = await getMyDeliveries();
+      const list = Array.isArray(deliveries)
+        ? deliveries.filter((d) => d?.status === "completed")
+        : [];
 
-    {
-      id: "3",
-      customer: "Baxter Enterprises",
-      cargo: "Electronics",
-      weight: "15,700kg",
-      pickup:
-        "C3 road, Hinaplanon, Iligan City, 9200 Lanao del Norte",
-      dropoff:
-        "Zone 7, GHQ8+QMR, Molugan, City of El Salvador, 9017 Misamis Oriental",
-      date: "March 25 2027",
-      dateValue: new Date("2027-03-25"),
-    },
-  ];
+      const formatted = list.map((delivery) => {
+        const req = delivery?.request || {};
+        const customer = req.customer || {};
+        const reviews = delivery?.reviews || [];
+        const review = reviews.length > 0 ? reviews[0] : null;
+        const rating = review
+          ? Number(review.driver_rating ?? review.overall_rating ?? 0)
+          : null;
+
+        const dateRaw =
+          delivery?.end_time ||
+          delivery?.updated_at ||
+          delivery?.trip_date ||
+          delivery?.created_at;
+        const dateObj = dateRaw ? new Date(dateRaw) : new Date();
+        const validDate = !isNaN(dateObj.getTime());
+
+        return {
+          id: String(delivery.delivery_id),
+          customer: customer.full_name || "Customer",
+          cargo: req.cargo_type || "Cargo",
+          weight: req.weight != null ? `${req.weight}kg` : "—",
+          pickup: req.pickup_address || "—",
+          dropoff: req.dropoff_address || "—",
+          date: validDate
+            ? dateObj.toLocaleDateString("en-US", {
+                month: "long",
+                day: "numeric",
+                year: "numeric",
+              })
+            : "—",
+          dateValue: validDate ? dateObj : new Date(0),
+          rating: rating && rating > 0 ? rating : null,
+          delivery,
+        };
+      });
+
+      setCompletedDeliveries(formatted);
+    } catch (err) {
+      console.log("FETCH HISTORY ERROR:", err);
+      setCompletedDeliveries([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchHistory(false);
+    }, [fetchHistory])
+  );
 
   const sortedDeliveries = useMemo(() => {
-    const sorted = [...deliveries];
-
+    const sorted = [...completedDeliveries];
     if (sortOption === "Newest") {
-      sorted.sort(
-        (a, b) =>
-          b.dateValue.getTime() -
-          a.dateValue.getTime()
-      );
+      sorted.sort((a, b) => b.dateValue.getTime() - a.dateValue.getTime());
+    } else if (sortOption === "Oldest") {
+      sorted.sort((a, b) => a.dateValue.getTime() - b.dateValue.getTime());
+    } else if (sortOption === "A-Z") {
+      sorted.sort((a, b) => a.customer.localeCompare(b.customer));
+    } else if (sortOption === "Z-A") {
+      sorted.sort((a, b) => b.customer.localeCompare(a.customer));
     }
-
-    if (sortOption === "Oldest") {
-      sorted.sort(
-        (a, b) =>
-          a.dateValue.getTime() -
-          b.dateValue.getTime()
-      );
-    }
-
-    if (sortOption === "A-Z") {
-      sorted.sort((a, b) =>
-        a.customer.localeCompare(b.customer)
-      );
-    }
-
-    if (sortOption === "Z-A") {
-      sorted.sort((a, b) =>
-        b.customer.localeCompare(a.customer)
-      );
-    }
-
     return sorted;
-  }, [sortOption]);
+  }, [completedDeliveries, sortOption]);
 
   const selectSort = (option) => {
     setSortOption(option);
@@ -94,25 +115,16 @@ export default function History() {
       <HomeHeader />
 
       <View style={styles.titleRow}>
-        <Text style={styles.title}>
-          Delivery History
-        </Text>
+        <Text style={styles.title}>Delivery History</Text>
 
         <TouchableOpacity
           style={styles.sortButton}
           activeOpacity={0.7}
           onPress={() => setSortVisible(!sortVisible)}
         >
-          <Text style={styles.sortText}>
-            Sort
-          </Text>
-
+          <Text style={styles.sortText}>Sort</Text>
           <Ionicons
-            name={
-              sortVisible
-                ? "chevron-up"
-                : "chevron-down"
-            }
+            name={sortVisible ? "chevron-up" : "chevron-down"}
             size={15}
             color="#53629B"
           />
@@ -120,120 +132,58 @@ export default function History() {
 
         {sortVisible && (
           <View style={styles.sortMenu}>
-            <Text style={styles.menuTitle}>
-              Sort by
-            </Text>
-
-            <TouchableOpacity
-              style={styles.sortOption}
-              activeOpacity={0.7}
-              onPress={() => selectSort("Newest")}
-            >
-              <Text
-                style={[
-                  styles.optionText,
-                  sortOption === "Newest" &&
-                    styles.selectedText,
-                ]}
+            <Text style={styles.menuTitle}>Sort by</Text>
+            {SORT_OPTIONS.map((opt) => (
+              <TouchableOpacity
+                key={opt}
+                style={styles.sortOption}
+                activeOpacity={0.7}
+                onPress={() => selectSort(opt)}
               >
-                Newest
-              </Text>
-
-              {sortOption === "Newest" && (
-                <Ionicons
-                  name="checkmark"
-                  size={18}
-                  color="#F24848"
-                />
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.sortOption}
-              activeOpacity={0.7}
-              onPress={() => selectSort("Oldest")}
-            >
-              <Text
-                style={[
-                  styles.optionText,
-                  sortOption === "Oldest" &&
-                    styles.selectedText,
-                ]}
-              >
-                Oldest
-              </Text>
-
-              {sortOption === "Oldest" && (
-                <Ionicons
-                  name="checkmark"
-                  size={18}
-                  color="#F24848"
-                />
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.sortOption}
-              activeOpacity={0.7}
-              onPress={() => selectSort("A-Z")}
-            >
-              <Text
-                style={[
-                  styles.optionText,
-                  sortOption === "A-Z" &&
-                    styles.selectedText,
-                ]}
-              >
-                A-Z
-              </Text>
-
-              {sortOption === "A-Z" && (
-                <Ionicons
-                  name="checkmark"
-                  size={18}
-                  color="#F24848"
-                />
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.sortOption}
-              activeOpacity={0.7}
-              onPress={() => selectSort("Z-A")}
-            >
-              <Text
-                style={[
-                  styles.optionText,
-                  sortOption === "Z-A" &&
-                    styles.selectedText,
-                ]}
-              >
-                Z-A
-              </Text>
-
-              {sortOption === "Z-A" && (
-                <Ionicons
-                  name="checkmark"
-                  size={18}
-                  color="#F24848"
-                />
-              )}
-            </TouchableOpacity>
+                <Text
+                  style={[
+                    styles.optionText,
+                    sortOption === opt && styles.selectedText,
+                  ]}
+                >
+                  {opt}
+                </Text>
+                {sortOption === opt && (
+                  <Ionicons name="checkmark" size={18} color="#F24848" />
+                )}
+              </TouchableOpacity>
+            ))}
           </View>
         )}
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
-      >
-        {sortedDeliveries.map((delivery) => (
-          <HistoryCard
-            key={delivery.id}
-            delivery={delivery}
-          />
-        ))}
-      </ScrollView>
+      {loading && !refreshing ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#B91F27" />
+          <Text style={styles.loadingText}>Loading history...</Text>
+        </View>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => fetchHistory(true)}
+              tintColor="#B91F27"
+              colors={["#B91F27"]}
+            />
+          }
+        >
+          {sortedDeliveries.length > 0 ? (
+            sortedDeliveries.map((delivery) => (
+              <HistoryCard key={delivery.id} delivery={delivery} />
+            ))
+          ) : (
+            <EmptyAssignment />
+          )}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -243,7 +193,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#DDE0EE",
   },
-
   titleRow: {
     height: 51,
     backgroundColor: "#F4F5FC",
@@ -254,13 +203,11 @@ const styles = StyleSheet.create({
     position: "relative",
     zIndex: 10,
   },
-
   title: {
     fontSize: 21,
     fontWeight: "800",
     color: "#D62B2B",
   },
-
   sortButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -270,14 +217,12 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     zIndex: 20,
   },
-
   sortText: {
     fontSize: 12,
     fontWeight: "700",
     color: "#53629B",
     marginRight: 4,
   },
-
   sortMenu: {
     position: "absolute",
     top: 44,
@@ -291,12 +236,8 @@ const styles = StyleSheet.create({
     shadowColor: "#000000",
     shadowOpacity: 0.2,
     shadowRadius: 6,
-    shadowOffset: {
-      width: 0,
-      height: 3,
-    },
+    shadowOffset: { width: 0, height: 3 },
   },
-
   menuTitle: {
     fontSize: 14,
     fontWeight: "800",
@@ -304,7 +245,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
-
   sortOption: {
     minHeight: 42,
     flexDirection: "row",
@@ -312,20 +252,28 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 14,
   },
-
   optionText: {
     fontSize: 14,
     color: "#44454C",
   },
-
   selectedText: {
     color: "#F24848",
     fontWeight: "700",
   },
-
   content: {
     paddingHorizontal: 9,
     paddingTop: 9,
     paddingBottom: 100,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 80,
+  },
+  loadingText: {
+    marginTop: 12,
+    color: "#555",
+    fontSize: 14,
   },
 });
