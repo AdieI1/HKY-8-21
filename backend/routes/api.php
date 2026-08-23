@@ -164,6 +164,14 @@ Route::middleware('auth:sanctum')->group(function () {
         ]
     );
 
+    Route::get(
+        'my-notifications',
+        [
+            DeliveryController::class,
+            'myNotifications'
+        ]
+    );
+
 
     /*
     |--------------------------------------------------------------------------

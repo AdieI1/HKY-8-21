@@ -1,270 +1,232 @@
-import {StyleSheet,View,Text,ScrollView,TouchableOpacity,} from "react-native";
-import { useMemo, useState } from "react";
+import {
+  StyleSheet,
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
+} from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import HomeHeader from "../../../components/HomeHeader";
 import NotificationCard from "../../../components/NotificationCard";
+import { getMyNotifications } from "../../../services/api";
+
+const READ_STORAGE_KEY = "@driver_read_notifications";
 
 export default function Notifications() {
   const [filter, setFilter] = useState("All");
+  const [rawNotifications, setRawNotifications] = useState([]);
+  const [readIds, setReadIds] = useState(new Set());
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [, setTick] = useState(0);
 
-  const now = Date.now();
+  const loadNotifications = useCallback(async (isRefresh = false, isSilent = false) => {
+    try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else if (!isSilent) {
+        setLoading(true);
+      }
 
-  const notifications = [
-    {
-      id: "1",
-      type: "New Assignment!",
-      driver: "Christopher Lee",
-      cargo: "Electronics",
-      weight: "6,700kg",
-      location: "Port Area - Malaybalay",
-      createdAt: new Date(
-        now - 6 * 60 * 1000
-      ).toISOString(),
-      read: false,
-    },
-    {
-      id: "2",
-      type: "New Assignment!",
-      driver: "Christopher Lee",
-      cargo: "Electronics",
-      weight: "6,700kg",
-      location: "Port Area - Malaybalay",
-      createdAt: new Date(
-        now - 2 * 60 * 60 * 1000
-      ).toISOString(),
-      read: true,
-    },
-    {
-      id: "3",
-      type: "New Assignment!",
-      driver: "Christopher Lee",
-      cargo: "Electronics",
-      weight: "6,700kg",
-      location: "Port Area - Malaybalay",
-      createdAt: new Date(
-        now - 24 * 60 * 60 * 1000
-      ).toISOString(),
-      read: true,
-    },
-  ];
+      const [data, savedRead] = await Promise.all([
+        getMyNotifications().catch(() => []),
+        AsyncStorage.getItem(READ_STORAGE_KEY),
+      ]);
 
-  const getNotificationTime = (createdAt) => {
-    const difference =
-      Date.now() - new Date(createdAt).getTime();
+      const parsedRead = savedRead ? JSON.parse(savedRead) : [];
+      const notifs = Array.isArray(data) ? data : [];
+      setRawNotifications(notifs);
 
-    const minutes = Math.floor(
-      difference / (1000 * 60)
-    );
-
-    if (minutes < 1) {
-      return "Just now";
+      // Once the driver views the notifications, mark all as read/viewed
+      const allIds = notifs.map((n) => n.id);
+      const merged = new Set([...parsedRead, ...allIds]);
+      setReadIds(merged);
+      await AsyncStorage.setItem(READ_STORAGE_KEY, JSON.stringify([...merged]));
+    } catch (err) {
+      console.log("LOAD NOTIFICATIONS ERROR:", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
+  }, []);
 
-    if (minutes < 60) {
-      return `${minutes} mins ago`;
-    }
+  useFocusEffect(
+    useCallback(() => {
+      loadNotifications(false, rawNotifications.length > 0);
+    }, [loadNotifications, rawNotifications.length])
+  );
 
-    const hours = Math.floor(minutes / 60);
+  // Periodic auto-update every 10s
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadNotifications(false, true);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [loadNotifications]);
 
-    if (hours < 24) {
-      return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
-    }
-
-    const days = Math.floor(hours / 24);
-
-    if (days === 1) {
-      return "Yesterday";
-    }
-
-    return `${days} days ago`;
-  };
+  // Tick for updating relative time strings every 10s
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 10000);
+    return () => clearInterval(timer);
+  }, []);
 
   const getNotificationSection = (createdAt) => {
-    const difference =
-      Date.now() - new Date(createdAt).getTime();
+    if (!createdAt) return "Today";
+    const date = new Date(createdAt);
+    const now = Date.now();
+    const diff = Math.max(0, now - date.getTime());
+    const totalMinutes = Math.floor(diff / 60000);
 
-    const minutes = Math.floor(
-      difference / (1000 * 60)
-    );
+    // Today: under 1 hour
+    if (totalMinutes < 60) return "Today";
 
-    if (minutes < 60) {
-      return "Today";
-    }
+    // Earlier: 1 hour up to 24 hours
+    const totalHours = Math.floor(totalMinutes / 60);
+    if (totalHours < 24) return "Earlier";
 
-    const notificationDate = new Date(createdAt);
-    const today = new Date();
+    // Yesterday: 1 or more days ago
+    return "Yesterday";
+  };
 
-    const yesterday = new Date();
-    yesterday.setDate(today.getDate() - 1);
+  const getNotificationTime = (createdAt) => {
+    if (!createdAt) return "Just now";
+    const date = new Date(createdAt);
+    const now = Date.now();
+    const diff = now - date.getTime();
+    if (diff < 0 && diff > -120000) return "Just now";
 
-    const isYesterday =
-      notificationDate.getFullYear() ===
-        yesterday.getFullYear() &&
-      notificationDate.getMonth() ===
-        yesterday.getMonth() &&
-      notificationDate.getDate() ===
-        yesterday.getDate();
+    const totalSeconds = Math.max(0, Math.floor(diff / 1000));
+    if (totalSeconds < 10) return "Just now";
+    if (totalSeconds < 60) return `${totalSeconds}s ago`;
 
-    if (isYesterday) {
-      return "Yesterday";
-    }
+    const mins = Math.floor(totalSeconds / 60);
+    if (mins < 60) return `${mins} min${mins > 1 ? "s" : ""} ago`;
 
-    return "Earlier";
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours} hour${hours > 1 ? "s" : ""} ago`;
+
+    const days = Math.floor(hours / 24);
+    return days === 1 ? "Yesterday" : `${days} days ago`;
   };
 
   const groupedNotifications = useMemo(() => {
-    const filteredNotifications =
-      filter === "Unread"
-        ? notifications.filter(
-            (notification) => !notification.read
-          )
-        : notifications;
+    const list = rawNotifications.map((n) => ({
+      ...n,
+      read: true,
+      time: getNotificationTime(n.createdAt),
+    }));
 
-    const groups = {
-      Today: [],
-      Earlier: [],
-      Yesterday: [],
-    };
+    const filtered = filter === "Unread" ? [] : list;
+    const groups = { Today: [], Earlier: [], Yesterday: [] };
 
-    filteredNotifications.forEach((notification) => {
-      const section = getNotificationSection(
-        notification.createdAt
-      );
-
-      groups[section].push({
-        ...notification,
-        time: getNotificationTime(
-          notification.createdAt
-        ),
-      });
+    filtered.forEach((n) => {
+      const section = getNotificationSection(n.createdAt);
+      if (groups[section]) {
+        groups[section].push(n);
+      } else {
+        groups.Yesterday.push(n);
+      }
     });
 
     return groups;
-  }, [filter]);
+  }, [rawNotifications, filter]);
+
+  const hasAnyNotification =
+    groupedNotifications.Today.length > 0 ||
+    groupedNotifications.Earlier.length > 0 ||
+    groupedNotifications.Yesterday.length > 0;
 
   return (
     <View style={styles.container}>
       <HomeHeader />
 
       <View style={styles.titleRow}>
-        <Text style={styles.title}>
-          Notifications
-        </Text>
-
+        <Text style={styles.title}>Notifications</Text>
       </View>
 
       <View style={styles.filterRow}>
         <TouchableOpacity
-          style={
-            filter === "All"
-              ? styles.activeFilter
-              : styles.filterButton
-          }
+          style={filter === "All" ? styles.activeFilter : styles.filterButton}
           onPress={() => setFilter("All")}
         >
-          <Text
-            style={
-              filter === "All"
-                ? styles.activeFilterText
-                : styles.filterText
-            }
-          >
+          <Text style={filter === "All" ? styles.activeFilterText : styles.filterText}>
             All
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={
-            filter === "Unread"
-              ? styles.activeFilter
-              : styles.filterButton
-          }
+          style={filter === "Unread" ? styles.activeFilter : styles.filterButton}
           onPress={() => setFilter("Unread")}
         >
-          <Text
-            style={
-              filter === "Unread"
-                ? styles.activeFilterText
-                : styles.filterText
-            }
-          >
+          <Text style={filter === "Unread" ? styles.activeFilterText : styles.filterText}>
             Unread
           </Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
-      >
-        {groupedNotifications.Today.length > 0 && (
-          <>
-            <Text style={styles.dateTitle}>
-              Today
-            </Text>
+      {loading && !refreshing ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#B91F27" />
+          <Text style={styles.loadingText}>Loading notifications...</Text>
+        </View>
+      ) : (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => loadNotifications(true)}
+              tintColor="#B91F27"
+              colors={["#B91F27"]}
+            />
+          }
+        >
+          {groupedNotifications.Today.length > 0 && (
+            <>
+              <Text style={styles.dateTitle}>Today</Text>
+              {groupedNotifications.Today.map((n) => (
+                <NotificationCard key={n.id} notification={n} />
+              ))}
+            </>
+          )}
 
-            {groupedNotifications.Today.map(
-              (notification) => (
-                <NotificationCard
-                  key={notification.id}
-                  notification={notification}
-                />
-              )
-            )}
-          </>
-        )}
+          {groupedNotifications.Earlier.length > 0 && (
+            <>
+              <Text style={styles.dateTitle}>Earlier</Text>
+              {groupedNotifications.Earlier.map((n) => (
+                <NotificationCard key={n.id} notification={n} />
+              ))}
+            </>
+          )}
 
-        {groupedNotifications.Earlier.length > 0 && (
-          <>
-            <Text style={styles.dateTitle}>
-              Earlier
-            </Text>
+          {groupedNotifications.Yesterday.length > 0 && (
+            <>
+              <Text style={styles.dateTitle}>Yesterday</Text>
+              {groupedNotifications.Yesterday.map((n) => (
+                <NotificationCard key={n.id} notification={n} />
+              ))}
+            </>
+          )}
 
-            {groupedNotifications.Earlier.map(
-              (notification) => (
-                <NotificationCard
-                  key={notification.id}
-                  notification={notification}
-                />
-              )
-            )}
-          </>
-        )}
-
-        {groupedNotifications.Yesterday.length > 0 && (
-          <>
-            <Text style={styles.dateTitle}>
-              Yesterday
-            </Text>
-
-            {groupedNotifications.Yesterday.map(
-              (notification) => (
-                <NotificationCard
-                  key={notification.id}
-                  notification={notification}
-                />
-              )
-            )}
-          </>
-        )}
-
-        {groupedNotifications.Today.length === 0 &&
-          groupedNotifications.Earlier.length === 0 &&
-          groupedNotifications.Yesterday.length === 0 && (
+          {!hasAnyNotification && (
             <View style={styles.empty}>
               <Ionicons
                 name="notifications-off-outline"
                 size={40}
                 color="#999BA5"
               />
-
-              <Text style={styles.emptyText}>
-                No notifications
-              </Text>
+              <Text style={styles.emptyText}>No notifications</Text>
             </View>
           )}
-      </ScrollView>
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -274,7 +236,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#DDE0EE",
   },
-
   titleRow: {
     height: 50,
     backgroundColor: "#F4F5FC",
@@ -283,29 +244,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 18,
   },
-
   title: {
     fontSize: 20,
     fontWeight: "800",
     color: "#D62B2B",
   },
-
-  sortButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#D8DDF5",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-  },
-
-  sortText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#53629B",
-    marginRight: 4,
-  },
-
   filterRow: {
     height: 35,
     backgroundColor: "#F4F5FC",
@@ -313,7 +256,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 18,
   },
-
   activeFilter: {
     backgroundColor: "#F24848",
     paddingHorizontal: 10,
@@ -321,30 +263,25 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginRight: 15,
   },
-
   activeFilterText: {
     color: "#FFFFFF",
     fontSize: 11,
     fontWeight: "700",
   },
-
   filterButton: {
     paddingVertical: 3,
     marginRight: 15,
   },
-
   filterText: {
     color: "#D62B2B",
     fontSize: 12,
     fontWeight: "600",
   },
-
   content: {
     paddingHorizontal: 18,
     paddingTop: 8,
     paddingBottom: 100,
   },
-
   dateTitle: {
     fontSize: 12,
     fontWeight: "700",
@@ -352,13 +289,22 @@ const styles = StyleSheet.create({
     marginTop: 5,
     marginBottom: 7,
   },
-
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 80,
+  },
+  loadingText: {
+    marginTop: 12,
+    color: "#555",
+    fontSize: 14,
+  },
   empty: {
     alignItems: "center",
     justifyContent: "center",
     paddingTop: 80,
   },
-
   emptyText: {
     color: "#999BA5",
     fontSize: 14,

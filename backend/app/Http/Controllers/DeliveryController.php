@@ -184,6 +184,99 @@ class DeliveryController extends Controller
 
     /*
     |--------------------------------------------------------------------------
+    | DRIVER APP - GET MY NOTIFICATIONS
+    |--------------------------------------------------------------------------
+    */
+
+    public function myNotifications(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthenticated.'
+            ], 401);
+        }
+
+        $driver = Driver::where('user_id', $user->user_id)->first();
+
+        if (!$driver) {
+            return response()->json([
+                'message' => 'Driver profile not found for this user.'
+            ], 404);
+        }
+
+        $deliveries = Delivery::with([
+            'request.customer',
+            'reviews.customer',
+        ])
+            ->where('driver_id', $driver->driver_id)
+            ->orderByDesc('delivery_id')
+            ->get();
+
+        $notifications = [];
+
+        foreach ($deliveries as $delivery) {
+            $customer = $delivery->request->customer ?? null;
+            $customerName = $customer->full_name ?? 'Customer';
+            $cargoType = $delivery->request->cargo_type ?? 'Cargo';
+            $weight = $delivery->request->weight != null ? $delivery->request->weight . 'kg' : '—';
+            $pickup = $delivery->request->pickup_address ?? '—';
+            $assignedDate = $delivery->start_time
+                ? \Carbon\Carbon::parse($delivery->start_time)->toIso8601String()
+                : ($delivery->updated_at
+                    ? $delivery->updated_at->toIso8601String()
+                    : ($delivery->created_at ? $delivery->created_at->toIso8601String() : now()->toIso8601String()));
+
+            $notifications[] = [
+                'id' => 'assignment_' . $delivery->delivery_id,
+                'deliveryId' => $delivery->delivery_id,
+                'type' => 'New Assignment!',
+                'driver' => $customerName,
+                'cargo' => $cargoType,
+                'weight' => $weight,
+                'location' => $pickup,
+                'createdAt' => $assignedDate,
+                'isRating' => false,
+            ];
+
+            if ($delivery->reviews && $delivery->reviews->count() > 0) {
+                foreach ($delivery->reviews as $review) {
+                    $rating = $review->driver_rating ?? $review->overall_rating ?? 5;
+                    $reviewCustomer = $review->customer->full_name ?? $customerName;
+                    $comments = $review->comments ?: 'Rated your driver performance';
+                    $reviewDate = $review->created_at
+                        ? \Carbon\Carbon::parse($review->created_at)->toIso8601String()
+                        : $assignedDate;
+
+                    $notifications[] = [
+                        'id' => 'review_' . $review->review_id,
+                        'deliveryId' => $delivery->delivery_id,
+                        'reviewId' => $review->review_id,
+                        'type' => 'Customer Rating',
+                        'driver' => $reviewCustomer,
+                        'cargo' => "Rating: {$rating}/5 Stars",
+                        'weight' => $comments,
+                        'location' => $pickup,
+                        'createdAt' => $reviewDate,
+                        'isRating' => true,
+                        'rating' => $rating,
+                    ];
+                }
+            }
+        }
+
+        usort($notifications, function ($a, $b) {
+            return strtotime($b['createdAt']) - strtotime($a['createdAt']);
+        });
+
+        return response()->json([
+            'data' => $notifications
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | DISPATCH DELIVERY
     |--------------------------------------------------------------------------
     */

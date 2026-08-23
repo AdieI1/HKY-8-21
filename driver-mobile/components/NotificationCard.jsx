@@ -2,27 +2,18 @@ import {
   StyleSheet,
   View,
   Text,
-  TouchableOpacity,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 export default function NotificationCard({
   notification,
-  onPress,
 }) {
   return (
-    <TouchableOpacity
-      style={[
-        styles.card,
-        !notification.read && styles.unreadCard,
-      ]}
-      onPress={onPress}
-      activeOpacity={0.8}
-    >
+    <View style={styles.card}>
       <View style={styles.topRow}>
         <View style={styles.assignmentRow}>
           <Ionicons
-            name="bus-outline"
+            name={notification.isRating ? "star" : "bus-outline"}
             size={17}
             color="#F24848"
           />
@@ -42,11 +33,15 @@ export default function NotificationCard({
       </Text>
 
       <Text style={styles.details}>
-        Cargo type: {notification.cargo}
+        {notification.isRating
+          ? notification.cargo
+          : `Cargo type: ${notification.cargo}`}
       </Text>
 
       <Text style={styles.details}>
-        Weight: {notification.weight}
+        {notification.isRating
+          ? `Comments: ${notification.weight}`
+          : `Weight: ${notification.weight}`}
       </Text>
 
       <View style={styles.divider} />
@@ -59,10 +54,12 @@ export default function NotificationCard({
         />
 
         <Text style={styles.location}>
-          Pick-up location: {notification.location}
+          {notification.isRating
+            ? `Delivery location: ${notification.location}`
+            : `Pick-up location: ${notification.location}`}
         </Text>
       </View>
-    </TouchableOpacity>
+    </View>
   );
 }
 
@@ -73,11 +70,6 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     overflow: "hidden",
     elevation: 3,
-  },
-
-  unreadCard: {
-    borderLeftWidth: 3,
-    borderLeftColor: "#F24848",
   },
 
   topRow: {
