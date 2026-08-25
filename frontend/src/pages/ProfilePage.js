@@ -63,6 +63,7 @@ function ProfilePage() {
       if (file.size > 5 * 1024 * 1024) { setErrorMsg('Image size must be under 5MB.'); return; }
       setSelectedPhoto(file);
       setPhotoPreview(URL.createObjectURL(file));
+      setIsEditing(true);
       setErrorMsg('');
     }
   };
@@ -165,11 +166,9 @@ function ProfilePage() {
           <div className="pf-hero-body">
             <div className="pf-avatar-ring" style={{ position: 'relative' }}>
               <img src={photoPreview || user.profile_photo_url || '/images/brucednegrow.png'} alt={user.full_name || 'User'} className="pf-avatar" />
-              {isEditing && (
-                <label htmlFor="pf-photo-upload" style={{ position: 'absolute', bottom: -2, right: -2, background: '#D1000C', color: '#fff', width: 26, height: 26, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: '2px solid #fff', boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }} title="Change Photo">
-                  <i className="fas fa-camera" style={{ fontSize: 11 }}></i>
-                </label>
-              )}
+              <label htmlFor="pf-photo-upload" style={{ position: 'absolute', bottom: -2, right: -2, background: '#D1000C', color: '#fff', width: 26, height: 26, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: '2px solid #fff', boxShadow: '0 2px 6px rgba(0,0,0,0.3)' }} title="Change Photo">
+                <i className="fas fa-camera" style={{ fontSize: 11 }}></i>
+              </label>
               <input type="file" id="pf-photo-upload" accept="image/*" style={{ display: 'none' }} onChange={handlePhotoChange} />
             </div>
 

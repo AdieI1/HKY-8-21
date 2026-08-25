@@ -760,16 +760,16 @@
 }
 
 /* ══════════════════════════════════════════════════════════
-   DARK MODE (#1A1A2E Shadow/Background, #41365e Midtone & #D1000C Highlights)
+   DARK MODE (Deep Navy/Indigo #0E1022, Panels #121429, Inputs #0B0C1B & #D1000C Highlights)
 ══════════════════════════════════════════════════════════ */
 body.dark-theme .dashboard-container,
 .dashboard-container.dark-theme {
-    background: #1A1A2E;
+    background: #0E1022;
 }
 
 body.dark-theme .main-content,
 .dashboard-container.dark-theme .main-content {
-    background: #1A1A2E;
+    background: #0E1022;
     color: #F8FAFC;
 }
 
@@ -780,21 +780,21 @@ body.dark-theme .pf-page-title,
 
 body.dark-theme .pf-hero-card,
 .dashboard-container.dark-theme .pf-hero-card {
-    background: #41365e;
-    border-color: rgba(209, 0, 12, 0.25);
-    box-shadow: 0 4px 20px rgba(26, 26, 46, 0.9);
+    background: #121429;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 20px rgba(10, 11, 24, 0.9);
 }
 
 body.dark-theme .pf-hero-banner,
 .dashboard-container.dark-theme .pf-hero-banner {
-    background: linear-gradient(135deg, #D1000C 0%, #7A0007 100%);
+    background: linear-gradient(135deg, #D1000C 0%, #68050B 100%);
 }
 
 body.dark-theme .pf-avatar-ring,
 .dashboard-container.dark-theme .pf-avatar-ring {
-    border-color: #41365e;
+    border-color: #121429;
     background: linear-gradient(135deg, #D1000C, #FF3B30);
-    box-shadow: 0 4px 14px rgba(209, 0, 12, 0.5);
+    box-shadow: 0 0 16px rgba(209, 0, 12, 0.6);
 }
 
 body.dark-theme .pf-name,
@@ -804,19 +804,19 @@ body.dark-theme .pf-name,
 
 body.dark-theme .pf-role-badge,
 .dashboard-container.dark-theme .pf-role-badge {
-    background: rgba(209, 0, 12, 0.25);
+    background: rgba(209, 0, 12, 0.2);
     color: #FFA39E;
-    border: 1px solid #D1000C;
+    border: 1px solid rgba(209, 0, 12, 0.4);
 }
 
 body.dark-theme .pf-access-label,
 .dashboard-container.dark-theme .pf-access-label {
-    color: #CBD5E1;
+    color: #94A3B8;
 }
 
 body.dark-theme .pf-meta-label,
 .dashboard-container.dark-theme .pf-meta-label {
-    color: #CBD5E1;
+    color: #94A3B8;
 }
 
 body.dark-theme .pf-meta-value,
@@ -831,26 +831,27 @@ body.dark-theme .pf-meta-icon,
 
 body.dark-theme .pf-edit-btn,
 .dashboard-container.dark-theme .pf-edit-btn {
-    background: #D1000C;
+    background: rgba(209, 0, 12, 0.25);
+    border: 1px solid #D1000C;
     color: #fff;
 }
 
 body.dark-theme .pf-edit-btn:hover,
 .dashboard-container.dark-theme .pf-edit-btn:hover {
-    background: #A6000A;
+    background: #D1000C;
 }
 
 body.dark-theme .pf-panel,
 .dashboard-container.dark-theme .pf-panel {
-    background: #41365e;
-    border-color: rgba(209, 0, 12, 0.25);
-    box-shadow: 0 4px 16px rgba(26, 26, 46, 0.85);
+    background: #121429;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 16px rgba(10, 11, 24, 0.85);
 }
 
 body.dark-theme .pf-panel-title,
 .dashboard-container.dark-theme .pf-panel-title {
     color: #D1000C;
-    border-color: #1A1A2E;
+    border-color: rgba(255, 255, 255, 0.06);
 }
 
 body.dark-theme .pf-label,
@@ -860,20 +861,20 @@ body.dark-theme .pf-label,
 
 body.dark-theme .pf-input,
 .dashboard-container.dark-theme .pf-input {
-    background: #1A1A2E;
-    border-color: #352a4f;
+    background: #0B0C1B;
+    border: 1px solid #1E2142;
     color: #F8FAFC;
 }
 
 body.dark-theme .pf-input:focus,
 .dashboard-container.dark-theme .pf-input:focus {
     border-color: #D1000C;
-    box-shadow: 0 0 0 2px rgba(209, 0, 12, 0.25);
+    box-shadow: 0 0 0 2px rgba(209, 0, 12, 0.3);
 }
 
 body.dark-theme .pf-qs-row,
 .dashboard-container.dark-theme .pf-qs-row {
-    border-color: #1A1A2E;
+    border-color: #1E2142;
     color: #F8FAFC;
 }
 
@@ -884,14 +885,14 @@ body.dark-theme .pf-qs-icon,
 
 body.dark-theme .pf-date-select,
 .dashboard-container.dark-theme .pf-date-select {
-    background: #1A1A2E;
-    border-color: #352a4f;
+    background: #0B0C1B;
+    border: 1px solid #1E2142;
     color: #F8FAFC;
 }
 
 body.dark-theme .pf-sec-row,
 .dashboard-container.dark-theme .pf-sec-row {
-    border-color: #1A1A2E;
+    border-color: #1E2142;
 }
 
 body.dark-theme .pf-sec-field-label,
@@ -901,16 +902,16 @@ body.dark-theme .pf-sec-field-label,
 
 body.dark-theme .pf-sec-sub,
 .dashboard-container.dark-theme .pf-sec-sub {
-    color: #CBD5E1;
+    color: #94A3B8;
 }
 
 body.dark-theme .pf-change-pw-btn,
 body.dark-theme .pf-update-btn,
 .dashboard-container.dark-theme .pf-change-pw-btn,
 .dashboard-container.dark-theme .pf-update-btn {
-    border-color: #D1000C;
+    border: 1px solid #D1000C;
     color: #FFA39E;
-    background: rgba(209, 0, 12, 0.2);
+    background: rgba(209, 0, 12, 0.15);
 }
 
 body.dark-theme .pf-change-pw-btn:hover,
@@ -923,13 +924,13 @@ body.dark-theme .pf-update-btn:hover,
 
 body.dark-theme .pf-act-row-card,
 .dashboard-container.dark-theme .pf-act-row-card {
-    background: #1A1A2E;
-    border-color: #352a4f;
+    background: #0B0C1B;
+    border: 1px solid #1E2142;
 }
 
 body.dark-theme .pf-act-row-label,
 .dashboard-container.dark-theme .pf-act-row-label {
-    color: #CBD5E1;
+    color: #94A3B8;
 }
 
 body.dark-theme .pf-act-row-action,
@@ -939,11 +940,11 @@ body.dark-theme .pf-act-row-action,
 
 body.dark-theme .pf-act-row-time,
 .dashboard-container.dark-theme .pf-act-row-time {
-    color: #CBD5E1;
+    color: #94A3B8;
 }
 
 body.dark-theme .pf-act-stat-card,
 .dashboard-container.dark-theme .pf-act-stat-card {
-    background: #1A1A2E;
-    border-color: #352a4f;
+    background: #0B0C1B;
+    border: 1px solid #1E2142;
 }

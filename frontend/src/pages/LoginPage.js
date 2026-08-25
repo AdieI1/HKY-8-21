@@ -20,6 +20,8 @@ function LoginPage() {
       } else {
         navigate('/dashboard');
       }
+    } else {
+      document.body.classList.remove('dark-theme');
     }
   }, [navigate]);
 

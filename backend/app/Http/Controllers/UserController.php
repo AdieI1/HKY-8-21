@@ -60,7 +60,7 @@ class UserController extends Controller
             $user->save();
         }
 
-        return $user->load('role');
+        return $user->refresh()->load('role');
     }
 
     public function destroy(User $user)

@@ -18,6 +18,8 @@ export default function Sidebar({ activePage }) {
   const handleLogout = () => {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
+    localStorage.removeItem('pref_theme');
+    document.body.classList.remove('dark-theme');
     navigate('/');
   };
 
