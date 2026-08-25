@@ -10,7 +10,7 @@ test('renders the login form', () => {
 
 test('includes accessible image markup for the truck illustration', () => {
   const { container } = render(<App />);
-  const truckImage = container.querySelector('img[src="images/truck kun 1.png"]');
+  const truckImage = container.querySelector('img[src$="truck kun 1.png"]');
 
   expect(truckImage).toBeTruthy();
   expect(truckImage.getAttribute('alt')).not.toBeNull();

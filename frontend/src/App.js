@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import OverviewPage from './pages/OverviewPage';
+import StaffDashboardPage from './pages/StaffDashboardPage';
 import RequestsPage from './pages/RequestsPage';
 import DispatchPage from './pages/DispatchPage';
 import DeliveryPage from './pages/DeliveryPage';
@@ -17,6 +18,7 @@ function App() {
       <Routes>
         <Route path="/" element={<LoginPage />} />
         <Route path="/overview" element={<OverviewPage />} />
+        <Route path="/dashboard" element={<StaffDashboardPage />} />
         <Route path="/requests" element={<RequestsPage />} />
         <Route path="/dispatch" element={<DispatchPage />} />
         <Route path="/delivery" element={<DeliveryPage />} />

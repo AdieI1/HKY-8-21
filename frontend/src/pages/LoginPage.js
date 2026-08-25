@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/api-client';
 
@@ -10,6 +10,18 @@ function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token');
+    const user = JSON.parse(localStorage.getItem('auth_user') || '{}');
+    if (token && user?.role?.role_name) {
+      if (user.role.role_name.toLowerCase().includes('admin')) {
+        navigate('/overview');
+      } else {
+        navigate('/dashboard');
+      }
+    }
+  }, [navigate]);
 
   const togglePassword = () => setShowPassword((prev) => !prev);
 
@@ -25,7 +37,12 @@ function LoginPage() {
       localStorage.setItem('auth_token', token);
       localStorage.setItem('auth_user', JSON.stringify(user));
 
-      navigate('/overview');
+      const roleName = user?.role?.role_name || '';
+      if (roleName.toLowerCase().includes('admin')) {
+        navigate('/overview');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err) {
       if (err.response && err.response.status === 422) {
         // Laravel validation error format: { errors: { email: [...] } }
