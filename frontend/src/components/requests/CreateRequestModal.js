@@ -77,7 +77,6 @@ export default function CreateRequestModal({
       return;
     }
 
-    // Validate Bank Details when Bank Transfer is selected
     if (!asDraft && form.payment_method === 'bank_transfer') {
       if (!form.bank_name?.trim() || !form.account_name?.trim() || !form.account_number?.trim()) {
         setFormError('Please fill in all Bank Details (Bank Name, Account Name, and Account Number).');
@@ -139,19 +138,11 @@ export default function CreateRequestModal({
   if (!showCreateModal) return null;
 
   return (
-    <div
-      className="modal create-request-modal"
-      style={{ display: 'flex', position: 'fixed', inset: 0, alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', zIndex: 1000, padding: 20 }}
-    >
+    <div className="modal create-request-modal" style={{ display: 'flex', position: 'fixed', inset: 0, alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', zIndex: 1000, padding: 20 }}>
       <div className="modal-content create-request-modal-content" style={{ width: '100%', maxWidth: 950, maxHeight: '90vh', overflowY: 'auto', background: '#fff', borderRadius: 10 }}>
         <div className="create-request-header" style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-          <div className="create-request-title">
-            <i className="fas fa-cube"></i>
-            <h2>Create Delivery Request & Customer Setup</h2>
-          </div>
-          <button className="btn-return" onClick={() => setShowCreateModal(false)}>
-            Return <i className="fas fa-reply"></i>
-          </button>
+          <div className="create-request-title"><i className="fas fa-cube"></i><h2>Create Delivery Request & Customer Setup</h2></div>
+          <button className="btn-return" onClick={() => setShowCreateModal(false)}>Return <i className="fas fa-reply"></i></button>
         </div>
 
         <div className="create-request-body" style={{ padding: 20 }}>
@@ -219,19 +210,13 @@ export default function CreateRequestModal({
               <div className="form-group">
                 <label>Cargo Type:</label>
                 <select className="form-select" value={form.cargo_type} onChange={(e) => setForm({ ...form, cargo_type: e.target.value })}>
-                  <option>Construction</option>
-                  <option>Electronics</option>
-                  <option>Furniture</option>
-                  <option>Food</option>
-                  <option>Other</option>
+                  <option>Construction</option><option>Electronics</option><option>Furniture</option><option>Food</option><option>Other</option>
                 </select>
               </div>
               <div className="form-group">
                 <label>Cargo Fragility:</label>
                 <select className="form-select" value={form.fragility} onChange={(e) => setForm({ ...form, fragility: e.target.value })}>
-                  <option value="low">Standard</option>
-                  <option value="medium">Fragile</option>
-                  <option value="high">Extremely Fragile</option>
+                  <option value="low">Standard</option><option value="medium">Fragile</option><option value="high">Extremely Fragile</option>
                 </select>
               </div>
               <div className="form-group">
@@ -243,31 +228,15 @@ export default function CreateRequestModal({
               <div className="form-group location-group">
                 <label>Pick-up Location</label>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Port Area, Cagayan de Oro City"
-                    value={form.pickup?.address || ''}
-                    onChange={(e) => setForm({ ...form, pickup: { ...(form.pickup || {}), address: e.target.value } })}
-                  />
-                  <button type="button" onClick={() => locateAddress('pickup')} disabled={locating === 'pickup'} style={{ padding: '0 12px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}>
-                    {locating === 'pickup' ? '...' : 'Locate'}
-                  </button>
+                  <input type="text" className="form-input" placeholder="e.g. Port Area, Cagayan de Oro City" value={form.pickup?.address || ''} onChange={(e) => setForm({ ...form, pickup: { ...(form.pickup || {}), address: e.target.value } })} />
+                  <button type="button" onClick={() => locateAddress('pickup')} disabled={locating === 'pickup'} style={{ padding: '0 12px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}>{locating === 'pickup' ? '...' : 'Locate'}</button>
                 </div>
               </div>
               <div className="form-group location-group">
                 <label>Drop-off Location</label>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Malaybalay City, Bukidnon"
-                    value={form.dropoff?.address || ''}
-                    onChange={(e) => setForm({ ...form, dropoff: { ...(form.dropoff || {}), address: e.target.value } })}
-                  />
-                  <button type="button" onClick={() => locateAddress('dropoff')} disabled={locating === 'dropoff'} style={{ padding: '0 12px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}>
-                    {locating === 'dropoff' ? '...' : 'Locate'}
-                  </button>
+                  <input type="text" className="form-input" placeholder="e.g. Malaybalay City, Bukidnon" value={form.dropoff?.address || ''} onChange={(e) => setForm({ ...form, dropoff: { ...(form.dropoff || {}), address: e.target.value } })} />
+                  <button type="button" onClick={() => locateAddress('dropoff')} disabled={locating === 'dropoff'} style={{ padding: '0 12px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}>{locating === 'dropoff' ? '...' : 'Locate'}</button>
                 </div>
               </div>
 
@@ -326,70 +295,28 @@ export default function CreateRequestModal({
                 </label>
               </div>
 
-              {/* Bank Transfer Details Section in Blank Area Below Payment Methods */}
+              {/* Bank Details Section in Blank Area Below Payment Methods */}
               {form.payment_method === 'bank_transfer' && (
                 <div className="bank-transfer-details" style={{ marginTop: 20, padding: 16, background: '#F4F5F8', borderRadius: 8, border: '1px solid #E2E8F0' }}>
                   <h4 style={{ color: '#DC2626', fontSize: 15, fontWeight: 700, margin: '0 0 14px 0' }}>
                     Bank Details <span style={{ color: '#DC2626' }}>*</span>
                   </h4>
-
                   <div className="form-group" style={{ marginBottom: 12 }}>
                     <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Bank Name<span className="required">*</span></label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="e.g. BDO, BPI, Landbank, GCash"
-                      value={form.bank_name}
-                      onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
-                    />
+                    <input type="text" className="form-input" placeholder="e.g. BDO, BPI, Landbank, GCash" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} />
                   </div>
-
                   <div className="form-group" style={{ marginBottom: 12 }}>
                     <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Account Name<span className="required">*</span></label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="e.g. HJY Trucking Services"
-                      value={form.account_name}
-                      onChange={(e) => setForm({ ...form, account_name: e.target.value })}
-                    />
+                    <input type="text" className="form-input" placeholder="e.g. HJY Trucking Services" value={form.account_name} onChange={(e) => setForm({ ...form, account_name: e.target.value })} />
                   </div>
-
                   <div className="form-group" style={{ marginBottom: 16 }}>
                     <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Account Number<span className="required">*</span></label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="e.g. 1234-5678-9012"
-                      value={form.account_number}
-                      onChange={(e) => setForm({ ...form, account_number: e.target.value })}
-                    />
+                    <input type="text" className="form-input" placeholder="e.g. 1234-5678-9012" value={form.account_number} onChange={(e) => setForm({ ...form, account_number: e.target.value })} />
                   </div>
-
                   <div className="form-group" style={{ marginBottom: 6 }}>
                     <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Upload Bank Transfer Photo<span className="required">*</span></label>
-                    <input
-                      type="file"
-                      id="bank-receipt-file"
-                      accept="image/*"
-                      style={{ display: 'none' }}
-                      onChange={handleReceiptChange}
-                    />
-                    <label
-                      htmlFor="bank-receipt-file"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        background: '#DCE1EB',
-                        padding: '10px 16px',
-                        borderRadius: 8,
-                        cursor: 'pointer',
-                        fontWeight: 600,
-                        fontSize: 13,
-                        color: '#273342',
-                      }}
-                    >
+                    <input type="file" id="bank-receipt-file" accept="image/*" style={{ display: 'none' }} onChange={handleReceiptChange} />
+                    <label htmlFor="bank-receipt-file" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#DCE1EB', padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#273342' }}>
                       <i className="fas fa-camera"></i> Upload Bank Receipt
                     </label>
 
@@ -397,19 +324,10 @@ export default function CreateRequestModal({
                       <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, background: '#fff', padding: 8, borderRadius: 6, border: '1px solid #ddd' }}>
                         <img src={receiptPreview} alt="Receipt preview" style={{ width: 44, height: 44, borderRadius: 4, objectFit: 'cover' }} />
                         <div style={{ flex: 1, overflow: 'hidden' }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                            {form.payment_receipt?.name || 'Receipt image'}
-                          </div>
-                          <div style={{ fontSize: 11, color: '#6B7280' }}>
-                            {form.payment_receipt?.size ? `${(form.payment_receipt.size / (1024 * 1024)).toFixed(2)} MB` : 'Attached'}
-                          </div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#1F2937', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{form.payment_receipt?.name || 'Receipt image'}</div>
+                          <div style={{ fontSize: 11, color: '#6B7280' }}>{form.payment_receipt?.size ? `${(form.payment_receipt.size / (1024 * 1024)).toFixed(2)} MB` : 'Attached'}</div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={removeReceipt}
-                          style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 16 }}
-                          title="Remove receipt"
-                        >
+                        <button type="button" onClick={removeReceipt} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 16 }} title="Remove receipt">
                           <i className="fas fa-times-circle"></i>
                         </button>
                       </div>
