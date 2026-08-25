@@ -4,24 +4,19 @@ import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from "react-nati
 const { width, height } = Dimensions.get("window");
 
 const STATUS_CONFIG = {
-  pending: {
-    label: "Pending",
-    color: "#F2A900",
-  },
-  approved: {
-    label: "Approved",
-    color: "#D9A51E",
-  },
-  dispatched: {
-    label: "Dispatched",
-    color: "#A64DE8",
-  },
-  accepted: { label: "OTW to Pickup", color: "#4B88E8" },
+  pending: { label: "Pending", color: "#F2A900" },
+  approved: { label: "Approved", color: "#D9A51E" },
+  dispatched: { label: "Dispatched", color: "#A64DE8" },
+  assigned: { label: "Dispatched", color: "#A64DE8" },
+  accepted: { label: "In Transit", color: "#4B88E8" },
   arrived_pickup: { label: "Arrived at Pickup", color: "#4B88E8" },
-  out_for_delivery: { label: "In Transit", color: "#4B88E8" },
+  loading_cargo: { label: "Loading Cargo", color: "#34B352" },
+  out_for_delivery: { label: "On Delivery", color: "#4B88E8" },
   arrived_dropoff: { label: "Arrived at Drop-off", color: "#4B88E8" },
+  unloading_cargo: { label: "Unloading Cargo", color: "#34B352" },
   returning_to_hq: { label: "Returning to HQ", color: "#4B88E8" },
   delivered: { label: "Delivered", color: "#45B84A" },
+  completed: { label: "Complete", color: "#45B84A" },
   rejected: { label: "Rejected", color: "#C62828" },
 };
 

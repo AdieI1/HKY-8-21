@@ -2,8 +2,10 @@ const DELIVERY_STATUS = {
   assigned: "dispatched",
   accepted: "accepted",
   arrived_pickup: "arrived_pickup",
+  loading_cargo: "loading_cargo",
   out_for_delivery: "out_for_delivery",
   arrived_dropoff: "arrived_dropoff",
+  unloading_cargo: "unloading_cargo",
   returning_to_hq: "returning_to_hq",
   completed: "delivered",
   rejected: "rejected",
@@ -39,6 +41,10 @@ export const formatDeliveryRequest = (request) => {
     vehicle: [vehicle?.brand, vehicle?.model].filter(Boolean).join(" "),
     plate: vehicle?.plate_number || "",
     distance: request.distance_km ? `${request.distance_km} km` : "",
+    deliveryId: delivery?.delivery_id || null,
+    driverId: delivery?.driver_id || null,
+    hasReviewed: Boolean(delivery?.reviews && delivery.reviews.length > 0),
+    reviews: delivery?.reviews || [],
   };
 };
 

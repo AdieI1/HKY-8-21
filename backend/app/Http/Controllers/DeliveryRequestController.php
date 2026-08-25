@@ -66,6 +66,10 @@ class DeliveryRequestController extends Controller
             'total_price' => 'nullable|numeric',
             'payment_term' => 'nullable|in:downpayment,full',
             'payment_method' => 'nullable|in:bank_transfer,cash',
+            'bank_name' => 'nullable|string|max:100',
+            'account_name' => 'nullable|string|max:100',
+            'account_number' => 'nullable|string|max:50',
+            'payment_receipt' => 'nullable|file|image|max:10240',
             'is_draft' => 'nullable|boolean',
         ]);
 
@@ -81,6 +85,11 @@ class DeliveryRequestController extends Controller
                 'password' => Hash::make($request->password),
                 'status' => 'active',
             ]);
+
+            $receiptPath = null;
+            if ($request->hasFile('payment_receipt')) {
+                $receiptPath = $request->file('payment_receipt')->store('receipts', 'public');
+            }
 
             return DeliveryRequest::create([
                 'customer_id' => $user->user_id,
@@ -98,6 +107,10 @@ class DeliveryRequestController extends Controller
                 'total_price' => $request->total_price,
                 'payment_term' => $request->payment_term,
                 'payment_method' => $request->payment_method,
+                'payment_receipt_path' => $receiptPath,
+                'bank_name' => $request->bank_name,
+                'account_name' => $request->account_name,
+                'account_number' => $request->account_number,
                 'status' => $request->boolean('is_draft') ? 'draft' : 'pending',
             ]);
         });
@@ -166,7 +179,7 @@ class DeliveryRequestController extends Controller
 
     public function myRequests(Request $request)
     {
-        return DeliveryRequest::with(['customer', 'delivery.driver.user', 'delivery.vehicle'])
+        return DeliveryRequest::with(['customer', 'delivery.driver.user', 'delivery.vehicle', 'delivery.reviews'])
             ->where('customer_id', $request->user()->user_id)
             ->orderByDesc('request_id')
             ->get();

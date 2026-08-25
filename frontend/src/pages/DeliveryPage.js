@@ -8,11 +8,11 @@ const STATUS_STEPS = [
   { key: 'accepted', label: 'In Transit' },
   { key: 'arrived_pickup', label: 'Arrived at Pickup' },
   { key: 'loading_cargo', label: 'Loading Cargo' },
-  { key: 'out_for_delivery', label: 'Out for Delivery' },
+  { key: 'out_for_delivery', label: 'On Delivery' },
   { key: 'arrived_dropoff', label: 'Arrived at Drop-off' },
   { key: 'unloading_cargo', label: 'Unloading Cargo' },
   { key: 'returning_to_hq', label: 'Returning to HQ' },
-  { key: 'completed', label: 'Completed' },
+  { key: 'completed', label: 'Complete' },
 ];
 
 function statusLabel(status) {

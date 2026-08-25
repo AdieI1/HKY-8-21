@@ -123,7 +123,7 @@ Route::middleware('auth:sanctum')->group(function () {
         'status'
     ]);
 
-    Route::patch('customer/profile', [
+    Route::match(['patch', 'post'], 'customer/profile', [
         CustomerAuthController::class,
         'updateProfile'
     ]);

@@ -16,8 +16,18 @@ class Review extends Model
         'overall_rating',
         'driver_rating',
         'comments',
+        'photo_path',
         'created_at'
     ];
+
+    protected $appends = [
+        'photo_url'
+    ];
+
+    public function getPhotoUrlAttribute()
+    {
+        return $this->photo_path ? asset('storage/' . $this->photo_path) : null;
+    }
 
     public function delivery()
     {

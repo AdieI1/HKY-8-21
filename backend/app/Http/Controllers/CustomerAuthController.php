@@ -124,18 +124,45 @@ class CustomerAuthController extends Controller
         $this->ensureCustomer($user);
 
         $validated = $request->validate([
-            'first_name' => 'required|string|max:50',
-            'last_name' => 'required|string|max:50',
-            'phone' => 'required|string|max:20',
+            'first_name' => 'nullable|string|max:50',
+            'last_name' => 'nullable|string|max:50',
+            'full_name' => 'nullable|string|max:100',
+            'phone' => 'nullable|string|max:20',
+            'gender' => 'nullable|string|max:20',
+            'date_of_birth' => 'nullable|string|max:30',
+            'photo' => 'nullable|file|image|max:10240',
         ]);
 
-        $user->update([
-            'full_name' => trim($validated['first_name'].' '.$validated['last_name']),
-            'phone' => $validated['phone'],
-        ]);
+        $fullName = null;
+        if (!empty($validated['first_name']) || !empty($validated['last_name'])) {
+            $fullName = trim(($validated['first_name'] ?? '') . ' ' . ($validated['last_name'] ?? ''));
+        } elseif (!empty($validated['full_name'])) {
+            $fullName = trim($validated['full_name']);
+        }
+
+        $dataToUpdate = [];
+        if ($fullName !== null) {
+            $dataToUpdate['full_name'] = $fullName;
+        }
+        if (array_key_exists('phone', $validated)) {
+            $dataToUpdate['phone'] = $validated['phone'];
+        }
+        if (array_key_exists('gender', $validated)) {
+            $dataToUpdate['gender'] = $validated['gender'];
+        }
+        if (array_key_exists('date_of_birth', $validated)) {
+            $dataToUpdate['date_of_birth'] = $validated['date_of_birth'];
+        }
+        if ($request->hasFile('photo')) {
+            $dataToUpdate['profile_photo_path'] = $request->file('photo')->store('profile-photos', 'public');
+        }
+
+        if (!empty($dataToUpdate)) {
+            $user->update($dataToUpdate);
+        }
 
         return response()->json([
-            'message' => 'Account setup completed.',
+            'message' => 'Profile updated successfully.',
             'user' => $user->fresh()->load('role'),
             'username' => $user->username,
         ]);

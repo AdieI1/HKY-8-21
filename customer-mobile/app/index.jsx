@@ -1,8 +1,8 @@
-import {StyleSheet,Text,View,ImageBackground,TouchableOpacity,Dimensions,Image,} from "react-native";
-import React from "react";
+import {StyleSheet,Text,View,ImageBackground,TouchableOpacity,Dimensions,Image,ActivityIndicator} from "react-native";
+import React, { useEffect, useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-
+import { getToken } from "../services/api";
 
 const { width, height } = Dimensions.get("window");
 
@@ -12,6 +12,47 @@ const Logo = require('../assets/images/HJYLOGO.png');
 
 const GetStarted = () => {
   const router = useRouter();
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (token && mounted) {
+          router.replace("/(tabs)/home");
+          return;
+        }
+      } catch {
+        // Proceed to welcome screen
+      } finally {
+        if (mounted) {
+          setCheckingAuth(false);
+        }
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
+
+  if (checkingAuth) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <ImageBackground source={truckBg} style={styles.container} resizeMode="cover">
+          <View style={styles.content}>
+            <View style={styles.logoContainer}>
+              <Image source={Logo} style={styles.logo} resizeMode="contain" />
+            </View>
+            <View style={styles.loaderContainer}>
+              <ActivityIndicator size="large" color="#DE2226" />
+            </View>
+          </View>
+        </ImageBackground>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -130,5 +171,10 @@ const styles = StyleSheet.create({
   loginBold: {
     color: "#fff",
     fontWeight: "bold",
+  },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

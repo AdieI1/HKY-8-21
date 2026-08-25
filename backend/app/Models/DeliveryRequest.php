@@ -25,8 +25,23 @@ class DeliveryRequest extends Model
         'payment_term',
         'payment_method',
         'payment_receipt_path',
+        'bank_name',
+        'account_name',
+        'account_number',
         'status'
     ];
+
+    protected $appends = [
+        'payment_receipt_url',
+    ];
+
+    public function getPaymentReceiptUrlAttribute()
+    {
+        if (!$this->payment_receipt_path) {
+            return null;
+        }
+        return url('storage/' . $this->payment_receipt_path);
+    }
 
     public function customer()
     {

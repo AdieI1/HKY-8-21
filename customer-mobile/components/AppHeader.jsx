@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+import { useEffect, useState } from "react";
 import {
   Dimensions,
   Image,
@@ -9,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { getCurrentCustomer } from "../services/api";
+import { getCurrentCustomer, getSavedUser } from "../services/api";
 
 const { width, height } = Dimensions.get("window");
 const pfpplaceholder = require("../assets/images/profilepic.png");
@@ -19,7 +20,21 @@ export default function AppHeader({
   icon = "document-text-outline",
   onIconPress,
 }) {
-  const customerName = name || getCurrentCustomer()?.full_name || "Customer";
+  const [customer, setCustomer] = useState(getCurrentCustomer());
+
+  useEffect(() => {
+    let active = true;
+    getSavedUser().then((user) => {
+      if (active && user) {
+        setCustomer(user);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const customerName = name || customer?.full_name || customer?.username || "Customer";
   return (
     <LinearGradient
       colors={["#4F0A11", "#9E1E21"]}
@@ -27,7 +42,7 @@ export default function AppHeader({
     >
       <View style={styles.profileContainer}>
         <Image
-          source={pfpplaceholder}
+          source={customer?.profile_photo_url ? { uri: customer.profile_photo_url } : pfpplaceholder}
           style={styles.pfp}
         />
 

@@ -19,9 +19,24 @@ class User extends Authenticatable
         'email',
         'username',
         'phone',
+        'gender',
+        'date_of_birth',
+        'profile_photo_path',
         'password',
         'status',
     ];
+
+    protected $appends = [
+        'profile_photo_url',
+    ];
+
+    public function getProfilePhotoUrlAttribute()
+    {
+        if (!$this->profile_photo_path) {
+            return null;
+        }
+        return url('storage/' . $this->profile_photo_path);
+    }
 
     protected $hidden = [
         'password',

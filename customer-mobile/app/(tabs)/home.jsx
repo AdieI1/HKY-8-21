@@ -17,7 +17,7 @@ import AppHeader from "../../components/AppHeader";
 import NoActiveDeliveryCard from "../../components/NoActiveDeliveryCard";
 import RequestSheet from "../../components/RequestSheet";
 import SaveMessage from "../../components/SaveMessage";
-import { getMyDeliveryRequests } from "../../services/api";
+import { getMyDeliveryRequests, getToken, logout } from "../../services/api";
 import { formatDeliveryRequest, isActiveDelivery } from "../../services/deliveries";
 
 const { width, height } = Dimensions.get("window");
@@ -36,19 +36,48 @@ const Home = () => {
 
   const loadDeliveries = useCallback(async () => {
     try {
+      const token = await getToken();
+      if (!token) return;
+
       const requests = await getMyDeliveryRequests();
       setDeliveries(requests.map(formatDeliveryRequest));
     } catch (error) {
+      if (error.message?.toLowerCase().includes("unauthenticated")) {
+        await logout();
+        router.replace("/login-page");
+        return;
+      }
       console.log("CUSTOMER DELIVERY SYNC ERROR:", error.message);
     }
-  }, []);
+  }, [router]);
 
   useFocusEffect(
     useCallback(() => {
-      loadDeliveries();
-      const interval = setInterval(loadDeliveries, 10000);
-      return () => clearInterval(interval);
-    }, [loadDeliveries])
+      let isMounted = true;
+
+      (async () => {
+        const token = await getToken();
+        if (!token) {
+          if (isMounted) router.replace("/login-page");
+          return;
+        }
+        if (isMounted) {
+          await loadDeliveries();
+        }
+      })();
+
+      const interval = setInterval(async () => {
+        const token = await getToken();
+        if (token) {
+          loadDeliveries();
+        }
+      }, 10000);
+
+      return () => {
+        isMounted = false;
+        clearInterval(interval);
+      };
+    }, [loadDeliveries, router])
   );
 
   const activeDelivery = deliveries.find(isActiveDelivery) || null;

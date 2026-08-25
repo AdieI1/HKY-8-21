@@ -14,15 +14,34 @@ class ReviewController extends Controller
 
     public function store(Request $request)
     {
-        $request->validate([
+        $customerId = $request->customer_id ?? $request->user()?->user_id;
+
+        $validated = $request->validate([
             'delivery_id' => 'required|exists:deliveries,delivery_id',
-            'customer_id' => 'required|exists:users,user_id',
+            'customer_id' => 'nullable|exists:users,user_id',
             'overall_rating' => 'required|integer|min:1|max:5',
             'driver_rating' => 'required|integer|min:1|max:5',
-            'comments' => 'nullable|string',
+            'comments' => 'nullable|string|max:1000',
+            'photo' => 'nullable|file|image|max:10240',
         ]);
 
-        return Review::create($request->all());
+        $validated['customer_id'] = $customerId;
+
+        if ($request->hasFile('photo')) {
+            $validated['photo_path'] = $request->file('photo')->store('review-photos', 'public');
+        }
+
+        unset($validated['photo']);
+
+        $review = Review::updateOrCreate(
+            [
+                'delivery_id' => $validated['delivery_id'],
+                'customer_id' => $validated['customer_id'],
+            ],
+            $validated
+        );
+
+        return response()->json($review->load(['delivery', 'customer']), 201);
     }
 
     public function show(Review $review)
