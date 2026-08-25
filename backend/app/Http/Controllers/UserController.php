@@ -43,14 +43,24 @@ class UserController extends Controller
 
     public function update(Request $request, User $user)
     {
-        $user->update($request->except('password'));
+        $data = $request->except(['password', 'photo', 'profile_photo']);
+
+        if ($request->hasFile('photo')) {
+            $path = $request->file('photo')->store('profile-photos', 'public');
+            $data['profile_photo_path'] = $path;
+        } elseif ($request->hasFile('profile_photo')) {
+            $path = $request->file('profile_photo')->store('profile-photos', 'public');
+            $data['profile_photo_path'] = $path;
+        }
+
+        $user->update($data);
 
         if ($request->password) {
             $user->password = Hash::make($request->password);
             $user->save();
         }
 
-        return $user;
+        return $user->load('role');
     }
 
     public function destroy(User $user)

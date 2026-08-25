@@ -36,6 +36,7 @@ function LoginPage() {
 
       localStorage.setItem('auth_token', token);
       localStorage.setItem('auth_user', JSON.stringify(user));
+      localStorage.setItem('auth_last_login', new Date().toISOString());
 
       const roleName = user?.role?.role_name || '';
       if (roleName.toLowerCase().includes('admin')) {

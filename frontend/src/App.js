@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import OverviewPage from './pages/OverviewPage';
@@ -11,8 +12,17 @@ import AnalyticsPage from './pages/AnalyticsPage';
 import CustomersPage from './pages/CustomersPage';
 import FuelInventoryPage from './pages/FuelInventoryPage';
 import PartsInventoryPage from './pages/PartsInventoryPage';
+import ProfilePage from './pages/ProfilePage';
 
 function App() {
+  useEffect(() => {
+    if (localStorage.getItem('pref_theme') === 'dark') {
+      document.body.classList.add('dark-theme');
+    } else {
+      document.body.classList.remove('dark-theme');
+    }
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>
@@ -28,6 +38,7 @@ function App() {
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/fuel-inventory" element={<FuelInventoryPage />} />
         <Route path="/parts-inventory" element={<PartsInventoryPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

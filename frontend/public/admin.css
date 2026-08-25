@@ -1830,3 +1830,323 @@ th.action-cell {
 .btn-confirm-restore:hover {
     background-color: #16A34A;
 }
+
+/* ══════════════════════════════════════════════════════════
+   GLOBAL DARK MODE THEME
+   Dark Area / Shadow: #1A1A2E | Midtone: #41365e | Highlight: #D1000C
+══════════════════════════════════════════════════════════ */
+body.dark-theme,
+.dark-theme {
+    background-color: #1A1A2E !important;
+    color: #F8FAFC !important;
+}
+
+body.dark-theme .dashboard-container,
+.dark-theme .dashboard-container {
+    background-color: #1A1A2E !important;
+}
+
+body.dark-theme .main-content,
+.dark-theme .main-content {
+    background-color: #1A1A2E !important;
+    color: #F8FAFC !important;
+}
+
+body.dark-theme .header,
+.dark-theme .header {
+    background-color: transparent !important;
+}
+
+body.dark-theme .page-title,
+.dark-theme .page-title,
+body.dark-theme .pf-page-title,
+.dark-theme .pf-page-title {
+    color: #D1000C !important;
+}
+
+body.dark-theme .breadcrumb,
+.dark-theme .breadcrumb {
+    color: #A5B4FC !important;
+}
+
+body.dark-theme .date-picker,
+.dark-theme .date-picker {
+    background: #41365e !important;
+    color: #F8FAFC !important;
+    border: 1px solid rgba(65, 54, 94, 0.8) !important;
+}
+
+body.dark-theme .date-picker i,
+.dark-theme .date-picker i {
+    color: #D1000C !important;
+}
+
+/* Panels, Cards & Sections */
+body.dark-theme .adm-card,
+body.dark-theme .content-section,
+body.dark-theme .stat-card,
+body.dark-theme .table-panel,
+body.dark-theme .pf-panel,
+body.dark-theme .pf-hero-card,
+body.dark-theme .fleet-card,
+body.dark-theme .priority-card,
+body.dark-theme .activity-card,
+body.dark-theme .inventory-card,
+body.dark-theme .analytics-card,
+.dark-theme .adm-card,
+.dark-theme .content-section,
+.dark-theme .stat-card,
+.dark-theme .table-panel,
+.dark-theme .pf-panel,
+.dark-theme .pf-hero-card,
+.dark-theme .fleet-card,
+.dark-theme .priority-card,
+.dark-theme .activity-card,
+.dark-theme .inventory-card,
+.dark-theme .analytics-card {
+    background: #41365e !important;
+    border: 1px solid rgba(209, 0, 12, 0.25) !important;
+    box-shadow: 0 4px 20px rgba(26, 26, 46, 0.9) !important;
+    color: #F8FAFC !important;
+}
+
+/* Banner */
+body.dark-theme .pf-hero-banner,
+.dark-theme .pf-hero-banner {
+    background: linear-gradient(135deg, #D1000C 0%, #7A0007 100%) !important;
+}
+
+body.dark-theme .pf-avatar-ring,
+.dark-theme .pf-avatar-ring {
+    border-color: #41365e !important;
+    background: linear-gradient(135deg, #D1000C, #FF3B30) !important;
+    box-shadow: 0 4px 14px rgba(209, 0, 12, 0.5) !important;
+}
+
+/* Text Colors */
+body.dark-theme h1, body.dark-theme h2, body.dark-theme h3, body.dark-theme h4,
+.dark-theme h1, .dark-theme h2, .dark-theme h3, .dark-theme h4 {
+    color: #F8FAFC !important;
+}
+
+body.dark-theme .pf-panel-title,
+.dark-theme .pf-panel-title {
+    color: #D1000C !important;
+    border-bottom: 1px solid rgba(26, 26, 46, 0.6) !important;
+}
+
+body.dark-theme .pf-meta-label,
+.dark-theme .pf-meta-label,
+body.dark-theme .pf-access-label,
+.dark-theme .pf-access-label {
+    color: #CBD5E1 !important;
+}
+
+body.dark-theme .pf-meta-value,
+.dark-theme .pf-meta-value {
+    color: #F8FAFC !important;
+}
+
+body.dark-theme .pf-meta-icon,
+.dark-theme .pf-meta-icon {
+    color: #D1000C !important;
+}
+
+body.dark-theme .pf-role-badge,
+.dark-theme .pf-role-badge {
+    background: rgba(209, 0, 12, 0.25) !important;
+    color: #FFA39E !important;
+    border: 1px solid #D1000C !important;
+}
+
+/* Tables */
+body.dark-theme table,
+body.dark-theme .data-table,
+.dark-theme table,
+.dark-theme .data-table {
+    color: #F8FAFC !important;
+}
+
+body.dark-theme thead th,
+.dark-theme thead th {
+    background: #1A1A2E !important;
+    color: #F8FAFC !important;
+    border-bottom: 2px solid #D1000C !important;
+}
+
+body.dark-theme tbody tr,
+.dark-theme tbody tr {
+    background: #41365e !important;
+    border-bottom: 1px solid #1A1A2E !important;
+    color: #F8FAFC !important;
+}
+
+body.dark-theme tbody tr:hover,
+.dark-theme tbody tr:hover {
+    background: #352a4f !important;
+}
+
+body.dark-theme tbody td,
+.dark-theme tbody td {
+    color: #F8FAFC !important;
+    border-bottom: 1px solid rgba(26, 26, 46, 0.6) !important;
+}
+
+/* Inputs & Form Elements */
+body.dark-theme input,
+body.dark-theme select,
+body.dark-theme textarea,
+body.dark-theme .form-input,
+body.dark-theme .form-select,
+body.dark-theme .pf-input,
+body.dark-theme .pf-date-select,
+body.dark-theme .search-input,
+body.dark-theme .filter-select,
+body.dark-theme .status-filter-select,
+.dark-theme input,
+.dark-theme select,
+.dark-theme textarea,
+.dark-theme .form-input,
+.dark-theme .form-select,
+.dark-theme .pf-input,
+.dark-theme .pf-date-select,
+.dark-theme .search-input,
+.dark-theme .filter-select,
+.dark-theme .status-filter-select {
+    background-color: #1A1A2E !important;
+    color: #F8FAFC !important;
+    border: 1px solid #352a4f !important;
+}
+
+body.dark-theme input:focus,
+body.dark-theme select:focus,
+body.dark-theme textarea:focus,
+body.dark-theme .form-input:focus,
+body.dark-theme .form-select:focus,
+body.dark-theme .pf-input:focus,
+.dark-theme input:focus,
+.dark-theme select:focus,
+.dark-theme textarea:focus,
+.dark-theme .form-input:focus,
+.dark-theme .form-select:focus,
+.dark-theme .pf-input:focus {
+    border-color: #D1000C !important;
+    box-shadow: 0 0 0 2px rgba(209, 0, 12, 0.25) !important;
+}
+
+body.dark-theme label,
+.dark-theme label {
+    color: #E2E8F0 !important;
+}
+
+/* Modals */
+body.dark-theme .modal-content,
+body.dark-theme .approved-modal-content,
+body.dark-theme .create-request-modal-content,
+body.dark-theme .request-details-modal,
+body.dark-theme .vi-modal-content,
+.dark-theme .modal-content,
+.dark-theme .approved-modal-content,
+.dark-theme .create-request-modal-content,
+.dark-theme .request-details-modal,
+.dark-theme .vi-modal-content {
+    background-color: #41365e !important;
+    color: #F8FAFC !important;
+    border: 1px solid #D1000C !important;
+    box-shadow: 0 8px 32px rgba(26, 26, 46, 0.95) !important;
+}
+
+body.dark-theme .modal-header,
+.dark-theme .modal-header {
+    border-bottom: 1px solid #1A1A2E !important;
+}
+
+body.dark-theme .modal-footer,
+.dark-theme .modal-footer {
+    border-top: 1px solid #1A1A2E !important;
+}
+
+/* Buttons & Highlights */
+body.dark-theme .btn-primary,
+body.dark-theme .pf-edit-btn,
+body.dark-theme .submit_btn,
+.dark-theme .btn-primary,
+.dark-theme .pf-edit-btn,
+.dark-theme .submit_btn {
+    background-color: #D1000C !important;
+    color: #FFFFFF !important;
+    border: none !important;
+}
+
+body.dark-theme .btn-primary:hover,
+body.dark-theme .pf-edit-btn:hover,
+.dark-theme .btn-primary:hover,
+.dark-theme .pf-edit-btn:hover {
+    background-color: #A6000A !important;
+}
+
+body.dark-theme .pf-change-pw-btn,
+body.dark-theme .pf-update-btn,
+.dark-theme .pf-change-pw-btn,
+.dark-theme .pf-update-btn {
+    border: 1px solid #D1000C !important;
+    color: #FFA39E !important;
+    background: rgba(209, 0, 12, 0.2) !important;
+}
+
+body.dark-theme .pf-change-pw-btn:hover,
+body.dark-theme .pf-update-btn:hover,
+.dark-theme .pf-change-pw-btn:hover,
+.dark-theme .pf-update-btn:hover {
+    background: #D1000C !important;
+    color: #FFFFFF !important;
+}
+
+/* Quick Settings & Rows */
+body.dark-theme .pf-qs-row,
+body.dark-theme .pf-sec-row,
+.dark-theme .pf-qs-row,
+.dark-theme .pf-sec-row {
+    border-color: #1A1A2E !important;
+    color: #F8FAFC !important;
+}
+
+body.dark-theme .pf-qs-icon,
+.dark-theme .pf-qs-icon {
+    color: #D1000C !important;
+}
+
+body.dark-theme .pf-act-row-card,
+body.dark-theme .pf-act-stat-card,
+.dark-theme .pf-act-row-card,
+.dark-theme .pf-act-stat-card {
+    background: #1A1A2E !important;
+    border: 1px solid #352a4f !important;
+}
+
+body.dark-theme .pf-act-row-label,
+.dark-theme .pf-act-row-label {
+    color: #CBD5E1 !important;
+}
+
+body.dark-theme .pf-act-row-action,
+.dark-theme .pf-act-row-action {
+    color: #F8FAFC !important;
+}
+
+/* Pagination */
+body.dark-theme .pagination-num,
+body.dark-theme .page-btn,
+.dark-theme .pagination-num,
+.dark-theme .page-btn {
+    background: #1A1A2E !important;
+    color: #F8FAFC !important;
+    border: 1px solid #41365e !important;
+}
+
+body.dark-theme .pagination-num.active,
+.dark-theme .pagination-num.active {
+    background: #D1000C !important;
+    border-color: #D1000C !important;
+    color: #FFFFFF !important;
+}
