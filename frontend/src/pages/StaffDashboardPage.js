@@ -10,13 +10,6 @@ const ACTIVITY = [
   { icon: 'fas fa-truck', color: '#C53030', title: 'Driver Alec Jude(DR004) is now In Transit.', sub: 'Iponan, CDO → Malaybalay, Bukidnon', time: '15 mins ago' },
 ];
 
-const PRIORITY_REQS = [
-  { id: 'REQ0001', customer: 'Christopher Lee', date: '3/22/2026', status: 'Overdue', overdue: true },
-  { id: 'REQ0002', customer: 'James Reed', date: '3/22/2026', status: 'Overdue', overdue: true },
-  { id: 'REQ0005', customer: 'Anthony Smith', date: '3/24/2026', status: 'Pending', overdue: false },
-  { id: 'REQ0006', customer: 'Chris Rock', date: '3/24/2026', status: 'Pending', overdue: false },
-];
-
 const VEHICLES_SUMMARY = [
   { label: 'Available', count: 1 },
   { label: 'In Transit/On Delivery', count: 3 },
@@ -69,20 +62,16 @@ function formatTime12(timeStr) {
 function shortCity(addr) {
   if (!addr) return 'CDO';
   const parts = addr.split(',').map((s) => s.trim()).filter(Boolean);
-  if (parts.length >= 2) {
-    const cand = parts[parts.length - 2];
-    if (isNaN(cand)) return cand;
-    return parts[parts.length - 1] || cand;
-  }
-  return parts[0] || 'CDO';
+  return parts.length >= 2 ? (isNaN(parts[parts.length - 2]) ? parts[parts.length - 2] : parts[parts.length - 1]) : parts[0] || 'CDO';
 }
 
 function StaffDashboardPage() {
   const [currentDate, setCurrentDate] = useState('');
   const [weekDays, setWeekDays] = useState(() => getCurrentWeekDays());
   const [fleetList, setFleetList] = useState([]);
+  const [priorityRequests, setPriorityRequests] = useState([]);
   const [loadingCalendar, setLoadingCalendar] = useState(true);
-  const [stats, setStats] = useState({ activeDeliveries: 4, pendingRequests: 5, availableDrivers: 5, availableVehicles: 5 });
+  const [stats, setStats] = useState({ activeDeliveries: 0, pendingRequests: 0, availableDrivers: 0, availableVehicles: 0 });
 
   useEffect(() => {
     const update = () => setCurrentDate(new Date().toLocaleDateString('en-PH', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' }));
@@ -108,7 +97,27 @@ function StaffDashboardPage() {
       const availDrivers = drivers.filter((d) => d.status === 'available' || d.status === 'active').length;
       const availVehicles = vehicles.filter((v) => v.status === 'available' || v.status === 'active').length;
 
-      setStats({ activeDeliveries: activeDel || 4, pendingRequests: pendingReq || 5, availableDrivers: availDrivers || 5, availableVehicles: availVehicles || 5 });
+      setStats({ activeDeliveries: activeDel, pendingRequests: pendingReq, availableDrivers: availDrivers, availableVehicles: availVehicles });
+
+      // Connected Priority Requests (oldest pending requests, overdue if >= 2 days)
+      const priorityList = requests
+        .filter((r) => r.status === 'pending')
+        .map((r) => {
+          const created = new Date(r.created_at);
+          const daysOld = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
+          const isOver = daysOld >= 2;
+          return {
+            id: `REQ${String(r.request_id).padStart(4, '0')}`,
+            customer: r.customer?.full_name || 'Customer',
+            date: created.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }),
+            status: isOver ? 'Overdue' : 'Pending',
+            overdue: isOver,
+            createdTime: created.getTime(),
+          };
+        })
+        .sort((a, b) => (a.overdue !== b.overdue ? (a.overdue ? -1 : 1) : a.createdTime - b.createdTime));
+
+      setPriorityRequests(priorityList.slice(0, 5));
 
       const currentDays = getCurrentWeekDays();
       setWeekDays(currentDays);
@@ -123,13 +132,8 @@ function StaffDashboardPage() {
           const activeDelivery = vehicleDeliveries.find((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit'].includes(d.status))
             || vehicleDeliveries[vehicleDeliveries.length - 1];
 
-          const driverObj = activeDelivery?.driver
-            || drivers.find((dr) => Number(dr.driver_id) === Number(activeDelivery?.driver_id));
-
-          const rawDriverName = driverObj?.user?.full_name
-            || activeDelivery?.driver?.user?.full_name
-            || 'Driver';
-
+          const driverObj = activeDelivery?.driver || drivers.find((dr) => Number(dr.driver_id) === Number(activeDelivery?.driver_id));
+          const rawDriverName = driverObj?.user?.full_name || activeDelivery?.driver?.user?.full_name || 'Driver';
           const nameParts = rawDriverName.split(' ').filter(Boolean);
           const shortDriver = nameParts.length > 1 ? `${nameParts[0]} ${nameParts[nameParts.length - 1][0].toUpperCase()}.` : rawDriverName;
 
@@ -315,7 +319,7 @@ function StaffDashboardPage() {
               <span className="adm-card-title">
                 <i className="far fa-clock" style={{ marginRight: '6px' }}></i>
                 Priority Requests
-                <span className="adm-priority-badge">5</span>
+                <span className="adm-priority-badge">{priorityRequests.length}</span>
               </span>
               <Link to="/requests" className="adm-view-all">View all</Link>
             </div>
@@ -329,22 +333,30 @@ function StaffDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {PRIORITY_REQS.map((r) => (
-                  <tr key={r.id}>
-                    <td>
-                      {r.overdue && <i className="fas fa-exclamation-triangle adm-warn-icon"></i>}
-                      {r.id}
-                    </td>
-                    <td>{r.customer}</td>
-                    <td>{r.date}</td>
-                    <td>
-                      <span className={`adm-status-dot ${r.overdue ? 'overdue' : 'pending'}`}></span>
-                      <span className={r.overdue ? 'adm-status-text overdue' : 'adm-status-text pending'}>
-                        {r.status}
-                      </span>
+                {priorityRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: '#888', fontSize: '13px' }}>
+                      No pending priority requests.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  priorityRequests.map((r) => (
+                    <tr key={r.id}>
+                      <td>
+                        {r.overdue && <i className="fas fa-exclamation-triangle adm-warn-icon"></i>}
+                        {r.id}
+                      </td>
+                      <td>{r.customer}</td>
+                      <td>{r.date}</td>
+                      <td>
+                        <span className={`adm-status-dot ${r.overdue ? 'overdue' : 'pending'}`}></span>
+                        <span className={r.overdue ? 'adm-status-text overdue' : 'adm-status-text pending'}>
+                          {r.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

@@ -72,6 +72,10 @@ export default function CreateRequestModal({
       setFormError('Please fill in all required customer fields.');
       return;
     }
+    if (form.phone.length !== 11) {
+      setFormError('Contact number must be exactly 11 digits (e.g. 09123456789).');
+      return;
+    }
     if (form.password !== form.confirmPassword) {
       setFormError('Passwords do not match.');
       return;
@@ -158,7 +162,27 @@ export default function CreateRequestModal({
               </div>
               <div className="form-group">
                 <label>Contact Number<span className="required">*</span></label>
-                <input type="text" className="form-input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <input
+                  type="tel"
+                  className="form-input"
+                  value={form.phone}
+                  maxLength={11}
+                  inputMode="numeric"
+                  onChange={(e) => {
+                    const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 11);
+                    setForm({ ...form, phone: digitsOnly });
+                  }}
+                  onKeyDown={(e) => {
+                    if (
+                      !/^\d$/.test(e.key) &&
+                      !['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'].includes(e.key) &&
+                      !e.ctrlKey &&
+                      !e.metaKey
+                    ) {
+                      e.preventDefault();
+                    }
+                  }}
+                />
               </div>
             </div>
             <div className="form-row">
@@ -264,7 +288,7 @@ export default function CreateRequestModal({
                   className="form-input"
                   value={form.total_price ? `₱${Number(form.total_price).toLocaleString('en-PH')}` : '₱800'}
                   readOnly
-                  style={{ background: '#D9DDE5', fontWeight: 'bold', color: '#1F2937' }}
+                  style={{ background: '#FFFFFF', fontWeight: 'bold', color: '#1F2937' }}
                 />
                 <span style={{ fontSize: 11, color: '#6B7280', marginTop: 3, display: 'block' }}>
                   Auto-calculated: ₱80/km + ₱800 labor fee + ₱1/kg

@@ -402,18 +402,25 @@
 }
 
 .form-input {
-    background: #D1D5DB;
-    border: none;
+    background: #FFFFFF;
+    border: 1px solid #D1D5DB;
     border-radius: 8px;
     padding: 10px 14px;
     font-size: 14px;
     color: #374151;
     width: 100%;
     box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-input:focus {
+    border-color: #DC2626;
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.1);
 }
 
 .form-input::placeholder {
-    color: #6B7280;
+    color: #9CA3AF;
 }
 
 .password-input-wrapper {
@@ -444,8 +451,8 @@
 }
 
 .form-select {
-    background: #D1D5DB;
-    border: none;
+    background: #FFFFFF;
+    border: 1px solid #D1D5DB;
     border-radius: 8px;
     padding: 10px 35px 10px 14px;
     font-size: 14px;
@@ -455,6 +462,13 @@
     appearance: none;
     -webkit-appearance: none;
     -moz-appearance: none;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-select:focus {
+    border-color: #DC2626;
+    box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.1);
 }
 
 .select-wrapper i {

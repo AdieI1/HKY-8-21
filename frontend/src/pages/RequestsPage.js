@@ -5,6 +5,7 @@ import RequestDetailsModal from '../components/requests/RequestDetailsModal';
 import CreateRequestModal from '../components/requests/CreateRequestModal';
 
 const OVERDUE_DAYS = 2;
+const ITEMS_PER_PAGE = 8;
 
 function formatDate(dateString) {
   if (!dateString) return '—';
@@ -30,27 +31,11 @@ function isOverdue(request) {
 }
 
 const EMPTY_FORM = {
-  first_name: '',
-  last_name: '',
-  phone: '',
-  email: '',
-  username: '',
-  password: '',
-  confirmPassword: '',
-  item_name: '',
-  cargo_type: 'Construction',
-  fragility: 'low',
-  weight: '',
-  pickup: { address: '', lat: null, lng: null },
-  dropoff: { address: '', lat: null, lng: null },
-  distance_km: '',
-  total_price: 800,
-  payment_term: 'downpayment',
-  payment_method: 'bank_transfer',
-  bank_name: '',
-  account_name: '',
-  account_number: '',
-  payment_receipt: null,
+  first_name: '', last_name: '', phone: '', email: '', username: '', password: '', confirmPassword: '',
+  item_name: '', cargo_type: 'Construction', fragility: 'low', weight: '',
+  pickup: { address: '', lat: null, lng: null }, dropoff: { address: '', lat: null, lng: null },
+  distance_km: '', total_price: 800, payment_term: 'downpayment', payment_method: 'bank_transfer',
+  bank_name: '', account_name: '', account_number: '', payment_receipt: null,
 };
 
 function RequestsPage() {
@@ -58,22 +43,19 @@ function RequestsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [currentDate, setCurrentDate] = useState('');
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [view, setView] = useState('active');
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
 
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [approving, setApproving] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApprovedModal, setShowApprovedModal] = useState(false);
 
-  const toggleProfileMenu = () => setProfileMenuOpen((v) => !v);
-
   useEffect(() => {
-    const update = () => {
-      setCurrentDate(
-        new Date().toLocaleDateString('en-PH', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' })
-      );
-    };
+    const update = () => setCurrentDate(new Date().toLocaleDateString('en-PH', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' }));
     update();
     const interval = setInterval(update, 60000);
     return () => clearInterval(interval);
@@ -107,7 +89,42 @@ function RequestsPage() {
   }, [activeRequests]);
 
   const overdueList = useMemo(() => activeRequests.filter(isOverdue), [activeRequests]);
-  const shownRequests = view === 'drafts' ? draftRequests : activeRequests;
+
+  // Filter & Search Logic
+  const filteredRequests = useMemo(() => {
+    let list = view === 'drafts' ? draftRequests : activeRequests;
+
+    if (view !== 'drafts' && statusFilter !== 'all') {
+      if (statusFilter === 'overdue') {
+        list = list.filter(isOverdue);
+      } else if (statusFilter === 'pending') {
+        list = list.filter((r) => r.status === 'pending' && !isOverdue(r));
+      } else if (statusFilter === 'approved') {
+        list = list.filter((r) => r.status === 'approved');
+      }
+    }
+
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase();
+      list = list.filter((r) => {
+        const code = requestCode(r.request_id).toLowerCase();
+        const cust = (r.customer?.full_name || '').toLowerCase();
+        const item = (r.item_name || '').toLowerCase();
+        const pickup = (r.pickup_address || '').toLowerCase();
+        const dropoff = (r.dropoff_address || '').toLowerCase();
+        return code.includes(q) || cust.includes(q) || item.includes(q) || pickup.includes(q) || dropoff.includes(q);
+      });
+    }
+
+    return list;
+  }, [view, draftRequests, activeRequests, statusFilter, searchTerm]);
+
+  // Pagination Logic
+  const totalPages = Math.ceil(filteredRequests.length / ITEMS_PER_PAGE) || 1;
+  const paginatedRequests = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredRequests.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredRequests, currentPage]);
 
   const openDetails = (request) => setSelectedRequest(request);
   const closeDetails = () => setSelectedRequest(null);
@@ -178,22 +195,54 @@ function RequestsPage() {
               </div>
 
               <div className="content-section delivery-requests">
-                <div className="section-header">
+                <div className="section-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
                   <h3 className="section-title">{view === 'drafts' ? 'Draft Requests' : 'Delivery Requests'}</h3>
-                  <div className="section-controls">
-                    <button className="btn-drafts" onClick={() => setView(view === 'drafts' ? 'active' : 'drafts')}>
+                  <div className="section-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {/* Search bar */}
+                    <div className="search-bar" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f3f4f6', padding: '6px 12px', borderRadius: '20px', border: '1px solid #e5e7eb', maxWidth: '200px' }}>
+                      <i className="fas fa-search" style={{ color: '#9ca3af', fontSize: '13px' }}></i>
+                      <input
+                        type="text"
+                        placeholder="Search requests..."
+                        value={searchTerm}
+                        onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                        style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '13px', width: '100%', color: '#333' }}
+                      />
+                      {searchTerm && (
+                        <i className="fas fa-times" onClick={() => { setSearchTerm(''); setCurrentPage(1); }} style={{ color: '#9ca3af', cursor: 'pointer', fontSize: '12px' }}></i>
+                      )}
+                    </div>
+
+                    {/* Filter dropdown */}
+                    {view !== 'drafts' && (
+                      <select
+                        value={statusFilter}
+                        onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+                        style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #d1d5db', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer', outline: 'none' }}
+                      >
+                        <option value="all">Filter: All</option>
+                        <option value="pending">Filter: Pending</option>
+                        <option value="overdue">Filter: Overdue</option>
+                        <option value="approved">Filter: Approved</option>
+                      </select>
+                    )}
+
+                    <button className="btn-drafts" onClick={() => { setView(view === 'drafts' ? 'active' : 'drafts'); setCurrentPage(1); }}>
                       {view === 'drafts' ? 'Back to Requests' : `Drafts (${draftRequests.length})`}
                     </button>
-                    <button className="btn-create-request" onClick={() => setShowCreateModal(true)}><i className="fas fa-plus"></i> Create request</button>
+                    <button className="btn-create-request" onClick={() => setShowCreateModal(true)}>
+                      <i className="fas fa-plus"></i> Create request
+                    </button>
                   </div>
                 </div>
+
                 <div className="section-content">
                   <table className="data-table">
                     <thead>
                       <tr><th>Request ID</th><th>Customer</th><th>Status</th><th>Date</th><th>Action</th></tr>
                     </thead>
                     <tbody>
-                      {shownRequests.map((r) => {
+                      {paginatedRequests.map((r) => {
                         const overdue = isOverdue(r);
                         return (
                           <tr key={r.request_id}>
@@ -219,16 +268,55 @@ function RequestsPage() {
                       {loading && (
                         <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading requests...</td></tr>
                       )}
-                      {!loading && shownRequests.length === 0 && (
+                      {!loading && paginatedRequests.length === 0 && (
                         <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24 }}>No requests found.</td></tr>
                       )}
                     </tbody>
                   </table>
                 </div>
-                <div className="pagination">
+
+                {/* Pagination & Footer */}
+                <div className="pagination" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px', paddingTop: '12px' }}>
                   <div className="admin-info">
                     <span><i className="fas fa-info-circle"></i> Click details to expand Request Information.</span>
                   </div>
+
+                  {totalPages > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        className="btn-page"
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        style={{ opacity: currentPage === 1 ? 0.35 : 1, cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+                      >
+                        <i className="fas fa-chevron-left"></i>
+                      </button>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                        <button
+                          key={page}
+                          onClick={() => setCurrentPage(page)}
+                          className={`btn-page ${currentPage === page ? 'active' : ''}`}
+                          style={{
+                            fontWeight: currentPage === page ? '700' : '500',
+                            color: currentPage === page ? '#C53030' : '#4b5563',
+                            borderColor: currentPage === page ? '#C53030' : '#d1d5db',
+                            background: currentPage === page ? '#FFF5F5' : '#fff',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {page}
+                        </button>
+                      ))}
+                      <button
+                        className="btn-page"
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        style={{ opacity: currentPage === totalPages ? 0.35 : 1, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
+                      >
+                        <i className="fas fa-chevron-right"></i>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
