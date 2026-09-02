@@ -1,0 +1,55 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class DeliveryRequest extends Model
+{
+    protected $primaryKey = 'request_id';
+
+    protected $fillable = [
+        'customer_id',
+        'item_name',
+        'cargo_type',
+        'fragility',
+        'weight',
+        'pickup_address',
+        'pickup_lat',
+        'pickup_lng',
+        'dropoff_address',
+        'dropoff_lat',
+        'dropoff_lng',
+        'distance_km',
+        'total_price',
+        'payment_term',
+        'payment_method',
+        'payment_receipt_path',
+        'bank_name',
+        'account_name',
+        'account_number',
+        'status'
+    ];
+
+    protected $appends = [
+        'payment_receipt_url',
+    ];
+
+    public function getPaymentReceiptUrlAttribute()
+    {
+        if (!$this->payment_receipt_path) {
+            return null;
+        }
+        return url('storage/' . $this->payment_receipt_path);
+    }
+
+    public function customer()
+    {
+        return $this->belongsTo(User::class, 'customer_id');
+    }
+
+    public function delivery()
+    {
+        return $this->hasOne(Delivery::class, 'request_id');
+    }
+}
