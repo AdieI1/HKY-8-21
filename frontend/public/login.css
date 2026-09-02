@@ -1,0 +1,215 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+.login-container {
+    width: 100%;
+    min-height: 100vh;
+    display: block;
+    padding: 20px 10px 30px 40px;
+    overflow: hidden;
+    background-image: url('images/image 1.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.login-container .logo-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 150px;
+    margin-right: -55px;
+}
+
+.login-container .logo-container img {
+    width: 650px;
+    height: auto;
+    max-width: 100%;
+}
+
+.login-container .main-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    flex: unset;
+    padding: 0;
+    overflow: visible;
+    background-color: transparent;
+    margin-top: 0;
+}
+
+.login-container .form-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.login-container .login-form {
+    background: rgba(90, 76, 120, 0.3);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 20px;
+    width: 380px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    z-index: 2;
+}
+
+.login-container .tabs {
+    display: flex;
+    width: 100%;
+    background: rgba(60, 45, 75, 0.5);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.login-container .tab {
+    flex: 1;
+    padding: 16px 20px;
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 20px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    transition: all 0.3s ease;
+}
+
+.login-container .tab i {
+    font-size: 18px;
+}
+
+.login-container .tab span {
+    font-weight: 700;
+}
+
+.login-container .form {
+    padding: 30px 35px 35px 35px;
+}
+
+.login-container .login-form .input-box {
+    width: 100%;
+    margin-bottom: 20px;
+    position: relative;
+}
+
+.login-container .login-form .input-box h6 {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 13px;
+    display: block;
+    margin-bottom: 8px;
+    text-align: left;
+    font-weight: 400;
+}
+
+.login-container .input-box input {
+    width: 100%;
+    height: 44px;
+    background: rgba(20, 20, 30, 0.85);
+    border: none;
+    border-radius: 12px;
+    color: white;
+    font-size: 13px;
+    padding: 0 45px 0 42px;
+    outline: none;
+}
+
+.login-container .input-box input::placeholder {
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.login-container .input-box i {
+    position: absolute;
+    left: 14px;
+    top: 38px;
+    color: rgba(255, 0, 0, 0.5);
+    font-size: 14px;
+}
+
+.login-container .input-box img {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    position: absolute;
+    right: 14px;
+    top: 38px;
+    opacity: 0.5;
+}
+
+.login-container .input-box .eyeicon {
+    filter: invert(1);
+}
+
+.login-container .input-box img:hover {
+    opacity: 0.8;
+}
+
+.login-container .login-form .submit_btn {
+    width: 100%;
+    height: 48px;
+    background: linear-gradient(135deg, #c41e3a 0%, #8b0000 100%);
+    border: none;
+    border-radius: 12px;
+    color: white;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 20px;
+    transition: all 0.3s ease;
+}
+
+.login-container .login-form .submit_btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(196, 30, 58, 0.5);
+}
+
+.login-container .truck-image {
+    position: absolute;
+    right: -760px;
+    top: 65%;
+    transform: translateY(-50%);
+    z-index: 1;
+    pointer-events: none;
+}
+
+.login-container .truck-image img {
+    width: 650px;
+    height: auto;
+    display: block;
+}
+
+@media (max-width: 1024px) {
+    .login-container .truck-image {
+        right: -200px;
+    }
+
+    .login-container .truck-image img {
+        width: 450px;
+    }
+}
+
+@media (max-width: 768px) {
+    .login-container {
+        padding: 20px;
+    }
+
+    .login-container .logo-container img {
+        width: 350px;
+    }
+
+    .login-container .truck-image {
+        display: none;
+    }
+
+    .login-container .login-form {
+        width: 100%;
+        max-width: 380px;
+    }
+}
