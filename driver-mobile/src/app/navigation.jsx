@@ -14,7 +14,6 @@ import NavigationInfoSheet from "../../components/navigation/NavigationInfoSheet
 import NavigationHeader from "../../components/navigation/NavigationHeader";
 import NavigationRoutePreview from "../../components/navigation/NavigationRoutePreview";
 import NavigationMap from "../../components/navigation/NavigationMap";
-import PostTripCheck from "../../components/navigation/PostTripCheck";
 import {
   getDelivery,
   saveDeliveryChecklist,
@@ -49,7 +48,6 @@ export default function Navigation() {
   const { deliveryId } = useLocalSearchParams();
 
   const [navigationState, setNavigationState] = useState("preview");
-  const [showPostTripCheck, setShowPostTripCheck] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [backendDelivery, setBackendDelivery] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -132,7 +130,10 @@ export default function Navigation() {
 
     const timer = setTimeout(() => {
       setShowCompleted(false);
-      setShowPostTripCheck(true);
+      router.replace({
+        pathname: "/(tabs)/home",
+        params: { completed: "1" },
+      });
     }, 1500);
 
     return () => clearTimeout(timer);
@@ -156,32 +157,6 @@ export default function Navigation() {
     [deliveryId]
   );
 
-  const handlePostTripConfirm = async (postTripData) => {
-    try {
-      const result = await saveDeliveryChecklist(deliveryId, {
-        type: "post_trip",
-        items: postTripData.checks,
-        starting_odometer: postTripData.startingOdometer || null,
-        ending_odometer: postTripData.endingOdometer || null,
-        starting_fuel: postTripData.startingFuel || null,
-        ending_fuel: postTripData.endingFuel || null,
-      });
-
-      setBackendDelivery(result.delivery);
-      setShowPostTripCheck(false);
-
-      router.replace({
-        pathname: "/(tabs)/home",
-        params: { completed: "1" },
-      });
-    } catch (error) {
-      Alert.alert(
-        "Unable to Complete Delivery",
-        error?.message || "Could not save the post-trip checklist."
-      );
-    }
-  };
-
   if (loading || !delivery) {
     return (
       <SafeAreaView style={styles.container} edges={["top"]}>
@@ -204,45 +179,26 @@ export default function Navigation() {
           />
         </View>
 
-        {!showPostTripCheck && (
-          <>
-            <NavigationRoutePreview
-              delivery={delivery}
-              navigationState={navigationState}
-            />
+        <NavigationRoutePreview
+          delivery={delivery}
+          navigationState={navigationState}
+        />
 
-            <NavigationInfoSheet
-              delivery={delivery}
-              navigationState={navigationState}
-              setNavigationState={setNavigationState}
-              onStatusChange={handleStatusChange}
-            />
-          </>
-        )}
+        <NavigationInfoSheet
+          delivery={delivery}
+          navigationState={navigationState}
+          setNavigationState={setNavigationState}
+          onStatusChange={handleStatusChange}
+        />
 
         {showCompleted && (
           <View style={styles.completedMessage}>
             <Text style={styles.completedTitle}>Delivery Completed!</Text>
             <Text style={styles.completedText}>
-              Opening post-trip check...
+              Returning to Home...
             </Text>
           </View>
         )}
-
-        <Modal
-          visible={showPostTripCheck}
-          animationType="slide"
-          transparent={false}
-          onRequestClose={() => {}}
-        >
-          <PostTripCheck
-            delivery={delivery}
-            onConfirm={handlePostTripConfirm}
-            onReportIssue={() => {
-              console.log("POST TRIP ISSUE");
-            }}
-          />
-        </Modal>
       </View>
     </SafeAreaView>
   );

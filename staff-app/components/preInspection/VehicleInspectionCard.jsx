@@ -9,30 +9,13 @@ export default function VehicleInspectionCard({
   vehicleType = "10 Wheeler - FUSO",
   odometer = "67,000 km",
   completed = 0,
-  total = 8,
-  photoUploaded = false,
+  total = 21,
   loading = false,
 }) {
   const [imgError, setImgError] = useState(false);
   const imageSource = !imgError && image ? image : FALLBACK_IMAGE;
-  /*
-    Total requirements:
-    - Checklist items
-    - Photo upload
-  */
 
-  const totalRequirements = total + 1;
-
-  const completedRequirements =
-    completed + (photoUploaded ? 1 : 0);
-
-  const progress =
-    totalRequirements > 0
-      ? Math.min(
-          completedRequirements / totalRequirements,
-          1
-        )
-      : 0;
+  const progress = total > 0 ? Math.min(completed / total, 1) : 0;
 
   if (loading) {
     return (

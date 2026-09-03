@@ -11,6 +11,8 @@ export default function DetailsInfo({
   inspectionType,
   status,
 }) {
+  const hasIssues = String(status || "").toLowerCase().includes("issues");
+
   return (
     <View style={styles.container}>
       <View style={styles.infoBox}>
@@ -72,8 +74,8 @@ export default function DetailsInfo({
           </Text>
         </View>
 
-        <View style={styles.statusBadge}>
-          <Text style={styles.statusText}>
+        <View style={[styles.statusBadge, hasIssues && styles.statusBadgeIssue]}>
+          <Text style={[styles.statusText, hasIssues && styles.statusTextIssue]}>
             {status}
           </Text>
         </View>
@@ -151,9 +153,18 @@ const styles = StyleSheet.create({
     backgroundColor: "#F0FFF1",
   },
 
+  statusBadgeIssue: {
+    borderColor: "#FDBA74",
+    backgroundColor: "#FFF7ED",
+  },
+
   statusText: {
     color: "#3DAA4B",
     fontSize: 9,
     fontWeight: "600",
+  },
+
+  statusTextIssue: {
+    color: "#EA580C",
   },
 });

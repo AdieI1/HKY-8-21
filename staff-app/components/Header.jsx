@@ -1,11 +1,23 @@
+import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+
+const FALLBACK_AVATAR = require("../assets/images/staffpic.jpg");
 
 export default function Header({
   name = "John Staff",
   avatar,
   onNotificationPress,
 }) {
+  const [imgError, setImgError] = useState(false);
+
+  const imageSource =
+    !imgError && avatar
+      ? typeof avatar === "string"
+        ? { uri: avatar }
+        : avatar
+      : FALLBACK_AVATAR;
+
   return (
     <View style={styles.container}>
 
@@ -14,13 +26,8 @@ export default function Header({
 
         {/* Staff Profile Picture */}
         <Image
-          source={
-            avatar
-              ? typeof avatar === "string"
-                ? { uri: avatar }
-                : avatar
-              : require("../assets/images/staffpic.jpg")
-          }
+          source={imageSource}
+          onError={() => setImgError(true)}
           style={styles.avatar}
           resizeMode="cover"
         />

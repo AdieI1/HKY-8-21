@@ -685,13 +685,13 @@ class DeliveryController extends Controller
             'ending_fuel' => 'nullable|numeric|min:0',
         ]);
 
-        if (in_array(false, array_values($validated['items']), true)) {
+        if (in_array(null, array_values($validated['items']), true)) {
             return response()->json([
                 'message' => 'Complete every checklist item before continuing.'
             ], 422);
         }
 
-        if ($validated['type'] === 'post_trip' && $delivery->status !== 'returning_to_hq') {
+        if ($validated['type'] === 'post_trip' && !in_array($delivery->status, ['returning_to_hq', 'arrived', 'delivered', 'in_transit', 'completed'])) {
             return response()->json([
                 'message' => 'Finish the delivery route before submitting the post-trip checklist.'
             ], 422);

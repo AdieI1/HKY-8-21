@@ -35,10 +35,12 @@ const CHECKLIST = [
   },
 ];
 
-export default function ChecklistInfo() {
+export default function ChecklistInfo({ items = CHECKLIST }) {
+  const displayItems = Array.isArray(items) && items.length > 0 ? items : CHECKLIST;
+
   return (
     <View style={styles.container}>
-      {CHECKLIST.map((item, index) => (
+      {displayItems.map((item, index) => (
         <View
           key={index}
           style={styles.item}
@@ -47,7 +49,7 @@ export default function ChecklistInfo() {
             {item.label}
           </Text>
 
-          <Text style={styles.status}>
+          <Text style={[styles.status, item.status === "Issue" && styles.statusIssue]}>
             {item.status}
           </Text>
         </View>
@@ -82,5 +84,9 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     textAlign: "right",
+  },
+
+  statusIssue: {
+    color: "#EA580C",
   },
 });

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -9,14 +10,24 @@ import {
   View,
 } from "react-native";
 
+const FALLBACK_AVATAR = require("@/assets/images/staffpic.jpg");
+
 export default function ProfileHeader({
   name = "John Staff",
   email = "john_staff@gmail.com",
-  avatar = require("@/assets/images/staffpic.jpg"),
+  avatar,
   onBack,
   onSettingsPress,
 }) {
   const router = useRouter();
+  const [imgError, setImgError] = useState(false);
+
+  const imageSource =
+    !imgError && avatar
+      ? typeof avatar === "string"
+        ? { uri: avatar }
+        : avatar
+      : FALLBACK_AVATAR;
 
   const handleBack = () => {
     if (onBack) {
@@ -71,7 +82,8 @@ export default function ProfileHeader({
       {/* User Info Section */}
       <View style={styles.userSection}>
         <Image
-          source={avatar}
+          source={imageSource}
+          onError={() => setImgError(true)}
           style={styles.avatar}
           resizeMode="cover"
         />

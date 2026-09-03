@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { LinearGradient } from "expo-linear-gradient";
 
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 
 import {
     Pressable,
@@ -21,8 +21,14 @@ import ReportVehicleCard from "@/components/ReportIssue/ReportVehicleCard";
 import ReportIssueForm from "@/components/ReportIssue/ReportIssueForm";
 
 export default function ReportIssue() {
-
   const router = useRouter();
+  const params = useLocalSearchParams();
+
+  const vehiclePlate = params?.vehicle || "ABC - 1234";
+  const vehicleType = params?.vehicleType || "10 Wheeler - FUSO";
+  const odometer = params?.odometer || "67,000 km";
+  const initialSeverity = params?.severity || "Low";
+  const initialDescription = params?.initialDescription || params?.defectsSummary || "";
 
   return (
 
@@ -113,18 +119,21 @@ export default function ReportIssue() {
 
             image={require("../assets/images/truckpic.jpg")}
 
-            vehicle="ABC - 1234"
+            vehicle={vehiclePlate}
 
-            vehicleType="10 Wheeler - FUSO"
+            vehicleType={vehicleType}
 
-            odometer="67,000 km"
+            odometer={odometer}
 
           />
 
 
           {/* ISSUE FORM */}
 
-          <ReportIssueForm />
+          <ReportIssueForm
+            initialSeverity={initialSeverity}
+            initialDescription={initialDescription}
+          />
 
         </View>
 

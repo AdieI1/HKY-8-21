@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useRouter } from "expo-router";
 import {
   Image,
@@ -7,6 +8,8 @@ import {
   View,
 } from "react-native";
 
+const FALLBACK_IMAGE = require("../../assets/images/truckpic.jpg");
+
 export default function DetailsCard({
   image,
   vehicle,
@@ -15,6 +18,8 @@ export default function DetailsCard({
   onPress,
 }) {
   const router = useRouter();
+  const [imgError, setImgError] = useState(false);
+  const imageSource = !imgError && image ? image : FALLBACK_IMAGE;
 
   const handlePress = () => {
     if (onPress) {
@@ -33,7 +38,8 @@ export default function DetailsCard({
       onPress={handlePress}
     >
       <Image
-        source={image}
+        source={imageSource}
+        onError={() => setImgError(true)}
         style={styles.image}
       />
 

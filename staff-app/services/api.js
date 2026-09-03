@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const API_URL = "http://192.168.254.109:8000/api";
+const API_BASE = API_URL.replace(/\/api\/?$/, "");
 const TOKEN_KEY = "staff_auth_token";
 const USER_KEY = "staff_auth_user";
 
@@ -9,9 +10,9 @@ export const resolveImageUrl = (url) => {
   if (typeof url !== "string") return url;
   if (!url.startsWith("http://") && !url.startsWith("https://")) {
     const cleanPath = url.replace(/^\/?storage\/?/, "");
-    return `http://192.168.254.109:8000/storage/${cleanPath}`;
+    return `${API_BASE}/storage/${cleanPath}`;
   }
-  return url.replace(/https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i, "http://192.168.254.109:8000");
+  return url.replace(/https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i, API_BASE);
 };
 
 // Safe in-memory fallback store in case native storage is unavailable
@@ -38,7 +39,7 @@ const safeStorage = {
     delete memoryStorage[key];
     try {
       await AsyncStorage.removeItem(key);
-    } catch {}
+    } catch { }
   },
 };
 

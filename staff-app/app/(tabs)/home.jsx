@@ -37,16 +37,20 @@ export default function Home() {
 
   const loadData = useCallback(async () => {
     try {
-      const [savedUser, deliveryList, reports] = await Promise.all([
+      const [savedUser, currentUser, deliveryList, reports] = await Promise.all([
         getSavedUser().catch(() => null),
+        getCurrentUser().catch(() => null),
         getDeliveries().catch(() => []),
         getIncidentReports().catch(() => []),
       ]);
 
-      const activeUser = savedUser || await getCurrentUser().catch(() => null);
+      const activeUser = currentUser || savedUser;
       if (activeUser?.full_name) {
         setUserName(activeUser.full_name);
-        setUserAvatar(activeUser.profile_photo_url || null);
+      }
+      const rawPhoto = activeUser?.profile_photo_url || activeUser?.profile_photo_path;
+      if (rawPhoto) {
+        setUserAvatar(resolveImageUrl(rawPhoto));
       }
 
       const deliveries = Array.isArray(deliveryList) ? deliveryList : [];
@@ -62,16 +66,32 @@ export default function Home() {
         (d) =>
           d?.checklists?.some((c) => c.type === "pre_trip") &&
           !d?.checklists?.some((c) => c.type === "post_trip") &&
-          ["in_transit", "arrived", "delivered"].includes(d?.status)
+          ["in_transit", "arrived", "delivered", "returning_to_hq", "completed"].includes(d?.status)
       );
 
-      // Only count checks completed today by this staff account (0 if none completed yet)
-      const todayStr = new Date().toISOString().slice(0, 10);
+      // Only count checks completed today (0 if none completed yet)
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth();
+      const currentDay = now.getDate();
+
+      const parseDateSafe = (dateString) => {
+        if (!dateString) return null;
+        const cleaned = String(dateString).replace(/\.\d+Z?$/, "").replace(/Z$/, "").replace("T", " ");
+        const parts = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}):?(\d{2})?)?/);
+        return parts ? new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])) : new Date(dateString);
+      };
+
       const completedToday = deliveries.filter((d) =>
         d?.checklists?.some((c) => {
           if (!c?.completed_at) return false;
-          const dateStr = new Date(c.completed_at).toISOString().slice(0, 10);
-          return dateStr === todayStr;
+          const dt = parseDateSafe(c.completed_at);
+          return (
+            dt &&
+            dt.getFullYear() === currentYear &&
+            dt.getMonth() === currentMonth &&
+            dt.getDate() === currentDay
+          );
         })
       ).length;
 
@@ -100,6 +120,8 @@ export default function Home() {
         const resolvedUrl = resolveImageUrl(vehicle?.photo_url || vehicle?.photo);
         const imageSource = resolvedUrl ? { uri: resolvedUrl } : DEFAULT_IMAGE;
 
+        const isPost = d?.checklists?.some((c) => c.type === "pre_trip");
+
         return {
           id: d?.delivery_id,
           vehicle: plate,
@@ -107,6 +129,7 @@ export default function Home() {
           time: timeStr,
           image: imageSource,
           delivery: d,
+          inspectionType: isPost ? "Post-Trip" : "Pre-Trip",
         };
       });
 
@@ -220,7 +243,11 @@ export default function Home() {
                   onPress={() =>
                     router.push({
                       pathname: "/pre-inspection",
-                      params: { deliveryId: String(task.id) },
+                      params: {
+                        deliveryId: String(task.id),
+                        type: task.inspectionType === "Post-Trip" ? "post_trip" : "pre_trip",
+                        inspectionType: task.inspectionType,
+                      },
                     })
                   }
                 />

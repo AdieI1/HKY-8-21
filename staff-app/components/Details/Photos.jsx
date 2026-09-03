@@ -1,22 +1,29 @@
+import { Ionicons } from "@expo/vector-icons";
 import {
   Image,
   StyleSheet,
+  Text,
   View,
 } from "react-native";
 
-const PHOTOS = [
-  require("../../assets/images/truckpic.jpg"),
-  require("../../assets/images/truckpic.jpg"),
-  require("../../assets/images/truckpic.jpg"),
-  require("../../assets/images/truckpic.jpg"),
-  require("../../assets/images/truckpic.jpg"),
-  require("../../assets/images/truckpic.jpg"),
-];
+export default function Photos({ photos = [] }) {
+  const displayPhotos = Array.isArray(photos) ? photos : [];
 
-export default function Photos() {
+  if (displayPhotos.length === 0) {
+    return (
+      <View style={styles.emptyContainer}>
+        <Ionicons name="images-outline" size={44} color="#A3A6B4" />
+        <Text style={styles.emptyTitle}>No Photos Uploaded</Text>
+        <Text style={styles.emptySubtitle}>
+          There are no photos attached to this inspection record.
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      {PHOTOS.map((photo, index) => (
+      {displayPhotos.map((photo, index) => (
         <Image
           key={index}
           source={photo}
@@ -41,5 +48,27 @@ const styles = StyleSheet.create({
     height: 82,
     borderRadius: 8,
     resizeMode: "cover",
+  },
+
+  emptyContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 50,
+    paddingHorizontal: 20,
+  },
+
+  emptyTitle: {
+    color: "#4E5058",
+    fontSize: 15,
+    fontWeight: "700",
+    marginTop: 10,
+    marginBottom: 4,
+  },
+
+  emptySubtitle: {
+    color: "#888B97",
+    fontSize: 12,
+    textAlign: "center",
+    lineHeight: 16,
   },
 });

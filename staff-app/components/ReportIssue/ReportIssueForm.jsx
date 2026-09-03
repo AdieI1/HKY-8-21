@@ -10,12 +10,12 @@ import {
 } from "react-native";
 import UploadPhoto from "../UploadPhoto";
 
-export default function ReportIssueForm() {
+export default function ReportIssueForm({ initialSeverity = "Low", initialDescription = "" }) {
   const router = useRouter();
   const [issueType, setIssueType] = useState("Flat Tires");
   const [showIssueTypes, setShowIssueTypes] = useState(false);
-  const [severity, setSeverity] = useState("Low");
-  const [description, setDescription] = useState("");
+  const [severity, setSeverity] = useState(initialSeverity || "Low");
+  const [description, setDescription] = useState(initialDescription || "");
 
   const issueTypes = [
     "Flat Tires",

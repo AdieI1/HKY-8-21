@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
     Image,
@@ -6,6 +7,8 @@ import {
     Text,
     View,
 } from "react-native";
+
+const FALLBACK_IMAGE = require("../assets/images/truckpic.jpg");
 
 export default function InspectionCard({
   image,
@@ -16,6 +19,9 @@ export default function InspectionCard({
   status = "Pending",
   onPress,
 }) {
+  const [imgError, setImgError] = useState(false);
+  const imageSource = !imgError && image ? image : FALLBACK_IMAGE;
+
   return (
     <Pressable
       style={styles.card}
@@ -23,7 +29,8 @@ export default function InspectionCard({
     >
       {/* Truck Image */}
       <Image
-        source={image}
+        source={imageSource}
+        onError={() => setImgError(true)}
         style={styles.image}
         resizeMode="cover"
       />

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Image,
@@ -6,6 +7,8 @@ import {
   Text,
   View,
 } from "react-native";
+
+const FALLBACK_IMAGE = require("../../assets/images/truckpic.jpg");
 
 export default function VehicleRecords({
   image,
@@ -16,6 +19,8 @@ export default function VehicleRecords({
   status,
   onPress,
 }) {
+  const [imgError, setImgError] = useState(false);
+  const imageSource = !imgError && image ? image : FALLBACK_IMAGE;
   const hasIssues = status === "Completed with issues";
 
   return (
@@ -27,7 +32,11 @@ export default function VehicleRecords({
       onPress={onPress}
     >
       <View style={styles.imageContainer}>
-        <Image source={image} style={styles.image} />
+        <Image
+          source={imageSource}
+          onError={() => setImgError(true)}
+          style={styles.image}
+        />
       </View>
 
       <View style={styles.info}>

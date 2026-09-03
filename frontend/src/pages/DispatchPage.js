@@ -242,8 +242,6 @@ function DispatchPage() {
         driver_id: chosenDriverId,
         vehicle_id: chosenVehicleId,
         trip_date: tripDate,
-        starting_odometer: odometerReading !== '' ? Number(odometerReading) : null,
-        odometer_reading: odometerReading !== '' ? Number(odometerReading) : null,
         fuel_issued: fuelLiters || null,
         fuel_receipt_no: fuelReceiptNo || null,
         remarks: remarks.trim() || null,
@@ -510,25 +508,11 @@ function DispatchPage() {
                 <i className="fas fa-clipboard-list tt-section-icon"></i>
                 <span>TRIP INFORMATION</span>
               </div>
-              <div className="tt-three-col">
+              <div className="tt-two-col">
                 <div className="tt-field">
                   <label className="tt-label">Date</label>
                   <div className="tt-input-unit">
                     <input className="tt-input" type="date" value={tripDate} onChange={(e) => setTripDate(e.target.value)} />
-                  </div>
-                </div>
-                <div className="tt-field">
-                  <label className="tt-label">Odometer Reading In</label>
-                  <div className="tt-input-unit">
-                    <input
-                      className="tt-input"
-                      type="number"
-                      step="any"
-                      placeholder={selectedVehicle?.odometer_reading ? Number(selectedVehicle.odometer_reading).toFixed(2) : '124000.00'}
-                      value={odometerReading}
-                      onChange={(e) => setOdometerReading(e.target.value)}
-                    />
-                    <span className="tt-unit">km</span>
                   </div>
                 </div>
                 <div className="tt-field">

@@ -1,3 +1,5 @@
+import { useFocusEffect } from "@react-navigation/native";
+import { useCallback, useState } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -6,18 +8,59 @@ import {
 
 import ProfileHeader from "@/components/Profile/ProfileHeader";
 import ProfileInfo from "@/components/Profile/ProfileInfo";
+import { getCurrentUser, getSavedUser, resolveImageUrl } from "../../services/api";
+
+const DEFAULT_AVATAR = require("@/assets/images/staffpic.jpg");
 
 export default function Profile() {
-  const user = {
-    name: "John Staff",
-    email: "john_staff@gmail.com",
-    phoneNumber: "09674209607",
-    firstName: "Christopher",
-    lastName: "Lee",
-    gender: "09674209607",
-    dateOfBirth: "05/16/98",
-    avatar: require("@/assets/images/staffpic.jpg"),
-  };
+  const [user, setUser] = useState({
+    name: "Mark Grayson",
+    email: "staff@hjytrucking.com",
+    phoneNumber: "09123456788",
+    firstName: "Mark",
+    lastName: "Grayson",
+    gender: "Male",
+    dateOfBirth: "N/A",
+    avatar: DEFAULT_AVATAR,
+  });
+
+  const loadProfile = useCallback(async () => {
+    try {
+      const [saved, current] = await Promise.all([
+        getSavedUser().catch(() => null),
+        getCurrentUser().catch(() => null),
+      ]);
+      const active = current || saved;
+      if (!active) return;
+
+      const nameParts = (active.full_name || "").trim().split(" ");
+      const firstName = nameParts[0] || "Staff";
+      const lastName = nameParts.slice(1).join(" ") || "";
+      const rawPhoto = active.profile_photo_url || active.profile_photo_path;
+      const avatarSource = rawPhoto
+        ? { uri: resolveImageUrl(rawPhoto) }
+        : DEFAULT_AVATAR;
+
+      setUser({
+        name: active.full_name || "Staff",
+        email: active.email || "",
+        phoneNumber: active.phone || "",
+        firstName: firstName,
+        lastName: lastName,
+        gender: active.gender || "Male",
+        dateOfBirth: active.date_of_birth || "N/A",
+        avatar: avatarSource,
+      });
+    } catch (e) {
+      console.log("LOAD PROFILE ERROR:", e);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadProfile();
+    }, [loadProfile])
+  );
 
   return (
     <View style={styles.screen}>
