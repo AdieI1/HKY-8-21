@@ -1,9 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "http://192.168.254.109:8000/api";
+const API_URL = "https://lather-venue-bony.ngrok-free.dev/api";
 const API_BASE = API_URL.replace(/\/api\/?$/, "");
-const TOKEN_KEY = "staff_auth_token";
-const USER_KEY = "staff_auth_user";
+const TOKEN_KEY = "auth_token";
+const USER_KEY = "auth_user";
 
 export const resolveImageUrl = (url) => {
   if (!url) return null;

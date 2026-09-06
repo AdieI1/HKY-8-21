@@ -8,6 +8,7 @@ import {
 
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
+import { setActiveAcceptedDeliveryId } from "../../services/api";
 
 export default function RouteInfo({ delivery }) {
     const request = delivery?.request;
@@ -35,12 +36,14 @@ export default function RouteInfo({ delivery }) {
             : "Distance not provided";
 
     const handleAcceptAssignment = () => {
+        const id = delivery?.delivery_id;
+        if (id) {
+            setActiveAcceptedDeliveryId(id);
+        }
         router.push({
             pathname: "/pretripcheck",
             params: {
-                deliveryId: String(
-                    delivery?.delivery_id || ""
-                ),
+                deliveryId: String(id || ""),
             },
         });
     };

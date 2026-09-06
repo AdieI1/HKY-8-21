@@ -19,6 +19,7 @@ import {
   saveDeliveryChecklist,
   updateDeliveryLocation,
   updateDriverDeliveryStatus,
+  clearActiveAcceptedDeliveryId,
 } from "../../services/api";
 
 const statusToNavigationState = (status) => {
@@ -126,6 +127,7 @@ export default function Navigation() {
   useEffect(() => {
     if (navigationState !== "completed") return;
 
+    clearActiveAcceptedDeliveryId().catch(() => {});
     setShowCompleted(true);
 
     const timer = setTimeout(() => {
@@ -175,6 +177,7 @@ export default function Navigation() {
         <View style={styles.mapContainer}>
           <NavigationMap
             delivery={backendDelivery}
+            navigationState={navigationState}
             onLocationChange={handleLocationChange}
           />
         </View>

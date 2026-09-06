@@ -8,13 +8,20 @@ import {
     Alert,
     ActivityIndicator,
 } from "react-native";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { BlurView } from "expo-blur";
 
-import { login } from "../../services/api";
+import {
+    login,
+    getToken,
+    getDelivery,
+    getMyDeliveries,
+    getActiveAcceptedDeliveryId,
+    clearActiveAcceptedDeliveryId,
+} from "../../services/api";
 
 const loginbg = require("../../assets/images/loginbg.png");
 
@@ -25,6 +32,77 @@ export default function Index() {
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+
+    const resumeDeliveryIfActive = async (deliveryId) => {
+        if (!deliveryId) return false;
+        try {
+            const delivery = await getDelivery(deliveryId);
+            if (!delivery || ["completed", "rejected"].includes(delivery.status)) {
+                await clearActiveAcceptedDeliveryId();
+                return false;
+            }
+            const hasPreTrip = delivery?.checklists?.some((e) => e.type === "pre_trip");
+            const hasAdvanced = delivery?.status && !["assigned", "pending"].includes(delivery.status);
+
+            if (hasPreTrip || hasAdvanced) {
+                router.replace({
+                    pathname: "/navigation",
+                    params: { deliveryId: String(deliveryId) },
+                });
+            } else {
+                router.replace({
+                    pathname: "/pretripcheck",
+                    params: { deliveryId: String(deliveryId) },
+                });
+            }
+            return true;
+        } catch {
+            return false;
+        }
+    };
+
+    useEffect(() => {
+        let active = true;
+        const checkAutoLogin = async () => {
+            try {
+                const token = await getToken();
+                if (!token || !active) return;
+
+                const [activeId, deliveries] = await Promise.all([
+                    getActiveAcceptedDeliveryId().catch(() => null),
+                    getMyDeliveries().catch(() => []),
+                ]);
+
+                const activeInProgress = Array.isArray(deliveries)
+                    ? deliveries.find((d) =>
+                          [
+                              "accepted",
+                              "arrived_pickup",
+                              "loading_cargo",
+                              "out_for_delivery",
+                              "arrived_dropoff",
+                              "unloading_cargo",
+                          ].includes(d?.status)
+                      )
+                    : null;
+
+                const targetId = activeInProgress?.delivery_id || activeId;
+                if (targetId) {
+                    const resumed = await resumeDeliveryIfActive(targetId);
+                    if (resumed || !active) return;
+                }
+
+                router.replace("/(tabs)/home");
+            } catch (err) {
+                console.log("AUTO-LOGIN CHECK ERROR:", err);
+            }
+        };
+
+        checkAutoLogin();
+        return () => {
+            active = false;
+        };
+    }, []);
 
     const handleLogin = async () => {
         console.log("================================");
@@ -72,9 +150,32 @@ export default function Index() {
             }
 
             /*
-             * ONLY navigate after the backend
-             * successfully authenticated the user.
+             * Navigate to active trip or home after successful login
              */
+            const [activeId, deliveries] = await Promise.all([
+                getActiveAcceptedDeliveryId().catch(() => null),
+                getMyDeliveries().catch(() => []),
+            ]);
+
+            const activeInProgress = Array.isArray(deliveries)
+                ? deliveries.find((d) =>
+                      [
+                          "accepted",
+                          "arrived_pickup",
+                          "loading_cargo",
+                          "out_for_delivery",
+                          "arrived_dropoff",
+                          "unloading_cargo",
+                      ].includes(d?.status)
+                  )
+                : null;
+
+            const targetId = activeInProgress?.delivery_id || activeId;
+            if (targetId) {
+                const resumed = await resumeDeliveryIfActive(targetId);
+                if (resumed) return;
+            }
+
             router.replace("/(tabs)/home");
 
         } catch (error) {

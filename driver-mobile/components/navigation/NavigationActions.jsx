@@ -56,7 +56,7 @@ export default function NavigationActions({
       loading: ["in_transit_dropoff", "out_for_delivery"],
       in_transit_dropoff: ["arrived_dropoff", "arrived_dropoff"],
       arrived_dropoff: ["unloading", "unloading_cargo"],
-      unloading: ["completed", "returning_to_hq"],
+      unloading: ["completed", "completed"],
     };
 
     const transition = transitions[navigationState];

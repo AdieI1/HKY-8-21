@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "http://192.168.254.109:8000/api";
+const API_URL = "https://lather-venue-bony.ngrok-free.dev/api";
 const TOKEN_KEY = "auth_token";
 const USER_KEY = "auth_user";
 
@@ -212,6 +212,25 @@ export const updateDeliveryLocation = async (deliveryId, latitude, longitude) =>
 };
 
 /* =========================================================
+   ACTIVE DELIVERY PERSISTENCE
+========================================================= */
+
+const ACTIVE_DELIVERY_KEY = "active_accepted_delivery_id";
+
+export const setActiveAcceptedDeliveryId = async (deliveryId) => {
+    if (!deliveryId) return;
+    await AsyncStorage.setItem(ACTIVE_DELIVERY_KEY, String(deliveryId));
+};
+
+export const getActiveAcceptedDeliveryId = async () => {
+    return await AsyncStorage.getItem(ACTIVE_DELIVERY_KEY);
+};
+
+export const clearActiveAcceptedDeliveryId = async () => {
+    await AsyncStorage.removeItem(ACTIVE_DELIVERY_KEY);
+};
+
+/* =========================================================
    LOGOUT
 ========================================================= */
 
@@ -232,5 +251,6 @@ export const logout = async () => {
     } finally {
         await AsyncStorage.removeItem(TOKEN_KEY);
         await AsyncStorage.removeItem(USER_KEY);
+        await AsyncStorage.removeItem(ACTIVE_DELIVERY_KEY);
     }
 };

@@ -647,7 +647,9 @@ class DeliveryController extends Controller
         $currentIndex = array_search($delivery->status, self::STATUS_ORDER, true);
         $targetIndex = array_search($targetStatus, self::STATUS_ORDER, true);
 
-        if ($currentIndex === false || $targetIndex !== $currentIndex + 1) {
+        $canCompleteDirectly = ($targetStatus === 'completed' && in_array($delivery->status, ['unloading_cargo', 'returning_to_hq'], true));
+
+        if (!$canCompleteDirectly && ($currentIndex === false || $targetIndex !== $currentIndex + 1)) {
             return response()->json([
                 'message' => "Delivery cannot move from {$delivery->status} to {$targetStatus}."
             ], 422);

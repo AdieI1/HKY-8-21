@@ -5,14 +5,35 @@ import {
   TouchableOpacity,
   Switch,
   ImageBackground,
+  Alert,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { useTheme } from "../context/ThemeContext";
+import { logout } from "../../services/api";
 
 export default function Settings() {
   const { darkMode, toggleDarkMode, theme } =
     useTheme();
+
+  const handleLogout = () => {
+    Alert.alert("Log Out", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Log Out",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await logout();
+          } catch (error) {
+            console.log("LOGOUT ERROR:", error);
+          } finally {
+            router.replace("/");
+          }
+        },
+      },
+    ]);
+  };
 
   return (
     <View
@@ -27,6 +48,14 @@ export default function Settings() {
           { backgroundColor: theme.header },
         ]}
       >
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backButton}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+
         <Text style={styles.headerTitle}>
           Settings
         </Text>
@@ -161,7 +190,7 @@ export default function Settings() {
 
           <TouchableOpacity
             style={styles.row}
-            onPress={() => {}}
+            onPress={handleLogout}
           >
             <View style={styles.leftSide}>
               <Ionicons
@@ -284,8 +313,13 @@ const styles = StyleSheet.create({
     height: 69,
     borderBottomLeftRadius: 35,
     borderBottomRightRadius: 35,
-    justifyContent: "center",
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 20,
+  },
+
+  backButton: {
+    marginRight: 12,
   },
 
   headerTitle: {

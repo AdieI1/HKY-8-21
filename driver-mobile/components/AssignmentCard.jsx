@@ -145,12 +145,12 @@ export default function AssignmentCard({ assignment }) {
 
                     <Text style={styles.info}>
                         Itemname:{" "}
-                        {assignment?.item || "Not provided"}
+                        {request?.item_name || assignment?.item || "Not provided"}
                     </Text>
 
                     <Text style={styles.info}>
                         Cargotype:{" "}
-                        {assignment?.cargo || "Not provided"}
+                        {request?.cargo_type || assignment?.cargo || "Not provided"}
                     </Text>
                 </View>
             </View>
