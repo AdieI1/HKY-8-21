@@ -2,6 +2,13 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
+import Pagination from '../components/Pagination';
+import TableSkeleton from '../components/TableSkeleton';
+import {
+  validatePlateNumber,
+  validateDateSequence,
+  validatePositiveNumber,
+} from '../utils/validation';
 
 const ACTIVE_DELIVERY_STATUSES = [
   'assigned',
@@ -194,6 +201,27 @@ function VehiclesPage() {
     return list;
   }, [listedVehicles, search, statusFilter, conditionFilter, sortBy]);
 
+  // Pagination states
+  const PAGE_SIZE = 10;
+  const [vehiclePage, setVehiclePage] = useState(1);
+  const [archivePage, setArchivePage] = useState(1);
+
+  useEffect(() => {
+    setVehiclePage(1);
+  }, [search, statusFilter, conditionFilter, sortBy]);
+
+  const totalVehiclePages = Math.ceil(filteredVehicles.length / PAGE_SIZE) || 1;
+  const paginatedVehicles = useMemo(() => {
+    const start = (vehiclePage - 1) * PAGE_SIZE;
+    return filteredVehicles.slice(start, start + PAGE_SIZE);
+  }, [filteredVehicles, vehiclePage]);
+
+  const totalArchivePages = Math.ceil(archivedVehicles.length / PAGE_SIZE) || 1;
+  const paginatedArchivedVehicles = useMemo(() => {
+    const start = (archivePage - 1) * PAGE_SIZE;
+    return archivedVehicles.slice(start, start + PAGE_SIZE);
+  }, [archivedVehicles, archivePage]);
+
   // Load detailed vehicle info with maintenances
   const openVehicleDetails = async (vehicle) => {
     setSelectedVehicle(vehicle);
@@ -256,6 +284,22 @@ function VehiclesPage() {
   const saveVehicle = async () => {
     if (!form.model || !form.plate_number || !form.color || !form.vehicle_type || !form.fuel_type) {
       setFormError('Please fill in all required fields (Model, Plate Number, Color, Type, Fuel Type).');
+      return;
+    }
+    if (!validatePlateNumber(form.plate_number)) {
+      setFormError('Please enter a valid Philippine plate number (e.g. ABC 1234 or ABC 123).');
+      return;
+    }
+    if (!validateDateSequence(form.registration_valid_from, form.registration_valid_until)) {
+      setFormError('Registration expiry date must be on or after the issue date.');
+      return;
+    }
+    if (!validateDateSequence(form.last_maintenance_date, form.next_maintenance_date)) {
+      setFormError('Next maintenance date must be on or after the last maintenance date.');
+      return;
+    }
+    if (!validatePositiveNumber(form.capacity)) {
+      setFormError('Capacity must be a positive number.');
       return;
     }
     setSaving(true);
@@ -496,95 +540,102 @@ function VehiclesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredVehicles.map((vehicle) => (
-                      <tr key={vehicle.vehicle_id} className="vehicle-row" onClick={() => openVehicleDetails(vehicle)}>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <img
-                              src={vehicle.photo_url || '/images/default-truck.png'}
-                              alt={vehicle.model}
-                              style={{ width: 36, height: 30, objectFit: 'cover', borderRadius: 4, border: '1px solid #e2e8f0', flexShrink: 0 }}
-                              onError={(e) => { e.currentTarget.src = '/images/default-truck.png'; }}
-                            />
-                            <span style={{ fontWeight: 600, fontSize: 13 }}>{vehicle.model || vehicle.brand || '—'}</span>
-                          </div>
-                        </td>
-                        <td className="vehicle-id" style={{ fontWeight: 600, fontSize: 13 }}>{vehicleCode(vehicle.vehicle_id)}</td>
-                        <td style={{ fontWeight: 600, fontSize: 13 }}>{vehicle.plate_number}</td>
-                        <td><span className={`vehicle-status ${statusClass(vehicle.status)}`} style={{ fontSize: 12 }}><i className="fas fa-circle"></i> {statusLabel(vehicle.status)}</span></td>
-                        <td style={{ fontSize: 13 }}>{vehicle.condition || '—'}</td>
-                        <td style={{ fontSize: 13 }}>{formatDate(vehicle.last_maintenance_date)}</td>
-                        <td className="action-cell" onClick={(e) => e.stopPropagation()}>
-                          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'nowrap' }}>
-                            <button
-                              className="btn-action-schedule"
-                              onClick={(e) => openScheduleMaintenanceModal(vehicle, e)}
-                              title="Schedule Maintenance"
-                              style={{
-                                background: '#f97316',
-                                color: '#fff',
-                                border: 'none',
-                                padding: '5px 8px',
-                                borderRadius: 5,
-                                fontSize: 11,
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 3,
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              <i className="fas fa-tools"></i> Schedule
-                            </button>
-                            <button
-                              className="btn-danger btn-decommission"
-                              onClick={(e) => openDecommissionModal(vehicle, e)}
-                              title="Decommission Vehicle"
-                              style={{
-                                background: '#ef4444',
-                                color: '#fff',
-                                border: 'none',
-                                padding: '5px 8px',
-                                borderRadius: 5,
-                                fontSize: 11,
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              Decommission
-                            </button>
-                            <button
-                              className="btn-edit"
-                              onClick={(e) => { e.stopPropagation(); openEditModal(vehicle); }}
-                              title="Edit Vehicle Information"
-                              style={{
-                                background: '#475569',
-                                color: '#fff',
-                                border: 'none',
-                                padding: '5px 8px',
-                                borderRadius: 5,
-                                fontSize: 11,
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              Edit
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {loading && (
-                      <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading vehicles...</td></tr>
-                    )}
-                    {!loading && filteredVehicles.length === 0 && (
+                    {loading ? (
+                      <TableSkeleton rows={5} columns={7} />
+                    ) : paginatedVehicles.length === 0 ? (
                       <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24 }}>No vehicles found.</td></tr>
+                    ) : (
+                      paginatedVehicles.map((vehicle) => (
+                        <tr key={vehicle.vehicle_id} className="vehicle-row" onClick={() => openVehicleDetails(vehicle)}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <img
+                                src={vehicle.photo_url || '/images/default-truck.png'}
+                                alt={vehicle.model}
+                                style={{ width: 36, height: 30, objectFit: 'cover', borderRadius: 4, border: '1px solid #e2e8f0', flexShrink: 0 }}
+                                onError={(e) => { e.currentTarget.src = '/images/default-truck.png'; }}
+                              />
+                              <span style={{ fontWeight: 600, fontSize: 13 }}>{vehicle.model || vehicle.brand || '—'}</span>
+                            </div>
+                          </td>
+                          <td className="vehicle-id" style={{ fontWeight: 600, fontSize: 13 }}>{vehicleCode(vehicle.vehicle_id)}</td>
+                          <td style={{ fontWeight: 600, fontSize: 13 }}>{vehicle.plate_number}</td>
+                          <td><span className={`vehicle-status ${statusClass(vehicle.status)}`} style={{ fontSize: 12 }}><i className="fas fa-circle"></i> {statusLabel(vehicle.status)}</span></td>
+                          <td style={{ fontSize: 13 }}>{vehicle.condition || '—'}</td>
+                          <td style={{ fontSize: 13 }}>{formatDate(vehicle.last_maintenance_date)}</td>
+                          <td className="action-cell" onClick={(e) => e.stopPropagation()}>
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'nowrap' }}>
+                              <button
+                                className="btn-action-schedule"
+                                onClick={(e) => openScheduleMaintenanceModal(vehicle, e)}
+                                title="Schedule Maintenance"
+                                style={{
+                                  background: '#f97316',
+                                  color: '#fff',
+                                  border: 'none',
+                                  padding: '5px 8px',
+                                  borderRadius: 5,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                <i className="fas fa-tools"></i> Schedule
+                              </button>
+                              <button
+                                className="btn-danger btn-decommission"
+                                onClick={(e) => openDecommissionModal(vehicle, e)}
+                                title="Decommission Vehicle"
+                                style={{
+                                  background: '#ef4444',
+                                  color: '#fff',
+                                  border: 'none',
+                                  padding: '5px 8px',
+                                  borderRadius: 5,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                Decommission
+                              </button>
+                              <button
+                                className="btn-edit"
+                                onClick={(e) => { e.stopPropagation(); openEditModal(vehicle); }}
+                                title="Edit Vehicle Information"
+                                style={{
+                                  background: '#475569',
+                                  color: '#fff',
+                                  border: 'none',
+                                  padding: '5px 8px',
+                                  borderRadius: 5,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
+                <Pagination
+                  currentPage={vehiclePage}
+                  totalPages={totalVehiclePages}
+                  totalItems={filteredVehicles.length}
+                  pageSize={PAGE_SIZE}
+                  onPageChange={setVehiclePage}
+                />
                 <p className="vehicles-table-hint" style={{ marginTop: 8, color: '#888', fontSize: 13 }}>
                   <i className="fas fa-info-circle"></i> Click any Vehicle row to view full Vehicle Specifications & Maintenance History.
                 </p>
@@ -599,27 +650,37 @@ function VehiclesPage() {
               <table className="data-table vehicles-table">
                 <thead><tr><th>Vehicle</th><th>Vehicle ID</th><th>Condition</th><th>Action</th></tr></thead>
                 <tbody>
-                  {archivedVehicles.map((vehicle) => (
-                    <tr key={vehicle.vehicle_id}>
-                      <td style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <img
-                          src={vehicle.photo_url || '/images/default-truck.png'}
-                          alt=""
-                          style={{ width: 36, height: 32, objectFit: 'cover', borderRadius: 4 }}
-                          onError={(e) => { e.currentTarget.src = '/images/default-truck.png'; }}
-                        />
-                        <span>{vehicle.model || '—'}</span>
-                      </td>
-                      <td>{vehicleCode(vehicle.vehicle_id)}</td>
-                      <td>{vehicle.condition || '—'}</td>
-                      <td><button className="btn-edit" onClick={() => restoreVehicle(vehicle)}>Restore</button></td>
-                    </tr>
-                  ))}
-                  {archivedVehicles.length === 0 && (
+                  {loading ? (
+                    <TableSkeleton rows={4} columns={4} />
+                  ) : paginatedArchivedVehicles.length === 0 ? (
                     <tr><td colSpan="4" style={{ textAlign: 'center', padding: 24 }}>No archived vehicles yet.</td></tr>
+                  ) : (
+                    paginatedArchivedVehicles.map((vehicle) => (
+                      <tr key={vehicle.vehicle_id}>
+                        <td style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <img
+                            src={vehicle.photo_url || '/images/default-truck.png'}
+                            alt=""
+                            style={{ width: 36, height: 32, objectFit: 'cover', borderRadius: 4 }}
+                            onError={(e) => { e.currentTarget.src = '/images/default-truck.png'; }}
+                          />
+                          <span>{vehicle.model || '—'}</span>
+                        </td>
+                        <td>{vehicleCode(vehicle.vehicle_id)}</td>
+                        <td>{vehicle.condition || '—'}</td>
+                        <td><button className="btn-edit" onClick={() => restoreVehicle(vehicle)}>Restore</button></td>
+                      </tr>
+                    ))
                   )}
                 </tbody>
               </table>
+              <Pagination
+                currentPage={archivePage}
+                totalPages={totalArchivePages}
+                totalItems={archivedVehicles.length}
+                pageSize={PAGE_SIZE}
+                onPageChange={setArchivePage}
+              />
             </div>
           )}
         </div>
@@ -1400,6 +1461,7 @@ function VehiclesPage() {
                             src={vehiclePhotoPreview}
                             alt="Vehicle Preview"
                             style={{ width: '100%', maxHeight: 90, objectFit: 'contain', borderRadius: 4 }}
+                            onError={(e) => { e.currentTarget.src = '/images/default-truck.png'; }}
                           />
                           <p style={{ margin: '6px 0 0', fontSize: 11, color: '#2563eb', fontWeight: 600 }}>Click to change</p>
                         </div>

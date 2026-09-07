@@ -3,6 +3,15 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-routing-machine';
 import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
+import api from '../../api/api-client';
+import {
+  DEFAULT_DANGER_ZONES,
+  HAZARD_CATEGORIES,
+  isZoneNearRoute,
+  createDangerZoneIcon,
+  createDangerZonePopupHtml,
+  calculateRouteRiskSummary,
+} from '../../utils/dangerZones';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -41,13 +50,37 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
   const [mapEl, setMapEl] = useState(null);
   const [activeMode, setActiveMode] = useState('pickup');
   const [routeStatus, setRouteStatus] = useState('idle');
+  const [showDangerZones, setShowDangerZones] = useState(true);
+  const [filterRouteOnly, setFilterRouteOnly] = useState(true);
+  const [dangerZones, setDangerZones] = useState(DEFAULT_DANGER_ZONES);
+  const [zonesOnRoute, setZonesOnRoute] = useState([]);
+
   const mapRef = useRef(null);
   const pickupMarkerRef = useRef(null);
   const dropoffMarkerRef = useRef(null);
   const routingRef = useRef(null);
+  const dangerLayerGroupRef = useRef(null);
   const activeModeRef = useRef(activeMode);
 
   useEffect(() => { activeModeRef.current = activeMode; }, [activeMode]);
+
+  // Load backend danger zones or fallback to defaults
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get('/danger-zones');
+        if (!cancelled && res.data && Array.isArray(res.data) && res.data.length > 0) {
+          setDangerZones(res.data);
+        }
+      } catch {
+        // Fallback to DEFAULT_DANGER_ZONES
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!mapEl || mapRef.current) return;
@@ -67,6 +100,14 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
 
     mapRef.current = map;
     setTimeout(() => map.invalidateSize(), 150);
+
+    return () => {
+      if (dangerLayerGroupRef.current) {
+        try {
+          map.removeLayer(dangerLayerGroupRef.current);
+        } catch (_) {}
+      }
+    };
   }, [mapEl, onPickupChange, onDropoffChange]);
 
   useEffect(() => {
@@ -75,7 +116,7 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
     if (pickupMarkerRef.current) {
       pickupMarkerRef.current.setLatLng([pickup.lat, pickup.lng]);
     } else {
-      pickupMarkerRef.current = L.marker([pickup.lat, pickup.lng]).addTo(map).bindPopup('Pickup').openPopup();
+      pickupMarkerRef.current = L.marker([pickup.lat, pickup.lng]).addTo(map).bindPopup('<b>Pick-up Location</b>').openPopup();
     }
   }, [pickup]);
 
@@ -85,10 +126,11 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
     if (dropoffMarkerRef.current) {
       dropoffMarkerRef.current.setLatLng([dropoff.lat, dropoff.lng]);
     } else {
-      dropoffMarkerRef.current = L.marker([dropoff.lat, dropoff.lng]).addTo(map).bindPopup('Drop-off').openPopup();
+      dropoffMarkerRef.current = L.marker([dropoff.lat, dropoff.lng]).addTo(map).bindPopup('<b>Drop-off Location</b>').openPopup();
     }
   }, [dropoff]);
 
+  // Route calculation and waypoint handling
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !hasCoords(pickup) || !hasCoords(dropoff)) return;
@@ -104,41 +146,175 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
         fitSelectedRoutes: true,
         show: false,
         createMarker: () => null,
-        lineOptions: { styles: [{ color: '#c0392b', weight: 4 }] },
+        lineOptions: { styles: [{ color: '#9E1E21', weight: 4 }] },
       })
         .on('routesfound', (e) => {
           setRouteStatus('ready');
           onDistanceChange(Math.round((e.routes[0].summary.totalDistance / 1000) * 10) / 10);
+
+          const coords = e.routes[0].coordinates || [pickup, dropoff];
+          const detected = dangerZones.filter((zone) => isZoneNearRoute(zone, coords, 2.0));
+          setZonesOnRoute(detected);
         })
-        .on('routingerror', () => setRouteStatus('failed'))
+        .on('routingerror', () => {
+          setRouteStatus('failed');
+          const coords = [pickup, dropoff];
+          const detected = dangerZones.filter((zone) => isZoneNearRoute(zone, coords, 2.0));
+          setZonesOnRoute(detected);
+        })
         .addTo(map);
     } else {
       routingRef.current.setWaypoints(waypoints);
     }
-  }, [pickup, dropoff, onDistanceChange]);
+  }, [pickup, dropoff, dangerZones, onDistanceChange]);
+
+  // Render Danger Zones Overlay
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (dangerLayerGroupRef.current) {
+      try {
+        map.removeLayer(dangerLayerGroupRef.current);
+      } catch (_) {}
+      dangerLayerGroupRef.current = null;
+    }
+
+    if (!showDangerZones) return;
+
+    const group = L.layerGroup();
+    const routeCoords = hasCoords(pickup) && hasCoords(dropoff) ? [pickup, dropoff] : [];
+
+    // ONLY render near hazards on the chosen route (or all if filter toggled off)
+    const targetZones = filterRouteOnly
+      ? (routeCoords.length > 0 ? dangerZones.filter((z) => isZoneNearRoute(z, routeCoords, 2.8)) : [])
+      : dangerZones;
+
+    targetZones.forEach((zone) => {
+      if (!zone.lat || !zone.lng) return;
+      const cat = HAZARD_CATEGORIES[zone.category] || HAZARD_CATEGORIES.accident_prone;
+      const isOnRoute = routeCoords.length > 0 && isZoneNearRoute(zone, routeCoords, 2.8);
+
+      const circle = L.circle([zone.lat, zone.lng], {
+        radius: zone.radius || 750,
+        color: isOnRoute ? '#dc2626' : cat.color,
+        fillColor: isOnRoute ? '#ef4444' : cat.fillColor,
+        fillOpacity: isOnRoute ? 0.22 : 0.12,
+        weight: isOnRoute ? 2 : 1.2,
+        dashArray: isOnRoute ? '4, 4' : null,
+      });
+
+      const marker = L.marker([zone.lat, zone.lng], {
+        icon: createDangerZoneIcon(zone, isOnRoute),
+        zIndexOffset: isOnRoute ? 600 : 200,
+      });
+
+      const popupHtml = createDangerZonePopupHtml(zone, isOnRoute);
+      circle.bindPopup(popupHtml, { maxWidth: 300, className: 'hjy-hazard-popup' });
+      marker.bindPopup(popupHtml, { maxWidth: 300, className: 'hjy-hazard-popup' });
+
+      group.addLayer(circle);
+      group.addLayer(marker);
+    });
+
+    group.addTo(map);
+    dangerLayerGroupRef.current = group;
+
+    return () => {
+      if (dangerLayerGroupRef.current && map) {
+        try {
+          map.removeLayer(dangerLayerGroupRef.current);
+        } catch (_) {}
+      }
+    };
+  }, [dangerZones, showDangerZones, filterRouteOnly, pickup, dropoff]);
 
   const pickupReady = hasCoords(pickup);
   const dropoffReady = hasCoords(dropoff);
 
   return (
     <div style={{ marginTop: 8, marginBottom: 8 }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-        <button
-          type="button"
-          onClick={() => setActiveMode('pickup')}
-          style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #ccc', background: activeMode === 'pickup' ? '#2e7d32' : '#fff', color: activeMode === 'pickup' ? '#fff' : '#333', cursor: 'pointer', fontSize: 13 }}
-        >
-          Click map: set Pickup
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveMode('dropoff')}
-          style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #ccc', background: activeMode === 'dropoff' ? '#c0392b' : '#fff', color: activeMode === 'dropoff' ? '#fff' : '#333', cursor: 'pointer', fontSize: 13 }}
-        >
-          Click map: set Drop-off
-        </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => setActiveMode('pickup')}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 6,
+              border: '1px solid #ccc',
+              background: activeMode === 'pickup' ? '#2e7d32' : '#fff',
+              color: activeMode === 'pickup' ? '#fff' : '#333',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            <i className="fas fa-box" style={{ marginRight: 6 }}></i>
+            Click map: Set Pickup
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveMode('dropoff')}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 6,
+              border: '1px solid #ccc',
+              background: activeMode === 'dropoff' ? '#9E1E21' : '#fff',
+              color: activeMode === 'dropoff' ? '#fff' : '#333',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            <i className="fas fa-flag-checkered" style={{ marginRight: 6 }}></i>
+            Click map: Set Drop-off
+          </button>
+        </div>
+
+        {/* Hazard Overlay Toggle */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => setShowDangerZones(!showDangerZones)}
+            className={`map-danger-toggle-btn ${showDangerZones ? 'active' : ''}`}
+            style={{ padding: '5px 10px', fontSize: '11.5px' }}
+            title="Toggle Danger Zones Overlay"
+          >
+            <i className="fas fa-exclamation-triangle"></i>
+            <span>{filterRouteOnly ? 'Route Hazards' : 'All Hazards'}</span>
+            <span className="map-danger-toggle-badge">{zonesOnRoute.length}</span>
+          </button>
+
+          {showDangerZones && (
+            <button
+              type="button"
+              onClick={() => setFilterRouteOnly(!filterRouteOnly)}
+              style={{
+                background: filterRouteOnly ? '#fff' : '#fee2e2',
+                color: filterRouteOnly ? '#334155' : '#991b1b',
+                border: '1px solid #cbd5e1',
+                borderRadius: '14px',
+                padding: '4px 8px',
+                fontSize: '10.5px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              title="Toggle between only showing near hazards on chosen route vs all Mindanao hazards"
+            >
+              <i className={`fas ${filterRouteOnly ? 'fa-route' : 'fa-globe-asia'}`}></i>
+              {filterRouteOnly ? 'Route Only' : 'All Mindanao'}
+            </button>
+          )}
+        </div>
       </div>
-      <div ref={setMapEl} style={{ height: 320, borderRadius: 8, background: '#eee' }} />
+
+      <div ref={setMapEl} style={{ height: 320, borderRadius: 8, background: '#eee', position: 'relative' }} />
+
       <div style={{ marginTop: 6, fontSize: 13 }}>
         {!pickupReady && <span style={{ color: '#888' }}>Click the map to drop the pickup pin.</span>}
         {pickupReady && !dropoffReady && <span style={{ color: '#888' }}>Pickup set — now click the map for drop-off.</span>}
@@ -146,6 +322,34 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
         {routeStatus === 'ready' && <span style={{ color: '#2e7d32' }}>Distance auto-filled from the road route.</span>}
         {routeStatus === 'failed' && <span style={{ color: '#888' }}>Couldn't find a road route between these points — enter distance manually.</span>}
       </div>
+
+      {/* Hazard Advisory Banner for planned route */}
+      {zonesOnRoute.length > 0 && (() => {
+        const risk = calculateRouteRiskSummary(zonesOnRoute);
+        const regionsOnRoute = Array.from(new Set(zonesOnRoute.map((z) => z.region).filter(Boolean)));
+        return (
+          <div className="route-hazard-alert-banner" style={{ marginTop: '8px', padding: '8px 12px' }}>
+            <i className="fas fa-triangle-exclamation"></i>
+            <div className="route-hazard-alert-content">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+                <div className="route-hazard-alert-title" style={{ fontSize: '12.5px' }}>
+                  Planned Route Crosses {zonesOnRoute.length} Hazard Area{zonesOnRoute.length > 1 ? 's' : ''} ({regionsOnRoute.join(', ') || 'Mindanao Scope'})
+                </div>
+                <span className={`dz-pill ${risk.level === 'critical' ? 'dz-critical' : risk.level === 'high' ? 'dz-high' : 'dz-moderate'}`}>
+                  {risk.label}
+                </span>
+              </div>
+              <div className="route-hazard-chips">
+                {zonesOnRoute.map((z) => (
+                  <span key={z.id} className="route-hazard-chip" title={`${z.region ? `[${z.region}] ` : ''}${z.advisory || z.description}`}>
+                    {z.name} {z.region ? `(${z.region})` : ''}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

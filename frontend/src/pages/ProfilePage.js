@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
+import { validatePhoneNumber, formatPhoneInput } from '../utils/validation';
 
 function ProfilePage() {
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('auth_user') || '{}'));
@@ -72,6 +73,10 @@ function ProfilePage() {
   const handleSaveProfile = async () => {
     if (!isEditing) { setIsEditing(true); return; }
     if (!formData.firstName.trim() || !formData.email.trim()) { setErrorMsg('First name and email are required.'); return; }
+    if (formData.phone.trim() && !validatePhoneNumber(formData.phone.trim())) {
+      setErrorMsg('Contact number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
+      return;
+    }
     setSaving(true);
     setErrorMsg('');
     try {
@@ -213,7 +218,7 @@ function ProfilePage() {
                   <div className="pf-field"><label className="pf-label">First Name</label><input className="pf-input" type="text" value={formData.firstName} readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} /></div>
                   <div className="pf-field"><label className="pf-label">Last Name</label><input className="pf-input" type="text" value={formData.lastName} readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} /></div>
                   <div className="pf-field pf-full"><label className="pf-label">Email Address</label><input className="pf-input" type="email" value={formData.email} readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, email: e.target.value })} /></div>
-                  <div className="pf-field"><label className="pf-label">Contact Number</label><input className="pf-input" type="text" value={formData.phone} maxLength={11} readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 11) })} /></div>
+                  <div className="pf-field"><label className="pf-label">Contact Number</label><input className="pf-input" type="text" value={formData.phone} maxLength={11} placeholder="09XXXXXXXXX" readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, phone: formatPhoneInput(e.target.value) })} /></div>
                   <div className="pf-field"><label className="pf-label">Username</label><input className="pf-input" type="text" value={formData.username} readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, username: e.target.value })} /></div>
                 </div>
               </div>

@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
+import Pagination from '../components/Pagination';
+import TableSkeleton from '../components/TableSkeleton';
+import { validatePhoneNumber, formatPhoneInput } from '../utils/validation';
 
 function formatDate(dateString) {
   if (!dateString) return '—';
@@ -396,6 +399,20 @@ function CustomersPage() {
     return list;
   }, [customers, showBlacklistedOnly, search, sortBy, spendFor]);
 
+  // Pagination states
+  const PAGE_SIZE = 10;
+  const [customerPage, setCustomerPage] = useState(1);
+
+  useEffect(() => {
+    setCustomerPage(1);
+  }, [search, sortBy, showBlacklistedOnly]);
+
+  const totalCustomerPages = Math.ceil(filteredCustomers.length / PAGE_SIZE) || 1;
+  const paginatedCustomers = useMemo(() => {
+    const start = (customerPage - 1) * PAGE_SIZE;
+    return filteredCustomers.slice(start, start + PAGE_SIZE);
+  }, [filteredCustomers, customerPage]);
+
   const openConfirm = (customer) => {
     const nextStatus = customer.status === 'blocked' ? 'active' : 'blocked';
     setConfirmAction({ customer, nextStatus });
@@ -450,6 +467,10 @@ function CustomersPage() {
 
   const handleSaveCustomer = async (e) => {
     e.preventDefault();
+    if (editForm.phone && !validatePhoneNumber(editForm.phone)) {
+      setEditError('Phone number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
+      return;
+    }
     setSavingCustomer(true);
     setEditError('');
     try {
@@ -603,63 +624,67 @@ function CustomersPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredCustomers.map((c) => (
-                  <tr
-                    key={c.user_id}
-                    className="clickable-customer-row"
-                    onClick={() => setSelectedCustomer(c)}
-                    title="Click to view full customer details & trip history"
-                  >
-                    <td style={{ fontWeight: 700, color: '#3b82f6' }}>{customerCode(c.user_id)}</td>
-                    <td style={{ fontWeight: 600 }}>{c.full_name}</td>
-                    <td>{c.phone || '—'}</td>
-                    <td>{c.email || '—'}</td>
-                    <td>{formatDate(c.created_at)}</td>
-                    <td className="amount">{formatMoney(spendFor(c.user_id))}</td>
-                    <td>
-                      <span className={`status-pill${c.status === 'blocked' ? ' blocked' : ''}`}>
-                        <i className="fas fa-circle"></i> {c.status === 'blocked' ? 'Blacklisted' : c.status === 'active' ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <button
-                          className="btn-edit"
-                          onClick={(e) => { e.stopPropagation(); setSelectedCustomer(c); }}
-                          style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}
-                        >
-                          View
-                        </button>
-                        <button
-                          className="btn-edit"
-                          onClick={(e) => { e.stopPropagation(); openEditModal(c); }}
-                          style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700 }}
-                        >
-                          Edit Info
-                        </button>
-                        <button
-                          className={c.status === 'blocked' ? 'btn-edit' : 'btn-danger'}
-                          onClick={(e) => { e.stopPropagation(); openConfirm(c); }}
-                          style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700 }}
-                        >
-                          {c.status === 'blocked' ? 'Restore' : 'Blacklist'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {loading && (
-                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading customers...</td></tr>
-                )}
-                {!loading && filteredCustomers.length === 0 && (
+                {loading ? (
+                  <TableSkeleton rows={5} columns={8} />
+                ) : paginatedCustomers.length === 0 ? (
                   <tr><td colSpan="8" style={{ textAlign: 'center', padding: 24 }}>No customers found.</td></tr>
+                ) : (
+                  paginatedCustomers.map((c) => (
+                    <tr
+                      key={c.user_id}
+                      className="clickable-customer-row"
+                      onClick={() => setSelectedCustomer(c)}
+                      title="Click to view full customer details & trip history"
+                    >
+                      <td style={{ fontWeight: 700, color: '#3b82f6' }}>{customerCode(c.user_id)}</td>
+                      <td style={{ fontWeight: 600 }}>{c.full_name}</td>
+                      <td>{c.phone || '—'}</td>
+                      <td>{c.email || '—'}</td>
+                      <td>{formatDate(c.created_at)}</td>
+                      <td className="amount">{formatMoney(spendFor(c.user_id))}</td>
+                      <td>
+                        <span className={`status-pill${c.status === 'blocked' ? ' blocked' : ''}`}>
+                          <i className="fas fa-circle"></i> {c.status === 'blocked' ? 'Blacklisted' : c.status === 'active' ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <button
+                            className="btn-edit"
+                            onClick={(e) => { e.stopPropagation(); setSelectedCustomer(c); }}
+                            style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}
+                          >
+                            View
+                          </button>
+                          <button
+                            className="btn-edit"
+                            onClick={(e) => { e.stopPropagation(); openEditModal(c); }}
+                            style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700 }}
+                          >
+                            Edit Info
+                          </button>
+                          <button
+                            className={c.status === 'blocked' ? 'btn-edit' : 'btn-danger'}
+                            onClick={(e) => { e.stopPropagation(); openConfirm(c); }}
+                            style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700 }}
+                          >
+                            {c.status === 'blocked' ? 'Restore' : 'Blacklist'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
 
-            <div className="table-footer">
-              <p>Showing {filteredCustomers.length} of {customers.length} customers.</p>
-            </div>
+            <Pagination
+              currentPage={customerPage}
+              totalPages={totalCustomerPages}
+              totalItems={filteredCustomers.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setCustomerPage}
+            />
           </section>
         </div>
       </div>
@@ -774,7 +799,9 @@ function CustomersPage() {
                   <input
                     type="text"
                     value={editForm.phone}
-                    onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                    maxLength={11}
+                    placeholder="09XXXXXXXXX"
+                    onChange={(e) => setEditForm({ ...editForm, phone: formatPhoneInput(e.target.value) })}
                     style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
                   />
                 </div>

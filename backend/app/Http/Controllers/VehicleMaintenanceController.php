@@ -6,6 +6,7 @@ use App\Models\SparePart;
 use App\Models\SparePartUsage;
 use App\Models\Vehicle;
 use App\Models\VehicleMaintenance;
+use App\Models\AppNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -134,6 +135,9 @@ class VehicleMaintenanceController extends Controller
 
             return $record;
         });
+
+        $vModel = $maintenance->vehicle?->model ?: 'Vehicle';
+        AppNotification::notify('maintenance', "Maintenance {$maintenance->status}", "{$maintenance->maintenance_type} for {$vModel} on {$maintenance->maintenance_date}.", '/vehicles');
 
         return response()->json(
             $maintenance->load(['vehicle', 'part', 'maintainer', 'partsUsages.part']),

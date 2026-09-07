@@ -3,6 +3,7 @@ StyleSheet,
 View,
 Text,
 } from "react-native";
+import { formatShortAddress } from "../../utils/address";
 
 export default function NavigationRoutePreview({
 delivery,
@@ -91,11 +92,11 @@ Drop-off location reached.
 if (isPickup) {
 return (
 <View style={styles.preview}>
-<Text style={styles.locationText}>
+<Text style={styles.locationText} numberOfLines={2} ellipsizeMode="tail">
 <Text style={styles.label}>
 Pick-up:
 </Text>{" "}
-{delivery.pickup}
+{formatShortAddress(delivery.pickup)}
 </Text>
 
 <Text style={styles.eta}>
@@ -114,11 +115,11 @@ ETA: {delivery.eta}{" "}
 if (isDropoff) {
 return (
 <View style={styles.preview}>
-<Text style={styles.locationText}>
+<Text style={styles.locationText} numberOfLines={2} ellipsizeMode="tail">
 <Text style={styles.label}>
 Drop-off:
 </Text>{" "}
-{delivery.dropoff}
+{formatShortAddress(delivery.dropoff)}
 </Text>
 
 <Text style={styles.eta}>

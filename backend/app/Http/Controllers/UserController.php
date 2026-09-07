@@ -20,7 +20,7 @@ class UserController extends Controller
             'role_id' => 'required|exists:roles,role_id',
             'full_name' => 'required|string|max:100',
             'email' => 'required|email|unique:users,email',
-            'phone' => 'nullable|string|max:20',
+            'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'password' => 'required|min:6',
             'status' => 'required|in:active,inactive,blocked',
         ]);
@@ -47,7 +47,7 @@ class UserController extends Controller
         $validated = $request->validate([
             'full_name' => 'sometimes|required|string|max:100',
             'email' => 'sometimes|required|email|unique:users,email,' . $user->user_id . ',user_id',
-            'phone' => 'nullable|string|max:20',
+            'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'username' => 'nullable|string|max:50|unique:users,username,' . $user->user_id . ',user_id',
             'gender' => 'nullable|string|max:20',
             'date_of_birth' => 'nullable|string|max:30',

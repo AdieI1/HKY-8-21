@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
+import reverb from '../utils/reverb';
 
 function cellClass(type) {
   if (type === 'delivery') return 'adm-fleet-cell delivery';
+  if (type === 'completed') return 'adm-fleet-cell completed';
   if (type === 'available') return 'adm-fleet-cell available';
   if (type === 'break') return 'adm-fleet-cell on-break';
   return 'adm-fleet-cell empty';
@@ -67,8 +69,12 @@ function formatTime12(timeStr) {
 
 function shortCity(addr) {
   if (!addr) return 'CDO';
-  const parts = addr.split(',').map((s) => s.trim()).filter(Boolean);
-  return parts.length >= 2 ? (isNaN(parts[parts.length - 2]) ? parts[parts.length - 2] : parts[parts.length - 1]) : parts[0] || 'CDO';
+  const parts = addr
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && !/^\d+$/.test(s) && !/^philippines$/i.test(s) && !/^ph$/i.test(s));
+  if (parts.length === 0) return 'CDO';
+  return parts.length >= 2 ? parts[parts.length - 1] : parts[0];
 }
 
 function StaffDashboardPage() {
@@ -88,6 +94,7 @@ function StaffDashboardPage() {
   });
   const [loadingCalendar, setLoadingCalendar] = useState(true);
   const [stats, setStats] = useState({ activeDeliveries: 0, pendingRequests: 0, availableDrivers: 0, availableVehicles: 0 });
+  const [selectedCell, setSelectedCell] = useState(null);
 
   useEffect(() => {
     const update = () => setCurrentDate(new Date().toLocaleDateString('en-PH', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' }));
@@ -96,23 +103,47 @@ function StaffDashboardPage() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    Promise.all([
-      api.get('/deliveries').catch(() => ({ data: [] })),
-      api.get('/delivery-requests').catch(() => ({ data: [] })),
-      api.get('/drivers').catch(() => ({ data: [] })),
-      api.get('/vehicles').catch(() => ({ data: [] })),
-      api.get('/vehicle-maintenances').catch(() => ({ data: [] })),
-      api.get('/incident-reports').catch(() => ({ data: [] })),
-      api.get('/system-logs').catch(() => ({ data: [] })),
-    ]).then(([delRes, reqRes, drvRes, vehRes, mntRes, incRes, logRes]) => {
-      const deliveries = Array.isArray(delRes.data) ? delRes.data : [];
-      const requests = Array.isArray(reqRes.data) ? reqRes.data : [];
-      const drivers = Array.isArray(drvRes.data) ? drvRes.data : [];
-      const vehicles = Array.isArray(vehRes.data) ? vehRes.data : [];
-      const maintenances = Array.isArray(mntRes.data) ? mntRes.data : [];
-      const incidents = Array.isArray(incRes.data) ? incRes.data : [];
-      const systemLogs = Array.isArray(logRes.data) ? logRes.data : [];
+  const loadDashboardData = useCallback(async () => {
+    try {
+      let deliveries = [];
+      let requests = [];
+      let drivers = [];
+      let vehicles = [];
+      let maintenances = [];
+      let incidents = [];
+      let systemLogs = [];
+
+      try {
+        // Fast single endpoint
+        const res = await api.get('/dashboard/overview');
+        if (res.data) {
+          deliveries = res.data.deliveries || [];
+          requests = res.data.requests || [];
+          drivers = res.data.drivers || [];
+          vehicles = res.data.vehicles || [];
+          maintenances = res.data.maintenances || [];
+          incidents = res.data.incidents || [];
+          systemLogs = res.data.system_logs || [];
+        }
+      } catch (_) {
+        // Fallback to individual endpoints if needed
+        const [delRes, reqRes, drvRes, vehRes, mntRes, incRes, logRes] = await Promise.all([
+          api.get('/deliveries').catch(() => ({ data: [] })),
+          api.get('/delivery-requests').catch(() => ({ data: [] })),
+          api.get('/drivers').catch(() => ({ data: [] })),
+          api.get('/vehicles').catch(() => ({ data: [] })),
+          api.get('/vehicle-maintenances').catch(() => ({ data: [] })),
+          api.get('/incident-reports').catch(() => ({ data: [] })),
+          api.get('/system-logs').catch(() => ({ data: [] })),
+        ]);
+        deliveries = Array.isArray(delRes.data) ? delRes.data : [];
+        requests = Array.isArray(reqRes.data) ? reqRes.data : [];
+        drivers = Array.isArray(drvRes.data) ? drvRes.data : [];
+        vehicles = Array.isArray(vehRes.data) ? vehRes.data : [];
+        maintenances = Array.isArray(mntRes.data) ? mntRes.data : [];
+        incidents = Array.isArray(incRes.data) ? incRes.data : [];
+        systemLogs = Array.isArray(logRes.data) ? logRes.data : [];
+      }
 
       const activeDel = deliveries.filter((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status)).length;
       const pendingReq = requests.filter((r) => r.status === 'pending').length;
@@ -342,40 +373,87 @@ function StaffDashboardPage() {
           const shortDriver = nameParts.length > 1 ? `${nameParts[0]} ${nameParts[nameParts.length - 1][0].toUpperCase()}.` : rawDriverName;
 
           const schedule = currentDays.map((day) => {
-            const del = deliveries.find((d) => {
-              if (Number(d.vehicle_id) !== Number(v.vehicle_id)) return false;
+            const dayDeliveries = vehicleDeliveries.filter((d) => {
               const dateStr = d.trip_date || (d.created_at ? d.created_at.slice(0, 10) : '');
-              return dateStr === day.iso;
+              if (dateStr === day.iso) return true;
+              // If delivery is active (assigned, in transit, etc.) and this day is today:
+              const isActive = ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status);
+              if (isActive && day.highlight) return true;
+              return false;
             });
 
-            if (del) {
-              const start = formatTime12(del.start_time || '08:00:00');
-              const end = formatTime12(del.end_time || '14:30:00');
-              const from = shortCity(del.request?.pickup_address);
-              const to = shortCity(del.request?.dropoff_address);
-              const timeStr = start && end ? `${start}–${end}` : start || 'In Transit';
-              return { label: `Delivery\n${timeStr}\n${from} → ${to}`, type: 'delivery', day: day.key };
+            let cellType = 'available';
+            let cellLabel = 'Available';
+
+            if (dayDeliveries.length > 0) {
+              const activeDel = dayDeliveries.find((d) =>
+                ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status)
+              );
+
+              if (activeDel) {
+                cellType = 'delivery';
+                const from = shortCity(activeDel.request?.pickup_address);
+                const to = shortCity(activeDel.request?.dropoff_address);
+                const statusText = activeDel.status === 'in_transit' ? 'In Transit' : activeDel.status === 'assigned' ? 'Assigned' : 'Delivery';
+                const moreText = dayDeliveries.length > 1 ? ` (+${dayDeliveries.length - 1} more)` : '';
+                cellLabel = `${statusText}${moreText}\n${from} → ${to}`;
+              } else {
+                cellType = 'completed';
+                const firstDel = dayDeliveries[0];
+                const from = shortCity(firstDel.request?.pickup_address);
+                const to = shortCity(firstDel.request?.dropoff_address);
+                const countText = dayDeliveries.length > 1 ? `${dayDeliveries.length} Trips Done` : 'Trip Done';
+                cellLabel = `${countText}\n${from} → ${to}`;
+              }
+            } else if (v.status === 'maintenance' || v.status === 'broken') {
+              cellType = 'break';
+              cellLabel = 'Under Maintenance';
+            } else if (day.key === 'sat' || day.key === 'sun') {
+              cellType = 'empty';
+              cellLabel = '–';
+            } else {
+              cellType = 'available';
+              cellLabel = 'Available';
             }
-            if (v.status === 'maintenance' || v.status === 'broken') {
-              return { label: 'Under Maintenance', type: 'break', day: day.key };
-            }
-            if (day.key === 'sat' || day.key === 'sun') {
-              return { label: '–', type: 'empty', day: day.key };
-            }
-            return { label: 'Available', type: 'available', day: day.key };
+
+            return {
+              day: day.key,
+              label: cellLabel,
+              type: cellType,
+              deliveries: dayDeliveries,
+            };
           });
 
-          return { id: vehId, model, plate, driver: shortDriver, schedule };
+          return { id: vehId, model, plate, driver: shortDriver, schedule, photo_url: v.photo_url, rawVehicle: v };
         });
 
         setFleetList(mappedFleet);
       } else {
         setFleetList([]);
       }
-    }).finally(() => {
+    } finally {
       setLoadingCalendar(false);
-    });
+    }
   }, []);
+
+  useEffect(() => {
+    loadDashboardData();
+
+    // Instant real-time updates via Laravel Reverb WebSocket
+    const unsub1 = reverb.subscribe('deliveries', 'delivery.updated', () => {
+      loadDashboardData();
+    });
+    const unsub2 = reverb.subscribe('system-notifications', 'notification.created', () => {
+      loadDashboardData();
+    });
+
+    const interval = setInterval(loadDashboardData, 60000);
+    return () => {
+      clearInterval(interval);
+      unsub1();
+      unsub2();
+    };
+  }, [loadDashboardData]);
 
   return (
     <div className="dashboard-container">
@@ -465,7 +543,12 @@ function StaffDashboardPage() {
                       <tr key={row.id}>
                         <td className="adm-fleet-veh-td">
                           <div className="adm-veh-info">
-                            <img src="/images/trucknisiya.png" alt="truck" className="adm-veh-img" />
+                            <img
+                              src={row.photo_url || '/images/trucknisiya.png'}
+                              alt="truck"
+                              className="adm-veh-img"
+                              onError={(e) => { e.currentTarget.src = '/images/trucknisiya.png'; }}
+                            />
                             <div>
                               <div className="adm-veh-model">{row.model}</div>
                               <div className="adm-veh-plate">{row.plate}</div>
@@ -474,10 +557,20 @@ function StaffDashboardPage() {
                           </div>
                         </td>
                         {row.schedule.map((cell, ci) => (
-                          <td key={ci} className={cellClass(cell.type)}>
+                          <td
+                            key={ci}
+                            className={cellClass(cell.type)}
+                            onClick={() => setSelectedCell({ cell, row, day: weekDays[ci] })}
+                            title="Click to view trips and location details"
+                          >
                             {cell.label.split('\n').map((line, li) => (
-                              <span key={li}>{line}{li < cell.label.split('\n').length - 1 && <br />}</span>
+                              <span key={li} style={{ display: 'block' }}>{line}</span>
                             ))}
+                            {cell.deliveries && cell.deliveries.length > 0 && (
+                              <span style={{ fontSize: '9px', marginTop: '3px', opacity: 0.85, display: 'inline-flex', alignItems: 'center', gap: '3px', fontWeight: 600 }}>
+                                <i className="fas fa-search-location"></i> Details
+                              </span>
+                            )}
                           </td>
                         ))}
                       </tr>
@@ -488,9 +581,9 @@ function StaffDashboardPage() {
             </div>
             <div className="adm-fleet-legend">
               <span className="adm-legend-dot delivery"></span> Delivery / In Transit
+              <span className="adm-legend-dot completed"></span> Completed Trip
               <span className="adm-legend-dot available"></span> Available
-              <span className="adm-legend-dot break"></span> On Break
-              <span className="adm-legend-dot maintenance"></span> Maintenance
+              <span className="adm-legend-dot break"></span> On Break / Maintenance
             </div>
           </div>
 
@@ -739,6 +832,468 @@ function StaffDashboardPage() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Trip Details & Locations Modal ── */}
+      {selectedCell && (
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '16px',
+          }}
+          onClick={() => setSelectedCell(null)}
+        >
+          <div
+            className="modal-content"
+            style={{
+              background: '#ffffff',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '720px',
+              maxHeight: '88vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: '20px 24px',
+                background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <img
+                  src={selectedCell.row.photo_url || '/images/trucknisiya.png'}
+                  alt="Vehicle"
+                  style={{
+                    width: '50px',
+                    height: '50px',
+                    borderRadius: '10px',
+                    objectFit: 'cover',
+                    background: '#ffffff',
+                    border: '2px solid rgba(255,255,255,0.2)',
+                  }}
+                  onError={(e) => { e.currentTarget.src = '/images/trucknisiya.png'; }}
+                />
+                <div>
+                  <div style={{ fontSize: '18px', fontWeight: 700, letterSpacing: '0.3px' }}>
+                    {selectedCell.row.model}{' '}
+                    <span style={{ fontSize: '13px', fontWeight: 500, color: '#94a3b8' }}>
+                      ({selectedCell.row.plate})
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '3px' }}>
+                    <span><i className="fas fa-user-circle" style={{ marginRight: '4px' }}></i> {selectedCell.row.driver}</span>
+                    <span>•</span>
+                    <span style={{ color: '#38bdf8', fontWeight: 600 }}>
+                      <i className="far fa-calendar-alt" style={{ marginRight: '4px' }}></i>
+                      {selectedCell.day.label}, {selectedCell.day.date}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCell(null)}
+                style={{
+                  background: 'rgba(255,255,255,0.12)',
+                  border: 'none',
+                  color: '#ffffff',
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '50%',
+                  cursor: 'pointer',
+                  fontSize: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.15s',
+                }}
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+              {/* Summary Bar */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '20px',
+                  padding: '12px 18px',
+                  borderRadius: '10px',
+                  background: selectedCell.cell.deliveries?.length > 0 ? '#eff6ff' : '#f8fafc',
+                  border: selectedCell.cell.deliveries?.length > 0 ? '1px solid #bfdbfe' : '1px solid #e2e8f0',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                    Day Status:
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      padding: '3px 10px',
+                      borderRadius: '16px',
+                      background:
+                        selectedCell.cell.type === 'delivery'
+                          ? '#fee2e2'
+                          : selectedCell.cell.type === 'completed'
+                          ? '#dbeafe'
+                          : selectedCell.cell.type === 'break'
+                          ? '#fef3c7'
+                          : '#dcfce7',
+                      color:
+                        selectedCell.cell.type === 'delivery'
+                          ? '#dc2626'
+                          : selectedCell.cell.type === 'completed'
+                          ? '#1d4ed8'
+                          : selectedCell.cell.type === 'break'
+                          ? '#d97706'
+                          : '#16a34a',
+                    }}
+                  >
+                    {selectedCell.cell.type === 'delivery'
+                      ? 'Active Delivery'
+                      : selectedCell.cell.type === 'completed'
+                      ? 'Trip(s) Completed'
+                      : selectedCell.cell.type === 'break'
+                      ? 'Under Maintenance'
+                      : 'Available for Dispatch'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
+                  <i className="fas fa-route" style={{ marginRight: '6px', color: '#2563eb' }}></i>
+                  {selectedCell.cell.deliveries?.length || 0} Trip{selectedCell.cell.deliveries?.length === 1 ? '' : 's'} on this Date
+                </div>
+              </div>
+
+              {/* Trips List or Empty State */}
+              {!selectedCell.cell.deliveries || selectedCell.cell.deliveries.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '48px 24px', color: '#64748b' }}>
+                  <div
+                    style={{
+                      width: '64px',
+                      height: '64px',
+                      borderRadius: '50%',
+                      background: '#f1f5f9',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      margin: '0 auto 16px',
+                      fontSize: '26px',
+                      color: '#94a3b8',
+                    }}
+                  >
+                    <i className="fas fa-calendar-check"></i>
+                  </div>
+                  <h4 style={{ margin: '0 0 6px', fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>
+                    No Trips Scheduled
+                  </h4>
+                  <p style={{ margin: 0, fontSize: '13px', maxWidth: '420px', marginInline: 'auto', lineHeight: '1.5' }}>
+                    {selectedCell.row.model} ({selectedCell.row.plate}) had no delivery dispatches recorded on{' '}
+                    <strong>{selectedCell.day.label} {selectedCell.day.date}</strong>. The vehicle was marked as{' '}
+                    <span style={{ color: '#16a34a', fontWeight: 600 }}>{selectedCell.cell.label}</span>.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                  {selectedCell.cell.deliveries.map((del, idx) => {
+                    const req = del.request || {};
+                    const customer = req.customer || {};
+                    const isCompleted = ['completed', 'delivered'].includes(del.status);
+                    const isActive = ['assigned', 'accepted', 'out_for_delivery', 'in_transit'].includes(del.status);
+                    const startTime = formatTime12(del.start_time || del.created_at);
+                    const endTime = formatTime12(del.end_time);
+
+                    return (
+                      <div
+                        key={del.delivery_id || idx}
+                        style={{
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '12px',
+                          padding: '18px 20px',
+                          background: '#ffffff',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                        }}
+                      >
+                        {/* Trip Item Header */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            borderBottom: '1px solid #f1f5f9',
+                            paddingBottom: '12px',
+                            marginBottom: '14px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a' }}>
+                              Trip #{idx + 1} • DLV{String(del.delivery_id).padStart(4, '0')}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                                padding: '3px 9px',
+                                borderRadius: '12px',
+                                background: isCompleted ? '#dcfce7' : isActive ? '#fee2e2' : '#f1f5f9',
+                                color: isCompleted ? '#16a34a' : isActive ? '#dc2626' : '#64748b',
+                              }}
+                            >
+                              {del.status?.replace(/_/g, ' ')}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
+                            <i className="far fa-clock" style={{ marginRight: '4px' }}></i>
+                            {startTime ? `${startTime}${endTime ? ` – ${endTime}` : ''}` : 'Time N/A'}
+                          </div>
+                        </div>
+
+                        {/* Location Details Section */}
+                        <div
+                          style={{
+                            background: '#f8fafc',
+                            borderRadius: '10px',
+                            padding: '14px 16px',
+                            border: '1px solid #e2e8f0',
+                            marginBottom: '14px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.6px',
+                              color: '#64748b',
+                              marginBottom: '12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                            }}
+                          >
+                            <i className="fas fa-map-marked-alt" style={{ color: '#2563eb' }}></i>
+                            DELIVERY LOCATION DETAILS
+                          </div>
+
+                          {/* Pick-up */}
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '12px' }}>
+                            <div
+                              style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '50%',
+                                background: '#dcfce7',
+                                color: '#16a34a',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '12px',
+                                flexShrink: 0,
+                                marginTop: '1px',
+                              }}
+                            >
+                              <i className="fas fa-box"></i>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '11px', fontWeight: 700, color: '#16a34a', marginBottom: '2px' }}>
+                                PICK-UP LOCATION
+                              </div>
+                              <div style={{ fontSize: '13px', fontWeight: 500, color: '#1e293b', lineHeight: '1.4' }}>
+                                {req.pickup_address || 'Address not specified'}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Drop-off */}
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '10px' }}>
+                            <div
+                              style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '50%',
+                                background: '#fee2e2',
+                                color: '#dc2626',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '12px',
+                                flexShrink: 0,
+                                marginTop: '1px',
+                              }}
+                            >
+                              <i className="fas fa-map-marker-alt"></i>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '11px', fontWeight: 700, color: '#dc2626', marginBottom: '2px' }}>
+                                DROP-OFF DESTINATION
+                              </div>
+                              <div style={{ fontSize: '13px', fontWeight: 500, color: '#1e293b', lineHeight: '1.4' }}>
+                                {req.dropoff_address || 'Address not specified'}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Distance */}
+                          {req.distance_km && (
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                fontSize: '12px',
+                                color: '#475569',
+                                paddingTop: '10px',
+                                borderTop: '1px dashed #e2e8f0',
+                                marginTop: '10px',
+                              }}
+                            >
+                              <i className="fas fa-road" style={{ color: '#2563eb' }}></i>
+                              <span>Total Estimated Distance: <strong>{req.distance_km} kilometers</strong></span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Customer & Cargo Grid */}
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                            gap: '10px 18px',
+                            fontSize: '12.5px',
+                            marginBottom: '12px',
+                          }}
+                        >
+                          <div>
+                            <span style={{ color: '#64748b' }}>Customer:</span>{' '}
+                            <strong style={{ color: '#0f172a' }}>{customer.full_name || 'Customer'}</strong>
+                          </div>
+                          {customer.phone && (
+                            <div>
+                              <span style={{ color: '#64748b' }}>Contact:</span>{' '}
+                              <strong style={{ color: '#0f172a' }}>{customer.phone}</strong>
+                            </div>
+                          )}
+                          <div>
+                            <span style={{ color: '#64748b' }}>Cargo:</span>{' '}
+                            <strong style={{ color: '#0f172a' }}>{req.item_name || req.cargo_type || 'Goods'}</strong>
+                            {req.weight ? ` (${req.weight} kg)` : ''}
+                          </div>
+                          {del.trip_cost && (
+                            <div>
+                              <span style={{ color: '#64748b' }}>Trip Price:</span>{' '}
+                              <strong style={{ color: '#16a34a' }}>₱{Number(del.trip_cost).toLocaleString()}</strong>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Telemetry (if recorded) */}
+                        {(del.starting_odometer || del.fuel_issued || del.fuel_consumed) && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: '14px',
+                              background: '#f8fafc',
+                              padding: '8px 12px',
+                              borderRadius: '8px',
+                              fontSize: '11.5px',
+                              color: '#64748b',
+                              marginBottom: '10px',
+                            }}
+                          >
+                            {del.starting_odometer && (
+                              <span>
+                                <i className="fas fa-tachometer-alt" style={{ marginRight: '4px' }}></i>
+                                Odometer: {Number(del.starting_odometer).toLocaleString()} km
+                                {del.ending_odometer ? ` → ${Number(del.ending_odometer).toLocaleString()} km` : ''}
+                              </span>
+                            )}
+                            {del.fuel_issued && (
+                              <span>
+                                <i className="fas fa-gas-pump" style={{ marginRight: '4px' }}></i>
+                                Fuel Issued: {del.fuel_issued} {del.fuel_unit || 'L'}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Open in Delivery Monitoring */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                          <Link
+                            to="/delivery"
+                            style={{
+                              fontSize: '12px',
+                              color: '#2563eb',
+                              fontWeight: 600,
+                              textDecoration: 'none',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                            }}
+                          >
+                            View in Delivery Monitoring <i className="fas fa-arrow-right"></i>
+                          </Link>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div
+              style={{
+                padding: '14px 24px',
+                borderTop: '1px solid #e2e8f0',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                background: '#f8fafc',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedCell(null)}
+                style={{
+                  padding: '9px 24px',
+                  background: '#e2e8f0',
+                  color: '#1e293b',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

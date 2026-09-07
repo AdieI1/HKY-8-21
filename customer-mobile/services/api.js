@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "https://lather-venue-bony.ngrok-free.dev/api";
+const API_URL = "http://192.168.254.109:8000/api";
 const TOKEN_KEY = "auth_token";
 const USER_KEY = "auth_user";
 
@@ -108,8 +108,8 @@ const request = async (path, options = {}) => {
   if (!response.ok) {
     throw new Error(
       data?.message ||
-        Object.values(data?.errors || {})?.[0]?.[0] ||
-        "Unable to connect to the server."
+      Object.values(data?.errors || {})?.[0]?.[0] ||
+      "Unable to connect to the server."
     );
   }
 
@@ -153,7 +153,7 @@ export const getVerificationStatus = async () => {
     authUser = data.user;
     try {
       await AsyncStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    } catch {}
+    } catch { }
   }
   return data;
 };
@@ -172,7 +172,7 @@ export const completeAccountSetup = async (firstName, lastName, phone) => {
     authUser = data.user;
     try {
       await AsyncStorage.setItem(USER_KEY, JSON.stringify(data.user));
-    } catch {}
+    } catch { }
   }
   return data;
 };
@@ -208,7 +208,7 @@ export const updateCustomerProfile = async (payload) => {
     authUser = responseData.user;
     try {
       await AsyncStorage.setItem(USER_KEY, JSON.stringify(responseData.user));
-    } catch {}
+    } catch { }
   }
 
   return responseData;

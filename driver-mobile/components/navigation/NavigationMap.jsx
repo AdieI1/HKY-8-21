@@ -14,7 +14,7 @@ const toCoordinate = (latitude, longitude) => {
   return { latitude: lat, longitude: lng };
 };
 
-export default function NavigationMap({ delivery, onLocationChange }) {
+export default function NavigationMap({ delivery, navigationState, onLocationChange }) {
   const mapRef = useRef(null);
   const [currentLocation, setCurrentLocation] = useState(null);
 
@@ -35,6 +35,14 @@ export default function NavigationMap({ delivery, onLocationChange }) {
       ),
     [delivery]
   );
+
+  const isDropoffLeg = [
+    "in_transit_dropoff",
+    "arrived_dropoff",
+    "unloading",
+    "returning_to_hq",
+    "completed",
+  ].includes(navigationState);
 
   useEffect(() => {
     let subscription;
@@ -75,25 +83,33 @@ export default function NavigationMap({ delivery, onLocationChange }) {
   }, [onLocationChange]);
 
   useEffect(() => {
-    const coordinates = [currentLocation, pickup, dropoff].filter(Boolean);
+    const coordinates = isDropoffLeg
+      ? [currentLocation || pickup, dropoff].filter(Boolean)
+      : [currentLocation, pickup].filter(Boolean);
 
     if (coordinates.length > 1) {
       mapRef.current?.fitToCoordinates(coordinates, {
         edgePadding: { top: 90, right: 45, bottom: 250, left: 45 },
         animated: true,
       });
+    } else if (coordinates.length === 1 && mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: coordinates[0].latitude,
+        longitude: coordinates[0].longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      });
     }
-  }, [currentLocation, pickup, dropoff]);
+  }, [currentLocation, pickup, dropoff, isDropoffLeg]);
 
-  const initialCoordinate = pickup || dropoff || {
+  const initialCoordinate = (isDropoffLeg ? dropoff : pickup) || pickup || dropoff || {
     latitude: 8.4542,
     longitude: 124.6319,
   };
 
-  const routeCoordinates = [
-    currentLocation || pickup,
-    dropoff,
-  ].filter(Boolean);
+  const routeCoordinates = isDropoffLeg
+    ? [currentLocation || pickup, dropoff].filter(Boolean)
+    : [currentLocation, pickup].filter(Boolean);
 
   return (
     <View style={styles.container}>
@@ -108,8 +124,20 @@ export default function NavigationMap({ delivery, onLocationChange }) {
         showsUserLocation
         followsUserLocation={false}
       >
-        {pickup && <Marker coordinate={pickup} title="Pickup" />}
-        {dropoff && <Marker coordinate={dropoff} title="Drop-off" />}
+        {pickup && (
+          <Marker
+            coordinate={pickup}
+            title="Pickup"
+            pinColor={!isDropoffLeg ? "#B91F27" : "#555555"}
+          />
+        )}
+        {dropoff && (
+          <Marker
+            coordinate={dropoff}
+            title="Drop-off"
+            pinColor={isDropoffLeg ? "#B91F27" : "#555555"}
+          />
+        )}
         {routeCoordinates.length === 2 && (
           <Polyline
             coordinates={routeCoordinates}

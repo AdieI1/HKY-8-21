@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/api-client';
 import PinRouteMap, { geocode } from './PinRouteMap';
+import { validatePhoneNumber, formatPhoneInput } from '../../utils/validation';
 
 export default function CreateRequestModal({
   showCreateModal,
@@ -96,8 +97,8 @@ export default function CreateRequestModal({
       setFormError('Please fill in all required customer fields.');
       return;
     }
-    if (form.phone.length !== 11) {
-      setFormError('Contact number must be exactly 11 digits (e.g. 09123456789).');
+    if (!validatePhoneNumber(form.phone)) {
+      setFormError('Contact number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
       return;
     }
     if (form.password !== form.confirmPassword) {
@@ -193,8 +194,7 @@ export default function CreateRequestModal({
                   maxLength={11}
                   inputMode="numeric"
                   onChange={(e) => {
-                    const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 11);
-                    setForm({ ...form, phone: digitsOnly });
+                    setForm({ ...form, phone: formatPhoneInput(e.target.value) });
                   }}
                   onKeyDown={(e) => {
                     if (

@@ -23,6 +23,8 @@ use App\Http\Controllers\FuelInventoryController;
 use App\Http\Controllers\FuelIssuanceController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SystemSettingController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DangerZoneController;
 
 
 /*
@@ -30,6 +32,11 @@ use App\Http\Controllers\SystemSettingController;
 | PUBLIC ROUTES
 |--------------------------------------------------------------------------
 */
+
+Route::get('/danger-zones', [
+    DangerZoneController::class,
+    'index'
+]);
 
 Route::post('/login', [
     AuthController::class,
@@ -54,6 +61,16 @@ Route::get('/customer/email/verify/{user}', [
 */
 
 Route::middleware('auth:sanctum')->group(function () {
+
+    Route::get('/dashboard/overview', [
+        DashboardController::class,
+        'overview'
+    ]);
+
+    Route::get('/dispatch/overview', [
+        DashboardController::class,
+        'dispatchOverview'
+    ]);
 
     /*
     |--------------------------------------------------------------------------
@@ -458,11 +475,33 @@ Route::middleware('auth:sanctum')->group(function () {
         ]
     );
 
-    Route::post(
-        'system-settings/reset',
+    /*
+    |--------------------------------------------------------------------------
+    | Notifications
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get(
+        'notifications',
         [
-            SystemSettingController::class,
-            'reset'
+            NotificationController::class,
+            'index'
+        ]
+    );
+
+    Route::post(
+        'notifications/{id}/read',
+        [
+            NotificationController::class,
+            'markAsRead'
+        ]
+    );
+
+    Route::post(
+        'notifications/mark-all-read',
+        [
+            NotificationController::class,
+            'markAllAsRead'
         ]
     );
 });

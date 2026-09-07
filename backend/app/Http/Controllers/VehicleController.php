@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Vehicle;
+use App\Models\AppNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -44,7 +45,10 @@ class VehicleController extends Controller
             $validated['photo'] = $request->file('photo')->store('vehicles', 'public');
         }
 
-        return Vehicle::create($validated);
+        $vehicle = Vehicle::create($validated);
+        AppNotification::notify('vehicle', 'New Vehicle Registered', "Vehicle {$vehicle->brand} {$vehicle->model} ({$vehicle->plate_number}) added to fleet.", '/vehicles');
+
+        return $vehicle;
     }
 
     public function show(Vehicle $vehicle)

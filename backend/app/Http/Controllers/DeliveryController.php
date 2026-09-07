@@ -6,6 +6,7 @@ use App\Models\Delivery;
 use App\Models\DeliveryChecklist;
 use App\Models\Driver;
 use App\Models\DeliveryTracking;
+use App\Models\AppNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -37,7 +38,9 @@ class DeliveryController extends Controller
             'vehicle',
             'assignedBy',
             'permit',
-            'tracking',
+            'tracking' => function ($q) {
+                $q->latest('tracking_id')->limit(10);
+            },
             'checklists',
             'reviews',
         ])->get();
@@ -409,6 +412,16 @@ class DeliveryController extends Controller
                 'status_update' => 'assigned',
             ]);
 
+            $delCode = 'DEL' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+            $driverName = $delivery->driver?->user?->full_name ?: 'Driver';
+            AppNotification::notify('dispatch', 'Delivery Assigned', "Delivery #{$delCode} assigned to {$driverName}.", '/delivery');
+
+            try {
+                \App\Events\DeliveryUpdated::dispatch($delivery);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Reverb broadcast error: " . $e->getMessage());
+            }
+
             return $delivery;
         });
 
@@ -647,7 +660,9 @@ class DeliveryController extends Controller
         $currentIndex = array_search($delivery->status, self::STATUS_ORDER, true);
         $targetIndex = array_search($targetStatus, self::STATUS_ORDER, true);
 
-        if ($currentIndex === false || $targetIndex !== $currentIndex + 1) {
+        $canCompleteDirectly = ($targetStatus === 'completed' && in_array($delivery->status, ['unloading_cargo', 'returning_to_hq'], true));
+
+        if (!$canCompleteDirectly && ($currentIndex === false || $targetIndex !== $currentIndex + 1)) {
             return response()->json([
                 'message' => "Delivery cannot move from {$delivery->status} to {$targetStatus}."
             ], 422);
@@ -660,29 +675,38 @@ class DeliveryController extends Controller
 
     public function saveChecklist(Request $request, Delivery $delivery)
     {
-        $driver = $this->assignedDriver($request, $delivery);
+        $user = $request->user();
+        $isStaffOrAdmin = $user && (
+            in_array((int) $user->role_id, [1, 2, 5]) ||
+            strtolower($user->role?->role_name ?? '') === 'staff' ||
+            strtolower($user->role?->role_name ?? '') === 'admin'
+        );
 
-        if ($driver instanceof \Illuminate\Http\JsonResponse) {
-            return $driver;
+        if ($user && !$isStaffOrAdmin) {
+            $driver = $this->assignedDriver($request, $delivery);
+
+            if ($driver instanceof \Illuminate\Http\JsonResponse) {
+                return $driver;
+            }
         }
 
         $validated = $request->validate([
             'type' => 'required|in:pre_trip,post_trip',
             'items' => 'required|array|min:1',
-            'items.*' => 'required|boolean',
+            'items.*' => 'nullable',
             'starting_odometer' => 'nullable|numeric|min:0',
             'ending_odometer' => 'nullable|numeric|min:0',
             'starting_fuel' => 'nullable|numeric|min:0',
             'ending_fuel' => 'nullable|numeric|min:0',
         ]);
 
-        if (in_array(false, array_values($validated['items']), true)) {
+        if (in_array(null, array_values($validated['items']), true)) {
             return response()->json([
                 'message' => 'Complete every checklist item before continuing.'
             ], 422);
         }
 
-        if ($validated['type'] === 'post_trip' && $delivery->status !== 'returning_to_hq') {
+        if ($validated['type'] === 'post_trip' && !in_array($delivery->status, ['returning_to_hq', 'arrived', 'delivered', 'in_transit', 'completed'])) {
             return response()->json([
                 'message' => 'Finish the delivery route before submitting the post-trip checklist.'
             ], 422);
@@ -818,6 +842,17 @@ class DeliveryController extends Controller
                 'delivery_id' => $delivery->delivery_id,
                 'status_update' => $status,
             ]);
+
+            $delCode = 'DEL' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+            $statusStr = ucwords(str_replace('_', ' ', $status));
+            $driverName = $delivery->driver?->user?->full_name ?: 'Driver';
+            AppNotification::notify('delivery', "Delivery {$statusStr}", "Delivery #{$delCode} ({$driverName}) is now {$statusStr}.", '/delivery');
+
+            try {
+                \App\Events\DeliveryUpdated::dispatch($delivery);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Reverb broadcast error: " . $e->getMessage());
+            }
 
             if ($status === 'completed') {
                 if ($delivery->driver) {

@@ -10,11 +10,19 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useState, useCallback, useEffect } from "react";
 import { useFocusEffect } from "@react-navigation/native";
+import { router } from "expo-router";
 import HomeHeader from "../../../components/HomeHeader";
 import AssignmentCard from "../../../components/AssignmentCard";
 import EmptyAssignment from "../../../components/EmptyAssignment";
 import SuccessMessage from "../../../components/SuccessMessage";
-import { getSavedUser, getMyDeliveries } from "../../../services/api";
+import {
+    getSavedUser,
+    getMyDeliveries,
+    getDelivery,
+    getActiveAcceptedDeliveryId,
+    setActiveAcceptedDeliveryId,
+    clearActiveAcceptedDeliveryId,
+} from "../../../services/api";
 
 export default function Home() {
     const [showSuccess, setShowSuccess] = useState(false);
@@ -30,10 +38,58 @@ export default function Home() {
                 setLoading(true);
             }
 
-            const [savedUser, deliveries] = await Promise.all([
+            const [savedUser, deliveries, savedActiveId] = await Promise.all([
                 getSavedUser(),
                 getMyDeliveries().catch(() => []),
+                getActiveAcceptedDeliveryId().catch(() => null),
             ]);
+
+            const activeInProgress = Array.isArray(deliveries)
+                ? deliveries.find((d) =>
+                      [
+                          "accepted",
+                          "arrived_pickup",
+                          "loading_cargo",
+                          "out_for_delivery",
+                          "arrived_dropoff",
+                          "unloading_cargo",
+                      ].includes(d?.status)
+                  )
+                : null;
+
+            const activeJob =
+                activeInProgress ||
+                (savedActiveId && Array.isArray(deliveries)
+                    ? deliveries.find(
+                          (d) =>
+                              String(d?.delivery_id) === String(savedActiveId) &&
+                              !["completed", "rejected"].includes(d?.status)
+                      )
+                    : null);
+
+            if (activeJob) {
+                await setActiveAcceptedDeliveryId(activeJob.delivery_id);
+                const hasPreTrip = activeJob?.checklists?.some(
+                    (e) => e.type === "pre_trip"
+                );
+                const hasAdvanced =
+                    activeJob?.status &&
+                    !["assigned", "pending"].includes(activeJob.status);
+
+                if (hasPreTrip || hasAdvanced) {
+                    router.replace({
+                        pathname: "/navigation",
+                        params: { deliveryId: String(activeJob.delivery_id) },
+                    });
+                    return;
+                } else {
+                    router.replace({
+                        pathname: "/pretripcheck",
+                        params: { deliveryId: String(activeJob.delivery_id) },
+                    });
+                    return;
+                }
+            }
 
             const deliveryList = Array.isArray(deliveries)
                 ? deliveries.filter(
@@ -51,7 +107,11 @@ export default function Home() {
                         delivery?.driver?.user?.full_name ||
                         savedUser?.full_name ||
                         "Driver",
-                    item: request?.cargo_type || "Cargo",
+                    item:
+                        request?.item_name ||
+                        request?.cargo_name ||
+                        request?.cargo_type ||
+                        "Cargo",
                     cargo: request?.cargo_type || "Unknown",
                     weight: request?.weight != null ? `${request.weight}kg` : "",
                     route:

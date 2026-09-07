@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\SparePart;
 use App\Models\SparePartUsage;
+use App\Models\AppNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -85,6 +86,17 @@ class SparePartsUsageController extends Controller
                 'used_date' => $validated['used_date'],
             ]);
         });
+
+        $part = SparePart::find($transaction->part_id);
+        $partName = $part?->part_name ?: 'Part';
+        if ($transaction->transaction_type === 'out') {
+            AppNotification::notify('parts', 'Spare Part Issued', "Used {$transaction->quantity_used}x of {$partName}.", '/parts-inventory');
+            if ($part && $part->quantity_in_stock <= $part->reorder_level) {
+                AppNotification::notify('inventory_alert', 'Low Stock Warning', "{$partName} stock is low ({$part->quantity_in_stock} {$part->unit} left).", '/parts-inventory');
+            }
+        } else {
+            AppNotification::notify('parts', 'Spare Parts Restocked', "Received {$transaction->quantity_used}x of {$partName}.", '/parts-inventory');
+        }
 
         return response()->json(
             $transaction->load(['permit', 'part', 'vehicle', 'maintenance', 'user']),

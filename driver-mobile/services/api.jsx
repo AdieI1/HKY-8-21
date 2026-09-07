@@ -212,6 +212,25 @@ export const updateDeliveryLocation = async (deliveryId, latitude, longitude) =>
 };
 
 /* =========================================================
+   ACTIVE DELIVERY PERSISTENCE
+========================================================= */
+
+const ACTIVE_DELIVERY_KEY = "active_accepted_delivery_id";
+
+export const setActiveAcceptedDeliveryId = async (deliveryId) => {
+    if (!deliveryId) return;
+    await AsyncStorage.setItem(ACTIVE_DELIVERY_KEY, String(deliveryId));
+};
+
+export const getActiveAcceptedDeliveryId = async () => {
+    return await AsyncStorage.getItem(ACTIVE_DELIVERY_KEY);
+};
+
+export const clearActiveAcceptedDeliveryId = async () => {
+    await AsyncStorage.removeItem(ACTIVE_DELIVERY_KEY);
+};
+
+/* =========================================================
    LOGOUT
 ========================================================= */
 
@@ -232,5 +251,6 @@ export const logout = async () => {
     } finally {
         await AsyncStorage.removeItem(TOKEN_KEY);
         await AsyncStorage.removeItem(USER_KEY);
+        await AsyncStorage.removeItem(ACTIVE_DELIVERY_KEY);
     }
 };

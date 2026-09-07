@@ -3,6 +3,7 @@ import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import ViewLocationMap from '../components/delivery/ViewLocationMap';
 import NotificationBell from '../components/NotificationBell';
+import reverb from '../utils/reverb';
 
 const STATUS_STEPS = [
   { key: 'pending', label: 'Pending Dispatch' },
@@ -61,6 +62,7 @@ function DeliveryPage() {
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   const [showMapModal, setShowMapModal] = useState(false);
   const [eta, setEta] = useState(null);
+  const [detectedHazards, setDetectedHazards] = useState([]);
 
   useEffect(() => {
     const update = () => setCurrentDate(new Date().toLocaleDateString('en-PH', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' }));
@@ -84,9 +86,13 @@ function DeliveryPage() {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
 
-  useEffect(() => {
+    // Instant real-time updates via Laravel Reverb WebSocket
+    const unsubscribe = reverb.subscribe('deliveries', 'delivery.updated', () => {
+      loadData();
+    });
+
+    // Background safety poll (15s instead of aggressive 10s)
     const interval = setInterval(async () => {
       try {
         const res = await api.get('/deliveries');
@@ -94,9 +100,13 @@ function DeliveryPage() {
       } catch (err) {
         console.error('Delivery monitoring refresh failed:', err);
       }
-    }, 10000);
-    return () => clearInterval(interval);
-  }, []);
+    }, 15000);
+
+    return () => {
+      clearInterval(interval);
+      unsubscribe();
+    };
+  }, [loadData]);
 
   useEffect(() => {
     if (!selectedDelivery) return;
@@ -133,8 +143,8 @@ function DeliveryPage() {
 
   const openDeliveryPanel = (delivery) => setSelectedDelivery(delivery);
   const closeDeliveryPanel = () => setSelectedDelivery(null);
-  const openMapModal = () => { setEta(null); setShowMapModal(true); };
-  const closeMapModal = () => setShowMapModal(false);
+  const openMapModal = () => { setEta(null); setDetectedHazards([]); setShowMapModal(true); };
+  const closeMapModal = () => { setShowMapModal(false); setDetectedHazards([]); };
 
   const currentStepIndex = selectedDelivery ? STATUS_STEPS.findIndex((s) => s.key === selectedDelivery.status) : -1;
 
@@ -335,12 +345,36 @@ function DeliveryPage() {
                     <p style={{ color: '#888' }}>No driver assigned.</p>
                   )}
                 </div>
+
+                {detectedHazards.length > 0 && (
+                  <div className="map-section" style={{ borderLeft: '3.5px solid #dc2626', paddingLeft: '10px' }}>
+                    <div className="map-section-title" style={{ color: '#dc2626' }}>
+                      <i className="fas fa-exclamation-triangle"></i> Route Hazards ({detectedHazards.length})
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                      {detectedHazards.map((zone) => (
+                        <div key={zone.id} style={{ background: '#fef2f2', padding: '6px 8px', borderRadius: '6px', border: '1px solid #fecaca' }}>
+                          <div style={{ fontWeight: '700', fontSize: '11.5px', color: '#991b1b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{zone.name} {zone.region ? <span style={{ fontWeight: 500, fontSize: '10px', color: '#b91c1c', opacity: 0.85 }}>({zone.region})</span> : ''}</span>
+                            <span style={{ fontSize: '9px', fontWeight: 800, textTransform: 'uppercase', color: zone.severity === 'critical' ? '#dc2626' : '#ea580c' }}>
+                              {zone.severity}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#4b5563', marginTop: '2px', lineHeight: '1.3' }}>
+                            {zone.advisory || zone.description}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               <ViewLocationMap
                 pickupAddress={selectedDelivery.request?.pickup_address}
                 dropoffAddress={selectedDelivery.request?.dropoff_address}
                 driverLocation={latestDriverLocation}
                 onEtaChange={setEta}
+                onDangerZonesDetected={setDetectedHazards}
               />
             </div>
           </div>

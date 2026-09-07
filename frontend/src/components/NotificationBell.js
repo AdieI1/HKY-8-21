@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/api-client';
+import reverb from '../utils/reverb';
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
@@ -20,8 +21,21 @@ export default function NotificationBell() {
 
   useEffect(() => {
     loadNotifications();
-    const interval = setInterval(loadNotifications, 30000); // refresh every 30s
-    return () => clearInterval(interval);
+
+    // Real-time notification updates via Laravel Reverb WebSocket
+    const unsubscribe = reverb.subscribe('system-notifications', 'notification.created', (data) => {
+      const notif = data?.notification || data;
+      if (notif && notif.id) {
+        setNotifications((prev) => [notif, ...prev.filter((n) => n.id !== notif.id)]);
+        setUnreadCount((c) => c + 1);
+      }
+    });
+
+    const interval = setInterval(loadNotifications, 60000); // reduced fallback polling
+    return () => {
+      clearInterval(interval);
+      unsubscribe();
+    };
   }, [loadNotifications]);
 
   // Close when clicking outside

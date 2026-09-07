@@ -35,6 +35,9 @@ class Vehicle extends Model
         if (!$this->photo) {
             return null;
         }
+        if (request()) {
+            return request()->getSchemeAndHttpHost() . '/storage/' . ltrim($this->photo, '/');
+        }
         return url('storage/' . $this->photo);
     }
 

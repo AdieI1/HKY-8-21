@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
 import api from '../api/api-client';
+import reverb from '../utils/reverb';
 import Sidebar from '../components/Sidebar';
 import NotificationBell from '../components/NotificationBell';
+import { validatePhoneNumber, formatPhoneInput } from '../utils/validation';
 
 const ACTIVE_STATUSES = [
   'assigned',
@@ -56,8 +58,12 @@ function timeAgo(dateString) {
 
 function shortCity(addr) {
   if (!addr) return 'CDO';
-  const parts = addr.split(',').map((s) => s.trim()).filter(Boolean);
-  return parts.length >= 2 ? (isNaN(parts[parts.length - 2]) ? parts[parts.length - 2] : parts[parts.length - 1]) : parts[0] || 'CDO';
+  const parts = addr
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && !/^\d+$/.test(s) && !/^philippines$/i.test(s) && !/^ph$/i.test(s));
+  if (parts.length === 0) return 'CDO';
+  return parts.length >= 2 ? parts[parts.length - 1] : parts[0];
 }
 
 function statusLabel(status) {
@@ -124,26 +130,51 @@ function OverviewPage() {
     setLoading(true);
     setLoadError('');
     try {
-      const [deliveriesRes, logsRes, usersRes, rolesRes, reqRes, drvRes, vehRes, mntRes, incRes] = await Promise.all([
-        api.get('/deliveries').catch(() => ({ data: [] })),
-        api.get('/system-logs').catch(() => ({ data: [] })),
-        api.get('/users').catch(() => ({ data: [] })),
-        api.get('/roles').catch(() => ({ data: [] })),
-        api.get('/delivery-requests').catch(() => ({ data: [] })),
-        api.get('/drivers').catch(() => ({ data: [] })),
-        api.get('/vehicles').catch(() => ({ data: [] })),
-        api.get('/vehicle-maintenances').catch(() => ({ data: [] })),
-        api.get('/incident-reports').catch(() => ({ data: [] })),
-      ]);
+      let delData = [];
+      let logsData = [];
+      let usersData = [];
+      let rolesData = [];
+      let reqData = [];
+      let drvData = [];
+      let vehData = [];
+      let mntData = [];
+      let incData = [];
 
-      const delData = Array.isArray(deliveriesRes.data) ? deliveriesRes.data : [];
-      const logsData = Array.isArray(logsRes.data) ? logsRes.data : [];
-      const usersData = Array.isArray(usersRes.data) ? usersRes.data : [];
-      const rolesData = Array.isArray(rolesRes.data) ? rolesRes.data : [];
-      const reqData = Array.isArray(reqRes.data) ? reqRes.data : [];
-      const drvData = Array.isArray(drvRes.data) ? drvRes.data : [];
-      const mntData = Array.isArray(mntRes.data) ? mntRes.data : [];
-      const incData = Array.isArray(incRes.data) ? incRes.data : [];
+      try {
+        const overviewRes = await api.get('/dashboard/overview');
+        if (overviewRes.data) {
+          delData = overviewRes.data.deliveries || [];
+          reqData = overviewRes.data.requests || [];
+          drvData = overviewRes.data.drivers || [];
+          vehData = overviewRes.data.vehicles || [];
+          mntData = overviewRes.data.maintenances || [];
+          incData = overviewRes.data.incidents || [];
+          logsData = overviewRes.data.system_logs || [];
+          usersData = overviewRes.data.users || [];
+          rolesData = overviewRes.data.roles || [];
+        }
+      } catch (_) {
+        const [deliveriesRes, logsRes, usersRes, rolesRes, reqRes, drvRes, vehRes, mntRes, incRes] = await Promise.all([
+          api.get('/deliveries').catch(() => ({ data: [] })),
+          api.get('/system-logs').catch(() => ({ data: [] })),
+          api.get('/users').catch(() => ({ data: [] })),
+          api.get('/roles').catch(() => ({ data: [] })),
+          api.get('/delivery-requests').catch(() => ({ data: [] })),
+          api.get('/drivers').catch(() => ({ data: [] })),
+          api.get('/vehicles').catch(() => ({ data: [] })),
+          api.get('/vehicle-maintenances').catch(() => ({ data: [] })),
+          api.get('/incident-reports').catch(() => ({ data: [] })),
+        ]);
+
+        delData = Array.isArray(deliveriesRes.data) ? deliveriesRes.data : [];
+        logsData = Array.isArray(logsRes.data) ? logsRes.data : [];
+        usersData = Array.isArray(usersRes.data) ? usersRes.data : [];
+        rolesData = Array.isArray(rolesRes.data) ? rolesRes.data : [];
+        reqData = Array.isArray(reqRes.data) ? reqRes.data : [];
+        drvData = Array.isArray(drvRes.data) ? drvRes.data : [];
+        mntData = Array.isArray(mntRes.data) ? mntRes.data : [];
+        incData = Array.isArray(incRes.data) ? incRes.data : [];
+      }
 
       setDeliveries(delData);
       setSystemLogs(logsData);
@@ -324,6 +355,19 @@ function OverviewPage() {
 
   useEffect(() => {
     loadData();
+
+    // Instant real-time updates via Laravel Reverb WebSocket
+    const unsubscribeDel = reverb.subscribe('deliveries', 'delivery.updated', () => {
+      loadData();
+    });
+    const unsubscribeNotif = reverb.subscribe('system-notifications', 'notification.created', () => {
+      loadData();
+    });
+
+    return () => {
+      unsubscribeDel();
+      unsubscribeNotif();
+    };
   }, [loadData]);
 
   // ----- Derived stats -----
@@ -356,6 +400,10 @@ function OverviewPage() {
     const { full_name, email, phone, password, confirmPassword } = addForm;
     if (!full_name || !email || !phone || !password || !confirmPassword) {
       setFormError('Please fill in all required fields.');
+      return;
+    }
+    if (!validatePhoneNumber(phone)) {
+      setFormError('Phone number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
       return;
     }
     if (password !== confirmPassword) {
@@ -391,6 +439,10 @@ function OverviewPage() {
   };
 
   const saveAdminChanges = async () => {
+    if (editForm.phone && !validatePhoneNumber(editForm.phone)) {
+      setFormError('Phone number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
+      return;
+    }
     if (editForm.changePassword && (!editForm.password || editForm.password !== editForm.confirmPassword)) {
       setFormError('Passwords do not match.');
       return;
@@ -941,7 +993,13 @@ function OverviewPage() {
                   </div>
                   <div className="form-group">
                     <label>Phone Number<span className="required">*</span></label>
-                    <input type="text" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
+                    <input
+                      type="text"
+                      value={editForm.phone}
+                      maxLength={11}
+                      placeholder="09XXXXXXXXX"
+                      onChange={(e) => setEditForm({ ...editForm, phone: formatPhoneInput(e.target.value) })}
+                    />
                   </div>
                 </div>
                 <div className="password-section">
@@ -997,7 +1055,13 @@ function OverviewPage() {
                   </div>
                   <div className="form-group">
                     <label>Phone Number<span className="required">*</span></label>
-                    <input type="text" value={addForm.phone} onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })} />
+                    <input
+                      type="text"
+                      value={addForm.phone}
+                      maxLength={11}
+                      placeholder="09XXXXXXXXX"
+                      onChange={(e) => setAddForm({ ...addForm, phone: formatPhoneInput(e.target.value) })}
+                    />
                   </div>
                 </div>
                 <h4 className="form-section-title">Security</h4>

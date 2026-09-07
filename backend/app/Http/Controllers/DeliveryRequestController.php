@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AppNotification;
 use App\Models\Delivery;
 use App\Models\DeliveryRequest;
 use App\Models\Role;
@@ -50,7 +51,7 @@ class DeliveryRequestController extends Controller
         $request->validate([
             'first_name' => 'required|string|max:50',
             'last_name' => 'required|string|max:50',
-            'phone' => 'required|string|max:20',
+            'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'email' => 'required|email|unique:users,email',
             'username' => 'nullable|string|max:50|unique:users,username',
             'password' => 'required|min:6',
@@ -128,6 +129,9 @@ class DeliveryRequestController extends Controller
             ]);
         });
 
+        $customerName = $deliveryRequest->customer?->full_name ?: 'Customer';
+        AppNotification::notify('request', 'New Delivery Request', "{$customerName} submitted a new delivery request (" . ($deliveryRequest->cargo_type ?: 'Cargo') . ").", '/requests');
+
         return $deliveryRequest->load('customer');
     }
 
@@ -190,6 +194,9 @@ class DeliveryRequestController extends Controller
             'status' => $request->boolean('is_draft') ? 'draft' : 'pending',
         ]));
 
+        $customerName = $user->full_name ?: 'Customer';
+        AppNotification::notify('request', 'New Delivery Request', "{$customerName} submitted a new delivery request (" . ($deliveryRequest->cargo_type ?: 'Cargo') . ").", '/requests');
+
         return response()->json($deliveryRequest->load('customer'), 201);
     }
 
@@ -238,6 +245,8 @@ class DeliveryRequestController extends Controller
                 'payment_verification' => 'approved',
             ]);
         });
+
+        AppNotification::notify('dispatch', 'Request Approved for Dispatch', 'Delivery Request #REQ' . str_pad($deliveryRequest->request_id, 4, '0', STR_PAD_LEFT) . ' was approved and is ready for dispatch.', '/dispatch');
 
         return response()->json([
             'request' => $deliveryRequest->fresh()->load('customer'),
