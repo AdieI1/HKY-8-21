@@ -24,7 +24,7 @@ describe('routeElevation utility tests', () => {
     expect(STEEPNESS_CONFIG.steep).toBeDefined();
     expect(STEEPNESS_CONFIG.very_steep).toBeDefined();
 
-    expect(STEEPNESS_CONFIG.normal.color).toBe('#2563eb');
+    expect(STEEPNESS_CONFIG.normal.color).toBe('#0284c7');
     expect(STEEPNESS_CONFIG.steep.color).toBe('#f59e0b');
     expect(STEEPNESS_CONFIG.very_steep.color).toBe('#ef4444');
   });
@@ -124,5 +124,47 @@ describe('routeElevation utility tests', () => {
     expect(verySteepHtml).toContain('13.2% Grade');
     expect(verySteepHtml).toContain('Decline');
     expect(verySteepHtml).toContain('runaway risk');
+  });
+
+  test('renderSteepnessPolylines only renders hazards by default to avoid cluttering base route', () => {
+    const { renderSteepnessPolylines } = require('./routeElevation');
+    const mockMap = {
+      addLayer: jest.fn(),
+      removeLayer: jest.fn(),
+    };
+
+    const normalSegments = [
+      {
+        start: { lat: 8.475, lng: 124.715 },
+        end: { lat: 8.48, lng: 124.72 },
+        grade: 2.1,
+        abs_grade: 2.1,
+        level: 'normal',
+      },
+    ];
+
+    const group = renderSteepnessPolylines(mockMap, normalSegments);
+    expect(group.getLayers().length).toBe(0);
+
+    const steepSegments = [
+      {
+        start: { lat: 8.475, lng: 124.715 },
+        end: { lat: 8.48, lng: 124.72 },
+        path: [
+          { lat: 8.475, lng: 124.715 },
+          { lat: 8.477, lng: 124.718 },
+          { lat: 8.48, lng: 124.72 },
+        ],
+        grade: 9.5,
+        abs_grade: 9.5,
+        level: 'steep',
+        direction: 'uphill',
+        distance_m: 400,
+      },
+    ];
+
+    const hazardGroup = renderSteepnessPolylines(mockMap, steepSegments);
+    // Should have casing + polyline = 2 layers
+    expect(hazardGroup.getLayers().length).toBe(2);
   });
 });

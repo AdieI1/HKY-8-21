@@ -186,7 +186,9 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
               if (steepnessLayerRef.current) {
                 try { map.removeLayer(steepnessLayerRef.current); } catch (_) {}
               }
-              steepnessLayerRef.current = renderSteepnessPolylines(map, data.segments);
+              steepnessLayerRef.current = renderSteepnessPolylines(map, data.segments, {
+                originalCoords: coords,
+              });
 
               if (steepnessLegendControlRef.current) {
                 try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}

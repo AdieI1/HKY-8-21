@@ -20,7 +20,7 @@ class ElevationService
     {
         $normalized = [];
 
-        foreach ($rawCoords as $item) {
+        foreach ($rawCoords as $originalIndex => $item) {
             $lat = null;
             $lng = null;
 
@@ -59,9 +59,11 @@ class ElevationService
             }
 
             if ($lat !== null && $lng !== null && is_finite($lat) && is_finite($lng)) {
+                $origIndex = isset($item['orig_index']) ? (int) $item['orig_index'] : (int) $originalIndex;
                 $normalized[] = [
                     'lat' => round($lat, 6),
                     'lng' => round($lng, 6),
+                    'orig_index' => $origIndex,
                 ];
             }
         }
@@ -229,6 +231,7 @@ class ElevationService
                 'lat' => $pt['lat'],
                 'lng' => $pt['lng'],
                 'elevation' => round((float) $elev, 1),
+                'orig_index' => $pt['orig_index'] ?? $idx,
             ];
         }
 
@@ -517,9 +520,32 @@ class ElevationService
                 $direction = 'flat';
             }
 
+            $startIndex = $p1['orig_index'] ?? $i;
+            $endIndex = $p2['orig_index'] ?? ($i + 1);
+
+            // Extract the full curvature path of the route for this segment
+            $segmentPath = [];
+            if ($endIndex >= $startIndex && isset($normalized[$startIndex]) && isset($normalized[$endIndex])) {
+                $slice = array_slice($normalized, $startIndex, $endIndex - $startIndex + 1);
+                foreach ($slice as $pt) {
+                    $segmentPath[] = [
+                        'lat' => $pt['lat'],
+                        'lng' => $pt['lng'],
+                    ];
+                }
+            } else {
+                $segmentPath = [
+                    ['lat' => $p1['lat'], 'lng' => $p1['lng']],
+                    ['lat' => $p2['lat'], 'lng' => $p2['lng']],
+                ];
+            }
+
             $segments[] = [
                 'start' => ['lat' => $p1['lat'], 'lng' => $p1['lng']],
                 'end' => ['lat' => $p2['lat'], 'lng' => $p2['lng']],
+                'start_index' => $startIndex,
+                'end_index' => $endIndex,
+                'path' => $segmentPath,
                 'grade' => round($grade, 1),
                 'abs_grade' => round($absGrade, 1),
                 'level' => $level,

@@ -231,7 +231,9 @@ export default function AssignMap({
               if (steepnessLayerGroupRef.current) {
                 try { map.removeLayer(steepnessLayerGroupRef.current); } catch (_) {}
               }
-              steepnessLayerGroupRef.current = renderSteepnessPolylines(map, steepnessData.segments);
+              steepnessLayerGroupRef.current = renderSteepnessPolylines(map, steepnessData.segments, {
+                originalCoords: coords,
+              });
 
               if (steepnessLegendControlRef.current) {
                 try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}

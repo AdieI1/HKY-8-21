@@ -7,13 +7,13 @@ import api from '../api/api-client';
 export const STEEPNESS_CONFIG = {
   normal: {
     label: 'Normal Road',
-    color: '#2563eb', // Royal Blue
+    color: '#0284c7', // Sky Blue matching base route
     weight: 4,
     opacity: 0.85,
     maxGrade: 8.0,
-    badgeBg: '#eff6ff',
-    badgeText: '#1d4ed8',
-    badgeBorder: '#bfdbfe',
+    badgeBg: '#f0f9ff',
+    badgeText: '#0369a1',
+    badgeBorder: '#bae6fd',
   },
   steep: {
     label: 'Steep Road (8% - 12%)',
@@ -80,16 +80,9 @@ export async function fetchRouteSteepness(coordinates, options = {}) {
     };
   }
 
-  // For long routes across Mindanao (which can have thousands of points), downsample on client to max 250 points
-  let payloadCoords = formattedCoords;
-  if (formattedCoords.length > 250) {
-    const step = Math.ceil(formattedCoords.length / 250);
-    payloadCoords = formattedCoords.filter((_, idx) => idx === 0 || idx === formattedCoords.length - 1 || idx % step === 0);
-  }
-
   try {
     const response = await api.post('/route/steepness', {
-      coordinates: payloadCoords,
+      coordinates: formattedCoords,
       sample_interval: options.sampleInterval || 45.0,
       steep_threshold: options.steepThreshold || 8.0,
       very_steep_threshold: options.verySteepThreshold || 12.0,
@@ -179,17 +172,49 @@ export function renderSteepnessPolylines(map, segments, options = {}) {
   }
 
   const layerGroup = L.layerGroup();
+  const renderNormal = options.renderNormal === true;
 
   segments.forEach((seg) => {
     if (!seg.start || !seg.end) return;
 
-    const latLngs = [
-      [seg.start.lat, seg.start.lng],
-      [seg.end.lat, seg.end.lng],
-    ];
+    const isHazard = seg.level === 'steep' || seg.level === 'very_steep';
+
+    // The base OSRM route is already rendered in Sky Blue (#0284c7).
+    // By default, only overlay hazard segments (steep & very steep) so the map
+    // never gets cluttered with duplicate lines or diagonal chords.
+    if (!isHazard && !renderNormal) return;
+
+    // Determine the precise path coordinates for this segment:
+    // 1. Use seg.path if provided (contains all intermediate curve vertices)
+    // 2. Or slice from options.originalCoords using start_index and end_index
+    // 3. Fallback to straight segment [start, end]
+    let latLngs = null;
+    if (Array.isArray(seg.path) && seg.path.length > 1) {
+      latLngs = seg.path.map((p) => [p.lat, p.lng]);
+    } else if (
+      Array.isArray(options.originalCoords) &&
+      Number.isInteger(seg.start_index) &&
+      Number.isInteger(seg.end_index) &&
+      seg.end_index >= seg.start_index
+    ) {
+      const slice = options.originalCoords.slice(seg.start_index, seg.end_index + 1);
+      if (slice.length > 0) {
+        latLngs = slice.map((pt) => {
+          if (Array.isArray(pt)) return [pt[0], pt[1]];
+          if (pt && typeof pt === 'object') return [pt.lat, pt.lng];
+          return pt;
+        });
+      }
+    }
+
+    if (!latLngs || latLngs.length < 2) {
+      latLngs = [
+        [seg.start.lat, seg.start.lng],
+        [seg.end.lat, seg.end.lng],
+      ];
+    }
 
     const conf = STEEPNESS_CONFIG[seg.level] || STEEPNESS_CONFIG.normal;
-    const isHazard = seg.level === 'steep' || seg.level === 'very_steep';
 
     // 1. High-contrast white casing under hazards so they stand out boldly
     if (isHazard) {

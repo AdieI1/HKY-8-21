@@ -314,7 +314,9 @@ export default function ViewLocationMap({
       return;
     }
 
-    const layer = renderSteepnessPolylines(map, steepnessDataRef.current.segments);
+    const layer = renderSteepnessPolylines(map, steepnessDataRef.current.segments, {
+      originalCoords: routeCoordinates,
+    });
     steepnessLayerRef.current = layer;
 
     const legend = createSteepnessLegendControl(steepnessDataRef.current.summary);
@@ -331,7 +333,7 @@ export default function ViewLocationMap({
         steepnessLegendControlRef.current = null;
       }
     };
-  }, [showSteepness, steepnessSummary]);
+  }, [showSteepness, steepnessSummary, routeCoordinates]);
 
   // 5. Render Danger Zones Overlay Layer
   useEffect(() => {
