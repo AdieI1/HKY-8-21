@@ -12,6 +12,11 @@ import {
   createDangerZonePopupHtml,
   calculateRouteRiskSummary,
 } from '../../utils/dangerZones';
+import {
+  fetchRouteSteepness,
+  renderSteepnessPolylines,
+  createSteepnessLegendControl,
+} from '../../utils/routeElevation';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -87,7 +92,13 @@ export default function AssignMap({
   const [filterRouteOnly, setFilterRouteOnly] = useState(true);
   const [zonesOnRoute, setZonesOnRoute] = useState([]);
   const [allZones, setAllZones] = useState(DEFAULT_DANGER_ZONES);
+  const [steepnessSummary, setSteepnessSummary] = useState(null);
+  const [showSteepness, setShowSteepness] = useState(true);
   const dangerLayerGroupRef = useRef(null);
+  const steepnessLayerGroupRef = useRef(null);
+  const steepnessLegendControlRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const steepnessDataRef = useRef(null);
 
   // Fetch API danger zones or merge with props
   useEffect(() => {
@@ -173,6 +184,7 @@ export default function AssignMap({
 
       mapEl.innerHTML = '';
       map = L.map(mapEl);
+      mapInstanceRef.current = map;
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors',
@@ -191,7 +203,7 @@ export default function AssignMap({
         draggableWaypoints: false,
         fitSelectedRoutes: true,
         show: false,
-        lineOptions: { styles: [{ color: '#9E1E21', weight: 4 }] },
+        lineOptions: { styles: [{ color: '#0284c7', weight: 5, opacity: 0.85 }] },
         createMarker: (index, waypoint) =>
           L.marker(waypoint.latLng).bindPopup(index === 0 ? '<b>Pick-up Origin</b>' : '<b>Drop-off Destination</b>'),
       })
@@ -208,6 +220,27 @@ export default function AssignMap({
 
           // Render danger zones
           updateDangerLayers(map, coords, detected);
+
+          // Detect & visually mark steep segments along the OSRM route
+          fetchRouteSteepness(coords).then((steepnessData) => {
+            if (cancelled || !map) return;
+            steepnessDataRef.current = steepnessData;
+            setSteepnessSummary(steepnessData.summary);
+
+            if (showSteepness && steepnessData.segments && steepnessData.segments.length > 0) {
+              if (steepnessLayerGroupRef.current) {
+                try { map.removeLayer(steepnessLayerGroupRef.current); } catch (_) {}
+              }
+              steepnessLayerGroupRef.current = renderSteepnessPolylines(map, steepnessData.segments);
+
+              if (steepnessLegendControlRef.current) {
+                try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}
+              }
+              const legendCtrl = createSteepnessLegendControl(steepnessData.summary);
+              legendCtrl.addTo(map);
+              steepnessLegendControlRef.current = legendCtrl;
+            }
+          }).catch(() => {});
         })
         .on('routingerror', () => {
           if (cancelled) return;
@@ -277,7 +310,18 @@ export default function AssignMap({
           map.removeLayer(dangerLayerGroupRef.current);
         } catch (_) {}
       }
+      if (steepnessLayerGroupRef.current && map) {
+        try {
+          map.removeLayer(steepnessLayerGroupRef.current);
+        } catch (_) {}
+      }
+      if (steepnessLegendControlRef.current && map) {
+        try {
+          map.removeControl(steepnessLegendControlRef.current);
+        } catch (_) {}
+      }
       map?.remove();
+      mapInstanceRef.current = null;
     };
   }, [
     pickupAddress,
@@ -300,7 +344,63 @@ export default function AssignMap({
         <div ref={setMapEl} style={{ height: 230, borderRadius: 8, background: '#eee' }} />
 
         {/* Floating Toggle on Top-Right of Map */}
-        <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 1000, display: 'flex', gap: 6 }}>
+        <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 1000, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {/* Steepness Overlay Toggle Button */}
+          <button
+            type="button"
+            onClick={() => {
+              const nextState = !showSteepness;
+              setShowSteepness(nextState);
+              const map = mapInstanceRef.current;
+              if (!map) return;
+
+              if (nextState) {
+                if (steepnessDataRef.current && steepnessDataRef.current.segments && steepnessDataRef.current.segments.length > 0) {
+                  if (steepnessLayerGroupRef.current) {
+                    try { map.removeLayer(steepnessLayerGroupRef.current); } catch (_) {}
+                  }
+                  steepnessLayerGroupRef.current = renderSteepnessPolylines(map, steepnessDataRef.current.segments);
+
+                  if (steepnessLegendControlRef.current) {
+                    try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}
+                  }
+                  const legend = createSteepnessLegendControl(steepnessDataRef.current.summary);
+                  legend.addTo(map);
+                  steepnessLegendControlRef.current = legend;
+                }
+              } else {
+                if (steepnessLayerGroupRef.current) {
+                  try { map.removeLayer(steepnessLayerGroupRef.current); } catch (_) {}
+                  steepnessLayerGroupRef.current = null;
+                }
+                if (steepnessLegendControlRef.current) {
+                  try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}
+                  steepnessLegendControlRef.current = null;
+                }
+              }
+            }}
+            className={`map-danger-toggle-btn ${showSteepness ? 'active' : ''}`}
+            style={{
+              fontSize: '11px',
+              padding: '4px 10px',
+              background: showSteepness ? '#0284c7' : '#fff',
+              color: showSteepness ? '#fff' : '#334155',
+              borderColor: showSteepness ? '#0284c7' : '#cbd5e1',
+            }}
+            title="Toggle Road Steepness / Grade Analysis"
+          >
+            <i className="fas fa-mountain"></i>
+            <span>Steepness</span>
+            {steepnessSummary && (steepnessSummary.steep_segments_count > 0 || steepnessSummary.very_steep_segments_count > 0) && (
+              <span
+                className="map-danger-toggle-badge"
+                style={{ background: steepnessSummary.very_steep_segments_count > 0 ? '#ef4444' : '#f59e0b' }}
+              >
+                {steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count}
+              </span>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={() => setShowDangerZones(!showDangerZones)}
@@ -384,6 +484,40 @@ export default function AssignMap({
             </div>
           );
         })()}
+
+        {/* Steep Road Terrain Warning Banner */}
+        {steepnessSummary && steepnessSummary.has_steep_segments && (
+          <div
+            style={{
+              marginTop: 8,
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: steepnessSummary.very_steep_segments_count > 0 ? '#fef2f2' : '#fffbeb',
+              border: `1px solid ${steepnessSummary.very_steep_segments_count > 0 ? '#fecaca' : '#fde68a'}`,
+              color: steepnessSummary.very_steep_segments_count > 0 ? '#991b1b' : '#92400e',
+              fontSize: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
+            <i
+              className={`fas ${steepnessSummary.very_steep_segments_count > 0 ? 'fa-triangle-exclamation' : 'fa-mountain'}`}
+              style={{ fontSize: 16 }}
+            ></i>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700 }}>
+                {steepnessSummary.very_steep_segments_count > 0 ? '🚨 Critical Steep Road Segments Detected' : '⚠️ Steep Road Warning'} (Max {steepnessSummary.max_grade_pct}% Grade)
+              </div>
+              <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
+                {steepnessSummary.very_steep_segments_count > 0 && `${steepnessSummary.very_steep_segments_count} very steep section(s) (≥12%). `}
+                {steepnessSummary.steep_segments_count > 0 && `${steepnessSummary.steep_segments_count} steep section(s) (8-12%). `}
+                Total Elevation Gain: +{steepnessSummary.elevation_gain_m}m • Descent: -{steepnessSummary.elevation_loss_m}m.
+                Advise assigned driver to use low gears and exhaust/engine brakes.
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

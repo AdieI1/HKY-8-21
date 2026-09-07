@@ -11,6 +11,11 @@ import {
   createDangerZoneIcon,
   createDangerZonePopupHtml,
 } from '../../utils/dangerZones';
+import {
+  fetchRouteSteepness,
+  renderSteepnessPolylines,
+  createSteepnessLegendControl,
+} from '../../utils/routeElevation';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -63,6 +68,11 @@ export default function ViewLocationMap({
   const [showLegend, setShowLegend] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
   const [zonesOnRoute, setZonesOnRoute] = useState([]);
+  const [steepnessSummary, setSteepnessSummary] = useState(null);
+  const [showSteepness, setShowSteepness] = useState(true);
+  const steepnessLayerRef = useRef(null);
+  const steepnessLegendControlRef = useRef(null);
+  const steepnessDataRef = useRef(null);
 
   useEffect(() => {
     etaCallbackRef.current = onEtaChange;
@@ -175,7 +185,7 @@ export default function ViewLocationMap({
           fitSelectedRoutes: !driverLocation,
           show: false,
           lineOptions: {
-            styles: [{ color: '#9E1E21', weight: 5, opacity: 0.85 }],
+            styles: [{ color: '#0284c7', weight: 5, opacity: 0.85 }],
           },
           createMarker: (i, wp, nWps) => {
             const isStart = i === 0;
@@ -269,6 +279,59 @@ export default function ViewLocationMap({
     setZonesOnRoute(detected);
     detectedCallbackRef.current?.(detected);
   }, [routeCoordinates, dangerZones, coords, driverLocation]);
+
+  // 4b. Fetch route steepness / elevation profile
+  useEffect(() => {
+    if (!routeCoordinates || routeCoordinates.length < 2) return;
+    let cancelled = false;
+
+    fetchRouteSteepness(routeCoordinates).then((data) => {
+      if (cancelled) return;
+      steepnessDataRef.current = data;
+      setSteepnessSummary(data.summary);
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routeCoordinates]);
+
+  // 4c. Render route steepness layer and legend
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (steepnessLayerRef.current) {
+      try { map.removeLayer(steepnessLayerRef.current); } catch (_) {}
+      steepnessLayerRef.current = null;
+    }
+    if (steepnessLegendControlRef.current) {
+      try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}
+      steepnessLegendControlRef.current = null;
+    }
+
+    if (!showSteepness || !steepnessDataRef.current?.segments?.length) {
+      return;
+    }
+
+    const layer = renderSteepnessPolylines(map, steepnessDataRef.current.segments);
+    steepnessLayerRef.current = layer;
+
+    const legend = createSteepnessLegendControl(steepnessDataRef.current.summary);
+    legend.addTo(map);
+    steepnessLegendControlRef.current = legend;
+
+    return () => {
+      if (steepnessLayerRef.current && map) {
+        try { map.removeLayer(steepnessLayerRef.current); } catch (_) {}
+        steepnessLayerRef.current = null;
+      }
+      if (steepnessLegendControlRef.current && map) {
+        try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}
+        steepnessLegendControlRef.current = null;
+      }
+    };
+  }, [showSteepness, steepnessSummary]);
 
   // 5. Render Danger Zones Overlay Layer
   useEffect(() => {
@@ -413,8 +476,32 @@ export default function ViewLocationMap({
     <div className="map-area" style={{ position: 'relative', height: '100%', width: '100%' }}>
       <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
 
-      {/* Floating Danger Zones Control & Legend */}
-      <div className="map-danger-control-bar">
+      {/* Floating Danger Zones & Steepness Control Bar */}
+      <div className="map-danger-control-bar" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+        {/* Steepness Overlay Toggle Button */}
+        <button
+          type="button"
+          onClick={() => setShowSteepness(!showSteepness)}
+          className={`map-danger-toggle-btn ${showSteepness ? 'active' : ''}`}
+          style={{
+            background: showSteepness ? '#0284c7' : '#fff',
+            color: showSteepness ? '#fff' : '#334155',
+            borderColor: showSteepness ? '#0284c7' : '#cbd5e1',
+          }}
+          title="Toggle Steep Road Elevation Analysis"
+        >
+          <i className="fas fa-mountain"></i>
+          <span>Steepness</span>
+          {steepnessSummary && (steepnessSummary.steep_segments_count > 0 || steepnessSummary.very_steep_segments_count > 0) && (
+            <span
+              className="map-danger-toggle-badge"
+              style={{ background: steepnessSummary.very_steep_segments_count > 0 ? '#ef4444' : '#f59e0b' }}
+            >
+              {steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count}
+            </span>
+          )}
+        </button>
+
         <button
           type="button"
           onClick={() => setShowDangerZones(!showDangerZones)}
