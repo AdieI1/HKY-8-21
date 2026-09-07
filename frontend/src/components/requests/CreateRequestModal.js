@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../../api/api-client';
 import PinRouteMap, { geocode } from './PinRouteMap';
 import { validatePhoneNumber, formatPhoneInput } from '../../utils/validation';
@@ -91,6 +91,18 @@ export default function CreateRequestModal({
       setReceiptPreview(null);
     }
   };
+
+  const handlePickupChange = useCallback((point) => {
+    setForm((prev) => ({ ...prev, pickup: point }));
+  }, []);
+
+  const handleDropoffChange = useCallback((point) => {
+    setForm((prev) => ({ ...prev, dropoff: point }));
+  }, []);
+
+  const handleDistanceChange = useCallback((km) => {
+    setForm((prev) => (prev.distance_km === km ? prev : { ...prev, distance_km: km }));
+  }, []);
 
   const submitRequest = async (asDraft) => {
     if (!form.first_name || !form.last_name || !form.phone || !form.email || !form.password) {
@@ -291,9 +303,9 @@ export default function CreateRequestModal({
               <PinRouteMap
                 pickup={form.pickup}
                 dropoff={form.dropoff}
-                onPickupChange={(point) => setForm((prev) => ({ ...prev, pickup: point }))}
-                onDropoffChange={(point) => setForm((prev) => ({ ...prev, dropoff: point }))}
-                onDistanceChange={(km) => setForm((prev) => ({ ...prev, distance_km: km }))}
+                onPickupChange={handlePickupChange}
+                onDropoffChange={handleDropoffChange}
+                onDistanceChange={handleDistanceChange}
               />
 
               <div className="form-group">

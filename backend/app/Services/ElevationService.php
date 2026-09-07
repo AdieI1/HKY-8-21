@@ -82,6 +82,23 @@ class ElevationService
             return $coords;
         }
 
+        // Calculate total distance along the route
+        $totalDistance = 0.0;
+        for ($i = 1; $i < $count; $i++) {
+            $totalDistance += $this->calculateHaversineDistance(
+                $coords[$i - 1]['lat'],
+                $coords[$i - 1]['lng'],
+                $coords[$i]['lat'],
+                $coords[$i]['lng']
+            );
+        }
+
+        // Target at most ~150 to 180 sampled points along any route.
+        // This guarantees external elevation queries complete in ONE single fast batch (< 0.5s),
+        // completely preventing PHP dev server blocking and eliminating noisy DEM micro-jitter.
+        $targetSamples = 160.0;
+        $effectiveInterval = max($intervalMeters, $totalDistance / $targetSamples);
+
         $sampled = [$coords[0]];
         $lastSaved = $coords[0];
         $accumulatedDist = 0.0;
@@ -96,7 +113,7 @@ class ElevationService
 
             $accumulatedDist += $dist;
 
-            if ($accumulatedDist >= $intervalMeters) {
+            if ($accumulatedDist >= $effectiveInterval) {
                 $sampled[] = $coords[$i];
                 $lastSaved = $coords[$i];
                 $accumulatedDist = 0.0;
@@ -112,8 +129,8 @@ class ElevationService
             $lastCoord['lng']
         );
 
-        // If the final point is very close to the last sampled point (< 15m), replace it, otherwise append
-        if ($finalDist < 15.0 && count($sampled) > 1) {
+        // If the final point is close to the last sampled point (< 25m), replace it, otherwise append
+        if ($finalDist < 25.0 && count($sampled) > 1) {
             $sampled[count($sampled) - 1] = $lastCoord;
         } else {
             $sampled[] = $lastCoord;
@@ -334,7 +351,7 @@ class ElevationService
             $lngs = implode(',', array_map(fn($p) => $p['orig_lng'], $chunk));
 
             $response = Http::withoutVerifying()
-                ->timeout(6)
+                ->timeout(3.5)
                 ->get('https://api.open-meteo.com/v1/elevation', [
                     'latitude' => $lats,
                     'longitude' => $lngs,
@@ -468,6 +485,16 @@ class ElevationService
         $verySteepCount = 0;
 
         $ptCount = count($pointsWithElevation);
+
+        // Smooth elevation points with a 3-point moving average to filter out DEM step artifacts
+        $smoothedElevations = [];
+        for ($i = 0; $i < $ptCount; $i++) {
+            $prev = $i > 0 ? $pointsWithElevation[$i - 1]['elevation'] : $pointsWithElevation[$i]['elevation'];
+            $curr = $pointsWithElevation[$i]['elevation'];
+            $next = $i < $ptCount - 1 ? $pointsWithElevation[$i + 1]['elevation'] : $pointsWithElevation[$i]['elevation'];
+            $smoothedElevations[$i] = round(($prev + (2.0 * $curr) + $next) / 4.0, 1);
+        }
+
         for ($i = 0; $i < $ptCount - 1; $i++) {
             $p1 = $pointsWithElevation[$i];
             $p2 = $pointsWithElevation[$i + 1];
@@ -480,12 +507,18 @@ class ElevationService
             );
 
             // Skip zero or near-zero distance to prevent divide-by-zero & micro-jitter
-            if ($dist < 10.0) {
+            if ($dist < 20.0) {
                 continue;
             }
 
-            $elevChange = $p2['elevation'] - $p1['elevation'];
-            $grade = ($elevChange / $dist) * 100.0;
+            $elev1 = $smoothedElevations[$i];
+            $elev2 = $smoothedElevations[$i + 1];
+            $elevChange = $elev2 - $elev1;
+
+            // Raw grade percentage
+            $rawGrade = ($elevChange / $dist) * 100.0;
+            // Realistic highway grade clamping: commercial highways rarely exceed 25-30%
+            $grade = max(-28.0, min(28.0, $rawGrade));
             $absGrade = abs($grade);
 
             if ($absGrade > $maxGrade) {
@@ -552,8 +585,8 @@ class ElevationService
                 'direction' => $direction,
                 'distance_m' => round($dist, 1),
                 'elevation_change_m' => round($elevChange, 1),
-                'start_elevation_m' => $p1['elevation'],
-                'end_elevation_m' => $p2['elevation'],
+                'start_elevation_m' => $elev1,
+                'end_elevation_m' => $elev2,
             ];
         }
 

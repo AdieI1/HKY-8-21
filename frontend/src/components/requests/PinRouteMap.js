@@ -71,8 +71,13 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
   const steepnessLegendControlRef = useRef(null);
   const steepnessDataRef = useRef(null);
   const activeModeRef = useRef(activeMode);
+  const onDistanceChangeRef = useRef(onDistanceChange);
+  const prevRouteKeyRef = useRef('');
+  const lastReportedDistanceRef = useRef(null);
+  const steepnessDebounceTimerRef = useRef(null);
 
   useEffect(() => { activeModeRef.current = activeMode; }, [activeMode]);
+  useEffect(() => { onDistanceChangeRef.current = onDistanceChange; }, [onDistanceChange]);
 
   // Load backend danger zones or fallback to defaults
   useEffect(() => {
@@ -154,6 +159,19 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !hasCoords(pickup) || !hasCoords(dropoff)) return;
+
+    const pLat = Number(pickup.lat).toFixed(5);
+    const pLng = Number(pickup.lng).toFixed(5);
+    const dLat = Number(dropoff.lat).toFixed(5);
+    const dLng = Number(dropoff.lng).toFixed(5);
+    const routeKey = `${pLat},${pLng}->${dLat},${dLng}`;
+
+    // Skip if identical waypoints already calculated
+    if (routeKey === prevRouteKeyRef.current && routingRef.current) {
+      return;
+    }
+    prevRouteKeyRef.current = routeKey;
+
     setRouteStatus('loading');
     const waypoints = [L.latLng(pickup.lat, pickup.lng), L.latLng(dropoff.lat, dropoff.lng)];
 
@@ -170,34 +188,44 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
       })
         .on('routesfound', (e) => {
           setRouteStatus('ready');
-          onDistanceChange(Math.round((e.routes[0].summary.totalDistance / 1000) * 10) / 10);
+          const distKm = Math.round((e.routes[0].summary.totalDistance / 1000) * 10) / 10;
+          if (lastReportedDistanceRef.current !== distKm) {
+            lastReportedDistanceRef.current = distKm;
+            onDistanceChangeRef.current?.(distKm);
+          }
 
           const coords = e.routes[0].coordinates || [pickup, dropoff];
           const detected = dangerZones.filter((zone) => isZoneNearRoute(zone, coords, 2.0));
           setZonesOnRoute(detected);
 
-          // Detect & visually mark steep segments along the OSRM route
-          fetchRouteSteepness(coords).then((data) => {
-            if (!map) return;
-            steepnessDataRef.current = data;
-            setSteepnessSummary(data.summary);
+          // Debounce steepness calculation to prevent rapid repeated requests
+          if (steepnessDebounceTimerRef.current) {
+            clearTimeout(steepnessDebounceTimerRef.current);
+          }
 
-            if (showSteepness && data.segments && data.segments.length > 0) {
-              if (steepnessLayerRef.current) {
-                try { map.removeLayer(steepnessLayerRef.current); } catch (_) {}
-              }
-              steepnessLayerRef.current = renderSteepnessPolylines(map, data.segments, {
-                originalCoords: coords,
-              });
+          steepnessDebounceTimerRef.current = setTimeout(() => {
+            fetchRouteSteepness(coords).then((data) => {
+              if (!mapRef.current) return;
+              steepnessDataRef.current = data;
+              setSteepnessSummary(data.summary);
 
-              if (steepnessLegendControlRef.current) {
-                try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}
+              if (showSteepness && data.segments && data.segments.length > 0) {
+                if (steepnessLayerRef.current) {
+                  try { mapRef.current.removeLayer(steepnessLayerRef.current); } catch (_) {}
+                }
+                steepnessLayerRef.current = renderSteepnessPolylines(mapRef.current, data.segments, {
+                  originalCoords: coords,
+                });
+
+                if (steepnessLegendControlRef.current) {
+                  try { mapRef.current.removeControl(steepnessLegendControlRef.current); } catch (_) {}
+                }
+                const legend = createSteepnessLegendControl(data.summary);
+                legend.addTo(mapRef.current);
+                steepnessLegendControlRef.current = legend;
               }
-              const legend = createSteepnessLegendControl(data.summary);
-              legend.addTo(map);
-              steepnessLegendControlRef.current = legend;
-            }
-          }).catch(() => {});
+            }).catch(() => {});
+          }, 300);
         })
         .on('routingerror', () => {
           setRouteStatus('failed');
@@ -209,7 +237,7 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
     } else {
       routingRef.current.setWaypoints(waypoints);
     }
-  }, [pickup, dropoff, dangerZones, onDistanceChange]);
+  }, [pickup?.lat, pickup?.lng, dropoff?.lat, dropoff?.lng]);
 
   // Render Danger Zones Overlay
   useEffect(() => {
