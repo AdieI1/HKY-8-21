@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\FuelInventory;
 use App\Models\FuelIssuance;
 use App\Models\FuelPriceHistory;
+use App\Models\AppNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -186,6 +187,12 @@ class FuelInventoryController extends Controller
                 'issued_at' => !empty($validated['issue_date']) ? \Carbon\Carbon::parse($validated['issue_date']) : now(),
             ]);
         });
+
+        $vPlate = $issuance->vehicle?->plate_number ?: 'Fleet';
+        AppNotification::notify('fuel', 'Fuel Issued', "Issued {$liters}L {$fuelInventory->fuel_type} to {$vPlate}.", '/fuel-inventory');
+        if ($fuelInventory->current_stock <= $fuelInventory->reorder_level) {
+            AppNotification::notify('fuel_alert', 'Low Fuel Warning', "{$fuelInventory->fuel_type} level is low ({$fuelInventory->current_stock} {$fuelInventory->unit} remaining).", '/fuel-inventory');
+        }
 
         return response()->json([
             'message' => 'Fuel issued successfully.',

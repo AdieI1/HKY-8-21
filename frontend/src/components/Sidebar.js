@@ -4,9 +4,29 @@ import api from '../api/api-client';
 
 export default function Sidebar({ activePage }) {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [inventoryOpen, setInventoryOpen] = useState(
-    activePage === 'fuel-inventory' || activePage === 'parts-inventory'
-  );
+  const [inventoryOpen, setInventoryOpen] = useState(() => {
+    if (activePage === 'fuel-inventory' || activePage === 'parts-inventory') return true;
+    try {
+      const saved = localStorage.getItem('hjy_inventory_group_expanded');
+      return saved === null ? false : saved === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleInventory = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setInventoryOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('hjy_inventory_group_expanded', String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const authUser = JSON.parse(localStorage.getItem('auth_user') || '{}');
   const roleName = authUser?.role?.role_name || '';
@@ -75,15 +95,21 @@ export default function Sidebar({ activePage }) {
             </Link>
           </li>
 
-          <li className={`nav-group ${inventoryOpen ? 'open' : ''}`}>
-            <span
+          <li className={`nav-group ${inventoryOpen ? 'expanded open' : ''}`}>
+            <div
               className="nav-group-label"
-              onClick={() => setInventoryOpen((prev) => !prev)}
+              onClick={toggleInventory}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleInventory(e); }}
               style={{ cursor: 'pointer' }}
             >
-              <i className="fas fa-boxes"></i> Inventory
-            </span>
-            <ul className="nav-submenu">
+              <i className="fas fa-boxes"></i> <span>Inventory</span>
+            </div>
+            <ul
+              className="nav-submenu"
+              style={inventoryOpen ? { maxHeight: '250px', opacity: 1, visibility: 'visible', transition: 'max-height 0.25s ease' } : { maxHeight: 0, overflow: 'hidden', transition: 'max-height 0.25s ease' }}
+            >
               <li className={activePage === 'fuel-inventory' ? 'active' : ''}>
                 <Link to="/fuel-inventory">
                   <i className="fas fa-gas-pump"></i> Fuel Inventory
@@ -97,11 +123,13 @@ export default function Sidebar({ activePage }) {
             </ul>
           </li>
 
-          <li className={activePage === 'analytics' ? 'active' : ''}>
-            <Link to="/analytics">
-              <i className="fas fa-chart-bar"></i> Analytics
-            </Link>
-          </li>
+          {isAdmin && (
+            <li className={activePage === 'analytics' ? 'active' : ''}>
+              <Link to="/analytics">
+                <i className="fas fa-chart-bar"></i> Analytics
+              </Link>
+            </li>
+          )}
           <li className={activePage === 'customers' ? 'active' : ''}>
             <Link to="/customers">
               <i className="fas fa-users"></i> Customers
@@ -130,11 +158,13 @@ export default function Sidebar({ activePage }) {
               <span>Profile</span>
               <i className="fas fa-chevron-right dropdown-arrow"></i>
             </Link>
-            <Link to="/settings" className={`dropdown-item ${activePage === 'settings' ? 'active' : ''}`}>
-              <i className="fas fa-cog"></i>
-              <span>Settings</span>
-              <i className="fas fa-chevron-right dropdown-arrow"></i>
-            </Link>
+            {isAdmin && (
+              <Link to="/settings" className={`dropdown-item ${activePage === 'settings' ? 'active' : ''}`}>
+                <i className="fas fa-cog"></i>
+                <span>Settings</span>
+                <i className="fas fa-chevron-right dropdown-arrow"></i>
+              </Link>
+            )}
 
             <button
               type="button"

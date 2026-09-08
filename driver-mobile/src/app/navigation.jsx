@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 import NavigationInfoSheet from "../../components/navigation/NavigationInfoSheet";
 import NavigationHeader from "../../components/navigation/NavigationHeader";
@@ -52,6 +53,8 @@ export default function Navigation() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [backendDelivery, setBackendDelivery] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeHazardAlert, setActiveHazardAlert] = useState(null);
+  const [routeMetrics, setRouteMetrics] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -109,8 +112,16 @@ export default function Navigation() {
       weight: request.weight ? `${request.weight}kg` : "",
       pickup: request.pickup_address || "",
       dropoff: request.dropoff_address || "",
-      distance: distance ? `${distance} km` : "—",
-      eta: distance ? `${Math.max(Math.round((distance / 40) * 60), 1)} mins` : "—",
+      distance: routeMetrics?.distanceKm
+        ? `${routeMetrics.distanceKm} km`
+        : distance
+          ? `${distance} km`
+          : "—",
+      eta: routeMetrics?.durationMins
+        ? `${routeMetrics.durationMins} mins`
+        : distance
+          ? `${Math.max(Math.round((distance / 40) * 60), 1)} mins`
+          : "—",
       startingOdometer:
         preTrip?.starting_odometer || vehicle.odometer_reading || "",
       startingFuel: preTrip?.starting_fuel || "",
@@ -122,7 +133,7 @@ export default function Navigation() {
       fragility: request.fragility || "",
       remarks: backendDelivery.remarks || "N/A",
     };
-  }, [backendDelivery]);
+  }, [backendDelivery, routeMetrics]);
 
   useEffect(() => {
     if (navigationState !== "completed") return;
@@ -179,7 +190,32 @@ export default function Navigation() {
             delivery={backendDelivery}
             navigationState={navigationState}
             onLocationChange={handleLocationChange}
+            onHazardAlert={setActiveHazardAlert}
+            onRouteMetrics={setRouteMetrics}
           />
+
+          {activeHazardAlert && (
+            <View style={styles.hazardBanner}>
+              <View style={styles.hazardHeader}>
+                <Ionicons name="warning" size={16} color="#EF4444" />
+                <Text style={styles.hazardTitle}>
+                  HAZARD AHEAD ({activeHazardAlert.distanceKm} km)
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setActiveHazardAlert(null)}
+                  style={styles.hazardClose}
+                >
+                  <Ionicons name="close" size={16} color="#9CA3AF" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.hazardName} numberOfLines={1}>
+                {activeHazardAlert.name}
+              </Text>
+              <Text style={styles.hazardAdvisory} numberOfLines={2}>
+                {activeHazardAlert.advisory}
+              </Text>
+            </View>
+          )}
         </View>
 
         <NavigationRoutePreview
@@ -221,6 +257,57 @@ const styles = StyleSheet.create({
 
   mapContainer: {
     flex: 1,
+  },
+
+  hazardBanner: {
+    position: "absolute",
+    top: 10,
+    left: 16,
+    right: 16,
+    backgroundColor: "#1F2937",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderLeftWidth: 4,
+    borderLeftColor: "#EF4444",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 10,
+    zIndex: 15,
+  },
+
+  hazardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 3,
+  },
+
+  hazardTitle: {
+    color: "#EF4444",
+    fontSize: 11,
+    fontWeight: "800",
+    marginLeft: 6,
+    flex: 1,
+    letterSpacing: 0.5,
+  },
+
+  hazardClose: {
+    padding: 2,
+  },
+
+  hazardName: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+
+  hazardAdvisory: {
+    color: "#D1D5DB",
+    fontSize: 11,
+    lineHeight: 15,
   },
 
   completedMessage: {

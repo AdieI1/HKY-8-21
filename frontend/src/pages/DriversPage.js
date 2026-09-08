@@ -2,6 +2,16 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
+import Pagination from '../components/Pagination';
+import TableSkeleton from '../components/TableSkeleton';
+import {
+  validatePhoneNumber,
+  formatPhoneInput,
+  validateLicenseNumber,
+  formatLicenseInput,
+  validateDateSequence,
+  validatePositiveNumber,
+} from '../utils/validation';
 
 function formatDate(dateString) {
   if (!dateString) return '—';
@@ -33,23 +43,24 @@ const EMPTY_FORM = {
   middle_name: '',
   last_name: '',
   birthdate: '',
+  nationality: 'Filipino',
   phone: '',
   license_number: '',
-  license_type: '',
+  license_type: 'Professional',
   license_date_issued: '',
   license_expiry_date: '',
   authorized_by: '',
   restriction_code: '',
-  health_condition: '',
+  health_condition: 'Fit to Work',
   last_medical_check: '',
   prescriptions: '',
   existing_conditions: '',
   date_hired: '',
+  experience_years: '',
   hired_by: '',
   contract_start: '',
   contract_end: '',
   email: '',
-  username: '',
   password: '',
   confirmPassword: '',
 };
@@ -159,6 +170,39 @@ function DriversPage() {
     return Array.from(names);
   }, [incidents]);
 
+  // Pagination states
+  const PAGE_SIZE = 10;
+  const [driverPage, setDriverPage] = useState(1);
+  const [archivePage, setArchivePage] = useState(1);
+  const [incidentPage, setIncidentPage] = useState(1);
+
+  // Reset page numbers on filter changes
+  useEffect(() => {
+    setDriverPage(1);
+  }, [search]);
+
+  useEffect(() => {
+    setIncidentPage(1);
+  }, [incidentSearch, incidentType, incidentDriverFilter, incidentStatusFilter]);
+
+  const totalDriverPages = Math.ceil(filteredDrivers.length / PAGE_SIZE) || 1;
+  const paginatedDrivers = useMemo(() => {
+    const start = (driverPage - 1) * PAGE_SIZE;
+    return filteredDrivers.slice(start, start + PAGE_SIZE);
+  }, [filteredDrivers, driverPage]);
+
+  const totalArchivePages = Math.ceil(archivedDrivers.length / PAGE_SIZE) || 1;
+  const paginatedArchivedDrivers = useMemo(() => {
+    const start = (archivePage - 1) * PAGE_SIZE;
+    return archivedDrivers.slice(start, start + PAGE_SIZE);
+  }, [archivedDrivers, archivePage]);
+
+  const totalIncidentPages = Math.ceil(filteredIncidents.length / PAGE_SIZE) || 1;
+  const paginatedIncidents = useMemo(() => {
+    const start = (incidentPage - 1) * PAGE_SIZE;
+    return filteredIncidents.slice(start, start + PAGE_SIZE);
+  }, [filteredIncidents, incidentPage]);
+
   // ----- Add / Edit -----
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -177,8 +221,13 @@ function DriversPage() {
   };
 
   const openAddModal = () => {
+    const authUser = JSON.parse(localStorage.getItem('auth_user') || '{}');
+    const defaultAuthorizedBy = authUser?.full_name || 'Administrator';
     setEditingDriver(null);
-    setForm(EMPTY_FORM);
+    setForm({
+      ...EMPTY_FORM,
+      authorized_by: defaultAuthorizedBy,
+    });
     setChangePassword(false);
     setProfilePhotoFile(null);
     setProfilePhotoPreview(null);
@@ -187,6 +236,8 @@ function DriversPage() {
   };
 
   const openEditModal = (driver) => {
+    const authUser = JSON.parse(localStorage.getItem('auth_user') || '{}');
+    const defaultAuthorizedBy = authUser?.full_name || 'Administrator';
     setEditingDriver(driver);
     const { first_name, middle_name, last_name } = splitFullName(driver.user?.full_name);
     setForm({
@@ -194,29 +245,30 @@ function DriversPage() {
       middle_name,
       last_name,
       birthdate: driver.birthdate || '',
+      nationality: driver.nationality || 'Filipino',
       phone: driver.user?.phone || '',
       license_number: driver.license_number || '',
-      license_type: driver.license_type || '',
+      license_type: driver.license_type || 'Professional',
       license_date_issued: driver.license_date_issued || '',
       license_expiry_date: driver.license_expiry_date || '',
-      authorized_by: driver.authorized_by || '',
+      authorized_by: driver.authorized_by || defaultAuthorizedBy,
       restriction_code: driver.restriction_code || '',
-      health_condition: driver.health_condition || '',
+      health_condition: driver.health_condition || 'Fit to Work',
       last_medical_check: driver.last_medical_check || '',
       prescriptions: driver.prescriptions || '',
       existing_conditions: driver.existing_conditions || '',
       date_hired: driver.date_hired || '',
+      experience_years: driver.experience_years != null ? driver.experience_years : '',
       hired_by: driver.hired_by || '',
       contract_start: driver.contract_start || '',
       contract_end: driver.contract_end || '',
       email: driver.user?.email || '',
-      username: driver.user?.username || '',
       password: '',
       confirmPassword: '',
     });
     setChangePassword(false);
     setProfilePhotoFile(null);
-    setProfilePhotoPreview(driver.user?.profile_photo_url || null);
+    setProfilePhotoPreview(driver.user?.profile_photo_url || '/images/brucednegrow.png');
     setFormError('');
     setShowFormModal(true);
   };
@@ -224,6 +276,26 @@ function DriversPage() {
   const saveDriver = async () => {
     if (!form.first_name || !form.last_name || !form.email || !form.phone) {
       setFormError('Please fill in first name, last name, email, and contact number.');
+      return;
+    }
+    if (!validatePhoneNumber(form.phone)) {
+      setFormError('Contact number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
+      return;
+    }
+    if (form.license_number && !validateLicenseNumber(form.license_number)) {
+      setFormError('License number must follow Philippine LTO format (e.g. D01-23-456789).');
+      return;
+    }
+    if (!validateDateSequence(form.license_date_issued, form.license_expiry_date)) {
+      setFormError('License expiry date must be on or after the issue date.');
+      return;
+    }
+    if (!validateDateSequence(form.contract_start, form.contract_end)) {
+      setFormError('Contract end date must be on or after the contract start date.');
+      return;
+    }
+    if (!validatePositiveNumber(form.experience_years)) {
+      setFormError('Years of experience cannot be negative.');
       return;
     }
     if (!editingDriver && !form.password) {
@@ -243,9 +315,9 @@ function DriversPage() {
       const formData = new FormData();
       formData.append('full_name', full_name);
       formData.append('email', form.email);
-      if (form.username) formData.append('username', form.username);
       formData.append('phone', form.phone);
       if (form.birthdate) formData.append('birthdate', form.birthdate);
+      if (form.nationality) formData.append('nationality', form.nationality);
       if (form.license_number) formData.append('license_number', form.license_number);
       if (form.license_type) formData.append('license_type', form.license_type);
       if (form.license_date_issued) formData.append('license_date_issued', form.license_date_issued);
@@ -257,6 +329,7 @@ function DriversPage() {
       if (form.prescriptions) formData.append('prescriptions', form.prescriptions);
       if (form.existing_conditions) formData.append('existing_conditions', form.existing_conditions);
       if (form.date_hired) formData.append('date_hired', form.date_hired);
+      if (form.experience_years !== '' && form.experience_years != null) formData.append('experience_years', form.experience_years);
       if (form.hired_by) formData.append('hired_by', form.hired_by);
       if (form.contract_start) formData.append('contract_start', form.contract_start);
       if (form.contract_end) formData.append('contract_end', form.contract_end);
@@ -377,42 +450,49 @@ function DriversPage() {
                     <tr><th>Driver</th><th>Driver ID</th><th>Status</th><th>Contract Status</th><th>Contact</th><th>Health Status</th><th>Action</th></tr>
                   </thead>
                   <tbody>
-                    {filteredDrivers.map((driver) => (
-                      <tr key={driver.driver_id} className="driver-row" onClick={() => openDetails(driver)}>
-                        <td style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <img
-                            src={driver.user?.profile_photo_url || '/images/brucednegrow.png'}
-                            alt={driver.user?.full_name || 'Driver'}
-                            style={{
-                              width: '38px',
-                              height: '38px',
-                              borderRadius: '50%',
-                              objectFit: 'cover',
-                              border: '1px solid #e2e8f0',
-                            }}
-                            onError={(e) => { e.currentTarget.src = '/images/brucednegrow.png'; }}
-                          />
-                          <span style={{ fontWeight: 600 }}>{driver.user?.full_name || '—'}</span>
-                        </td>
-                        <td className="driver-id">{driverCode(driver.driver_id)}</td>
-                        <td><span className={`driver-status ${availabilityClass(driver)}`}><i className="fas fa-circle"></i> {availabilityLabel(driver)}</span></td>
-                        <td>{driver.contract_end ? `Valid until ${formatDate(driver.contract_end)}` : 'Not set'}</td>
-                        <td>{driver.user?.phone || '—'}</td>
-                        <td><span className="health-status">{driver.health_condition || '—'}</span></td>
-                        <td className="action-cell">
-                          <button className="btn-edit-info" onClick={(e) => { e.stopPropagation(); openEditModal(driver); }}>Edit Info</button>
-                          <button className="btn-archive" onClick={(e) => { e.stopPropagation(); openArchiveModal(driver); }}>Archive</button>
-                        </td>
-                      </tr>
-                    ))}
-                    {loading && (
-                      <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading drivers...</td></tr>
-                    )}
-                    {!loading && filteredDrivers.length === 0 && (
+                    {loading ? (
+                      <TableSkeleton rows={5} columns={7} hasAvatar={true} />
+                    ) : paginatedDrivers.length === 0 ? (
                       <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24 }}>No drivers found.</td></tr>
+                    ) : (
+                      paginatedDrivers.map((driver) => (
+                        <tr key={driver.driver_id} className="driver-row" onClick={() => openDetails(driver)}>
+                          <td style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <img
+                              src={driver.user?.profile_photo_url || '/images/brucednegrow.png'}
+                              alt={driver.user?.full_name || 'Driver'}
+                              style={{
+                                width: '38px',
+                                height: '38px',
+                                borderRadius: '50%',
+                                objectFit: 'cover',
+                                border: '1px solid #e2e8f0',
+                              }}
+                              onError={(e) => { e.currentTarget.src = '/images/brucednegrow.png'; }}
+                            />
+                            <span style={{ fontWeight: 600 }}>{driver.user?.full_name || '—'}</span>
+                          </td>
+                          <td className="driver-id">{driverCode(driver.driver_id)}</td>
+                          <td><span className={`driver-status ${availabilityClass(driver)}`}><i className="fas fa-circle"></i> {availabilityLabel(driver)}</span></td>
+                          <td>{driver.contract_end ? `Valid until ${formatDate(driver.contract_end)}` : 'Not set'}</td>
+                          <td>{driver.user?.phone || '—'}</td>
+                          <td><span className="health-status">{driver.health_condition || '—'}</span></td>
+                          <td className="action-cell">
+                            <button className="btn-edit-info" onClick={(e) => { e.stopPropagation(); openEditModal(driver); }}>Edit Info</button>
+                            <button className="btn-archive" onClick={(e) => { e.stopPropagation(); openArchiveModal(driver); }}>Archive</button>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
+                <Pagination
+                  currentPage={driverPage}
+                  totalPages={totalDriverPages}
+                  totalItems={filteredDrivers.length}
+                  pageSize={PAGE_SIZE}
+                  onPageChange={setDriverPage}
+                />
               </div>
             </div>
           )}
@@ -428,29 +508,39 @@ function DriversPage() {
                 <table className="data-table drivers-table">
                   <thead><tr><th>Driver</th><th>Driver ID</th><th>Contact</th><th>Action</th></tr></thead>
                   <tbody>
-                    {archivedDrivers.map((driver) => (
-                      <tr key={driver.driver_id} className="driver-row">
-                        <td style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <img
-                            src={driver.user?.profile_photo_url || '/images/brucednegrow.png'}
-                            alt=""
-                            style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }}
-                            onError={(e) => { e.currentTarget.src = '/images/brucednegrow.png'; }}
-                          />
-                          <span>{driver.user?.full_name || '—'}</span>
-                        </td>
-                        <td>{driverCode(driver.driver_id)}</td>
-                        <td>{driver.user?.phone || '—'}</td>
-                        <td className="action-cell">
-                          <button className="btn-return-driver" onClick={() => returnDriver(driver)}>Restore</button>
-                        </td>
-                      </tr>
-                    ))}
-                    {archivedDrivers.length === 0 && (
+                    {loading ? (
+                      <TableSkeleton rows={4} columns={4} hasAvatar={true} />
+                    ) : paginatedArchivedDrivers.length === 0 ? (
                       <tr><td colSpan="4" style={{ textAlign: 'center', padding: 24 }}>No archived drivers.</td></tr>
+                    ) : (
+                      paginatedArchivedDrivers.map((driver) => (
+                        <tr key={driver.driver_id} className="driver-row">
+                          <td style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <img
+                              src={driver.user?.profile_photo_url || '/images/brucednegrow.png'}
+                              alt=""
+                              style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }}
+                              onError={(e) => { e.currentTarget.src = '/images/brucednegrow.png'; }}
+                            />
+                            <span>{driver.user?.full_name || '—'}</span>
+                          </td>
+                          <td>{driverCode(driver.driver_id)}</td>
+                          <td>{driver.user?.phone || '—'}</td>
+                          <td className="action-cell">
+                            <button className="btn-return-driver" onClick={() => returnDriver(driver)}>Restore</button>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
+                <Pagination
+                  currentPage={archivePage}
+                  totalPages={totalArchivePages}
+                  totalItems={archivedDrivers.length}
+                  pageSize={PAGE_SIZE}
+                  onPageChange={setArchivePage}
+                />
               </div>
             </div>
           )}
@@ -494,21 +584,31 @@ function DriversPage() {
                 <table className="data-table">
                   <thead><tr><th>Date</th><th>Driver</th><th>Type</th><th>Severity</th><th>Description</th><th>Status</th></tr></thead>
                   <tbody>
-                    {filteredIncidents.map((inc) => (
-                      <tr key={inc.incident_id}>
-                        <td>{formatDate(inc.reported_at)}</td>
-                        <td>{inc.delivery?.driver?.user?.full_name || 'Unassigned'}</td>
-                        <td style={{ textTransform: 'capitalize' }}>{inc.incident_type.replace('_', ' ')}</td>
-                        <td style={{ textTransform: 'capitalize' }}>{inc.severity}</td>
-                        <td>{inc.description || '—'}</td>
-                        <td style={{ textTransform: 'capitalize' }}>{inc.status}</td>
-                      </tr>
-                    ))}
-                    {filteredIncidents.length === 0 && (
+                    {loading ? (
+                      <TableSkeleton rows={5} columns={6} />
+                    ) : paginatedIncidents.length === 0 ? (
                       <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24 }}>No incidents match these filters.</td></tr>
+                    ) : (
+                      paginatedIncidents.map((inc) => (
+                        <tr key={inc.incident_id}>
+                          <td>{formatDate(inc.reported_at)}</td>
+                          <td>{inc.delivery?.driver?.user?.full_name || 'Unassigned'}</td>
+                          <td style={{ textTransform: 'capitalize' }}>{inc.incident_type.replace('_', ' ')}</td>
+                          <td style={{ textTransform: 'capitalize' }}>{inc.severity}</td>
+                          <td>{inc.description || '—'}</td>
+                          <td style={{ textTransform: 'capitalize' }}>{inc.status}</td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
+                <Pagination
+                  currentPage={incidentPage}
+                  totalPages={totalIncidentPages}
+                  totalItems={filteredIncidents.length}
+                  pageSize={PAGE_SIZE}
+                  onPageChange={setIncidentPage}
+                />
               </div>
             </div>
           )}
@@ -595,6 +695,7 @@ function DriversPage() {
                 </div>
                 <div>
                   <p style={{ margin: '6px 0' }}><strong>Date Hired:</strong> {formatDate(detailsDriver.date_hired)}</p>
+                  <p style={{ margin: '6px 0' }}><strong>Experience:</strong> {detailsDriver.experience_years != null && detailsDriver.experience_years !== '' ? `${detailsDriver.experience_years} year${Number(detailsDriver.experience_years) === 1 ? '' : 's'}` : '—'}</p>
                   <p style={{ margin: '6px 0' }}><strong>Hired By:</strong> {detailsDriver.hired_by || '—'}</p>
                   <p style={{ margin: '6px 0' }}><strong>Contract:</strong> {formatDate(detailsDriver.contract_start)} – {formatDate(detailsDriver.contract_end)}</p>
                 </div>
@@ -664,8 +765,23 @@ function DriversPage() {
                       <input type="date" value={form.birthdate || ''} onChange={(e) => setForm({ ...form, birthdate: e.target.value })} />
                     </div>
                     <div className="form-group">
+                      <label>Nationality</label>
+                      <input
+                        type="text"
+                        value={form.nationality || ''}
+                        placeholder="e.g. Filipino"
+                        onChange={(e) => setForm({ ...form, nationality: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group">
                       <label>Contact Number <span className="required" style={{ color: 'red' }}>*</span></label>
-                      <input type="text" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                      <input
+                        type="text"
+                        value={form.phone}
+                        maxLength={11}
+                        placeholder="09XXXXXXXXX"
+                        onChange={(e) => setForm({ ...form, phone: formatPhoneInput(e.target.value) })}
+                      />
                     </div>
                   </div>
 
@@ -674,11 +790,25 @@ function DriversPage() {
                     <h4 className="form-section-title">License Information</h4>
                     <div className="form-group">
                       <label>License Number</label>
-                      <input type="text" value={form.license_number} onChange={(e) => setForm({ ...form, license_number: e.target.value })} />
+                      <input
+                        type="text"
+                        value={form.license_number}
+                        maxLength={13}
+                        placeholder="e.g. D01-23-456789"
+                        onChange={(e) => setForm({ ...form, license_number: formatLicenseInput(e.target.value) })}
+                      />
                     </div>
                     <div className="form-group">
                       <label>License Type</label>
-                      <input type="text" value={form.license_type} onChange={(e) => setForm({ ...form, license_type: e.target.value })} />
+                      <select
+                        value={form.license_type}
+                        onChange={(e) => setForm({ ...form, license_type: e.target.value })}
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff' }}
+                      >
+                        <option value="Professional">Professional (Prof)</option>
+                        <option value="Non-Professional">Non-Professional (Non-Prof)</option>
+                        <option value="Student Permit">Student Permit</option>
+                      </select>
                     </div>
                     <div className="form-row-inline" style={{ display: 'flex', gap: 10 }}>
                       <div className="form-group" style={{ flex: 1 }}>
@@ -692,7 +822,12 @@ function DriversPage() {
                     </div>
                     <div className="form-group">
                       <label>Authorized By</label>
-                      <input type="text" value={form.authorized_by} onChange={(e) => setForm({ ...form, authorized_by: e.target.value })} />
+                      <input
+                        type="text"
+                        value={form.authorized_by}
+                        placeholder="Auto-detected authorized user"
+                        onChange={(e) => setForm({ ...form, authorized_by: e.target.value })}
+                      />
                     </div>
                     <div className="form-group">
                       <label>Restriction code (if any)</label>
@@ -704,8 +839,22 @@ function DriversPage() {
                   <div className="form-card">
                     <h4 className="form-section-title">Health Information</h4>
                     <div className="form-group">
-                      <label>Health Condition</label>
-                      <input type="text" value={form.health_condition} onChange={(e) => setForm({ ...form, health_condition: e.target.value })} />
+                      <label>Condition / Health Status</label>
+                      <select
+                        value={form.health_condition}
+                        onChange={(e) => setForm({ ...form, health_condition: e.target.value })}
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff' }}
+                      >
+                        <option value="Fit to Work">Fit to Work</option>
+                        <option value="1 - None / Normal">1 - None / Normal</option>
+                        <option value="2 - Drive with Corrective Lenses">2 - Drive with Corrective Lenses</option>
+                        <option value="3 - Special Equipment for Upper Limbs">3 - Special Equipment for Upper Limbs</option>
+                        <option value="4 - Special Equipment for Lower Limbs">4 - Special Equipment for Lower Limbs</option>
+                        <option value="5 - Daylight Driving Only">5 - Daylight Driving Only</option>
+                        <option value="Under Observation">Under Observation</option>
+                        <option value="Medical Leave">Medical Leave</option>
+                        <option value="Unfit to Work">Unfit to Work</option>
+                      </select>
                     </div>
                     <div className="form-group">
                       <label>Last Medical Check</label>
@@ -725,13 +874,24 @@ function DriversPage() {
                 {/* Employment & Contract Information */}
                 <div className="form-card" style={{ marginTop: 20 }}>
                   <h4 className="form-section-title">Employment &amp; Contract Information</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 14 }}>
                     <div className="form-group">
                       <label>Date Hired</label>
                       <input
                         type="date"
                         value={form.date_hired || ''}
                         onChange={(e) => setForm({ ...form, date_hired: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>Years of Experience</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="60"
+                        placeholder="e.g. 5"
+                        value={form.experience_years ?? ''}
+                        onChange={(e) => setForm({ ...form, experience_years: e.target.value })}
                       />
                     </div>
                     <div className="form-group">
@@ -766,11 +926,11 @@ function DriversPage() {
                   {/* Account Information */}
                   <div className="form-card">
                     <h4 className="form-section-title">Account Information</h4>
-                    <div className="form-row-inline" style={{ display: 'flex', gap: 10 }}>
-                      <div className="form-group" style={{ flex: 1 }}>
-                        <label>Email <span className="required" style={{ color: 'red' }}>*</span></label>
-                        <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-                      </div>
+                    <div className="form-group">
+                      <label>Email <span className="required" style={{ color: 'red' }}>*</span></label>
+                      <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                    </div>
+                    <div className="form-row-inline" style={{ display: 'flex', gap: 10, marginTop: 10 }}>
                       <div className="form-group" style={{ flex: 1, position: 'relative' }}>
                         <label>Password{!editingDriver && <span className="required" style={{ color: 'red' }}>*</span>}</label>
                         <input
@@ -784,12 +944,6 @@ function DriversPage() {
                           onClick={() => setShowPassword((p) => !p)}
                           style={{ position: 'absolute', right: 12, top: 38, cursor: 'pointer' }}
                         ></i>
-                      </div>
-                    </div>
-                    <div className="form-row-inline" style={{ display: 'flex', gap: 10 }}>
-                      <div className="form-group" style={{ flex: 1 }}>
-                        <label>Username</label>
-                        <input type="text" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
                       </div>
                       <div className="form-group" style={{ flex: 1, position: 'relative' }}>
                         <label>Confirm Password{!editingDriver && <span className="required" style={{ color: 'red' }}>*</span>}</label>
@@ -848,6 +1002,7 @@ function DriversPage() {
                             src={profilePhotoPreview}
                             alt="Preview"
                             style={{ width: 90, height: 90, borderRadius: '50%', objectFit: 'cover', border: '2px solid #e2e8f0' }}
+                            onError={(e) => { e.currentTarget.src = '/images/brucednegrow.png'; }}
                           />
                           <p style={{ margin: '8px 0 0', fontSize: 12, color: '#2563eb', fontWeight: 600 }}>Click to change</p>
                         </div>

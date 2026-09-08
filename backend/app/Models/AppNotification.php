@@ -27,4 +27,34 @@ class AppNotification extends Model
     {
         return $this->belongsTo(User::class, 'user_id', 'user_id');
     }
+
+    /**
+     * Helper to create a persistent notification
+     */
+    public static function notify($type, $title, $message, $link = null, $userId = null)
+    {
+        try {
+            $notif = static::create([
+                'user_id' => $userId,
+                'type' => $type,
+                'title' => $title,
+                'message' => $message,
+                'link' => $link,
+                'is_read' => false,
+            ]);
+
+            if ($notif) {
+                try {
+                    \App\Events\NotificationCreated::dispatch($notif);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('Broadcast notification error: ' . $e->getMessage());
+                }
+            }
+
+            return $notif;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Failed to create notification: ' . $e->getMessage());
+            return null;
+        }
+    }
 }

@@ -6,6 +6,7 @@ use App\Models\Delivery;
 use App\Models\DeliveryChecklist;
 use App\Models\Driver;
 use App\Models\DeliveryTracking;
+use App\Models\AppNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -37,7 +38,9 @@ class DeliveryController extends Controller
             'vehicle',
             'assignedBy',
             'permit',
-            'tracking',
+            'tracking' => function ($q) {
+                $q->latest('tracking_id')->limit(10);
+            },
             'checklists',
             'reviews',
         ])->get();
@@ -409,6 +412,16 @@ class DeliveryController extends Controller
                 'status_update' => 'assigned',
             ]);
 
+            $delCode = 'DEL' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+            $driverName = $delivery->driver?->user?->full_name ?: 'Driver';
+            AppNotification::notify('dispatch', 'Delivery Assigned', "Delivery #{$delCode} assigned to {$driverName}.", '/delivery');
+
+            try {
+                \App\Events\DeliveryUpdated::dispatch($delivery);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Reverb broadcast error: " . $e->getMessage());
+            }
+
             return $delivery;
         });
 
@@ -766,6 +779,12 @@ class DeliveryController extends Controller
             'status_update' => $delivery->status,
         ]);
 
+        try {
+            \App\Events\DeliveryLocationUpdated::dispatch($delivery, $tracking);
+        } catch (\Throwable $e) {
+            \Log::warning('DeliveryLocationUpdated broadcast failed: ' . $e->getMessage());
+        }
+
         return response()->json($tracking, 201);
     }
 
@@ -829,6 +848,17 @@ class DeliveryController extends Controller
                 'delivery_id' => $delivery->delivery_id,
                 'status_update' => $status,
             ]);
+
+            $delCode = 'DEL' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+            $statusStr = ucwords(str_replace('_', ' ', $status));
+            $driverName = $delivery->driver?->user?->full_name ?: 'Driver';
+            AppNotification::notify('delivery', "Delivery {$statusStr}", "Delivery #{$delCode} ({$driverName}) is now {$statusStr}.", '/delivery');
+
+            try {
+                \App\Events\DeliveryUpdated::dispatch($delivery);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Reverb broadcast error: " . $e->getMessage());
+            }
 
             if ($status === 'completed') {
                 if ($delivery->driver) {

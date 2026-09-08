@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Driver;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\AppNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -23,12 +24,12 @@ class DriverController extends Controller
             'full_name' => 'required|string|max:100',
             'email' => 'required|email|unique:users,email',
             'username' => 'nullable|string|max:50|unique:users,username',
-            'phone' => 'nullable|string|max:20',
+            'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'password' => 'required|min:6',
             'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
 
-            'license_number' => 'nullable|string|max:50',
+            'license_number' => ['nullable', 'string', 'regex:/^[A-Z]\d{2}-\d{2}-\d{6}$/i'],
             'license_type' => 'nullable|string|max:50',
             'restriction_code' => 'nullable|string|max:50',
             'license_date_issued' => 'nullable|date',
@@ -114,6 +115,9 @@ class DriverController extends Controller
             ]);
         });
 
+        $driverName = $driver->user?->full_name ?: 'Driver';
+        AppNotification::notify('driver', 'New Driver Added', "Driver {$driverName} has been registered.", '/drivers');
+
         return $driver->load('user');
     }
 
@@ -134,6 +138,9 @@ class DriverController extends Controller
                 'nullable|string|max:50|unique:users,username,' .
                 $driver->user_id .
                 ',user_id',
+
+            'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
+            'license_number' => ['nullable', 'string', 'regex:/^[A-Z]\d{2}-\d{2}-\d{6}$/i'],
 
             'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
@@ -203,6 +210,9 @@ class DriverController extends Controller
                 $driver->user()->update($userPayload);
             }
         });
+
+        $driverName = $driver->user?->full_name ?: 'Driver';
+        AppNotification::notify('driver', 'Driver Updated', "Driver {$driverName} profile was updated.", '/drivers');
 
         return $driver->fresh()->load('user');
     }

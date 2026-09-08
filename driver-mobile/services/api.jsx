@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "https://lather-venue-bony.ngrok-free.dev/api";
+export const API_URL = "https://lather-venue-bony.ngrok-free.dev/api";
 const TOKEN_KEY = "auth_token";
 const USER_KEY = "auth_user";
 

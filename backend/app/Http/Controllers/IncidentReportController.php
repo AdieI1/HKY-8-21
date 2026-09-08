@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\IncidentReport;
+use App\Models\AppNotification;
 use Illuminate\Http\Request;
 
 class IncidentReportController extends Controller
@@ -25,7 +26,20 @@ class IncidentReportController extends Controller
             'resolved_at' => 'nullable|date',
         ]);
 
-        return IncidentReport::create($request->all());
+        $report = IncidentReport::create($request->all());
+
+        try {
+            AppNotification::notify(
+                'incident',
+                'Incident Reported',
+                "New " . ucfirst($report->incident_type) . " incident reported ({$report->severity} severity).",
+                '/overview'
+            );
+        } catch (\Throwable $e) {
+            \Log::warning("Notification failed for incident report: " . $e->getMessage());
+        }
+
+        return $report;
     }
 
     public function show(IncidentReport $incidentReport)

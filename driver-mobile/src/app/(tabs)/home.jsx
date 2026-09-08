@@ -8,8 +8,8 @@ import {
     RefreshControl,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useState, useCallback, useEffect } from "react";
-import { useFocusEffect } from "@react-navigation/native";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { router } from "expo-router";
 import HomeHeader from "../../../components/HomeHeader";
 import AssignmentCard from "../../../components/AssignmentCard";
@@ -29,8 +29,11 @@ export default function Home() {
     const [assignments, setAssignments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const isFocused = useIsFocused();
+    const isFocusedRef = useRef(isFocused);
+    isFocusedRef.current = isFocused;
 
-    const loadAssignments = useCallback(async (isRefresh = false, isSilent = false) => {
+    const loadAssignments = useCallback(async (isRefresh = false, isSilent = false, allowRedirect = false) => {
         try {
             if (isRefresh) {
                 setRefreshing(true);
@@ -67,7 +70,7 @@ export default function Home() {
                       )
                     : null);
 
-            if (activeJob) {
+            if (activeJob && allowRedirect && isFocusedRef.current) {
                 await setActiveAcceptedDeliveryId(activeJob.delivery_id);
                 const hasPreTrip = activeJob?.checklists?.some(
                     (e) => e.type === "pre_trip"
@@ -138,20 +141,20 @@ export default function Home() {
 
     useFocusEffect(
         useCallback(() => {
-            loadAssignments(false, assignments.length > 0);
+            loadAssignments(false, assignments.length > 0, true);
         }, [loadAssignments, assignments.length])
     );
 
-    // Auto-reload assignments in real time every 5 seconds
+    // Auto-reload assignments in real time every 5 seconds (data only, no redirect)
     useEffect(() => {
         const interval = setInterval(() => {
-            loadAssignments(false, true);
+            loadAssignments(false, true, false);
         }, 5000);
         return () => clearInterval(interval);
     }, [loadAssignments]);
 
     const handleRefresh = async () => {
-        await loadAssignments(true, false);
+        await loadAssignments(true, false, true);
     };
 
     return (

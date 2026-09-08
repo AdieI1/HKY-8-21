@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Change this to match your Laravel backend URL
+// Base URL matching Laravel backend
 const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
 const api = axios.create({
@@ -19,8 +19,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// If a token expires/is invalid, the API returns 401 — clear storage and
-// bounce back to login so the app doesn't sit in a broken logged-in state.
+// Response interceptor: handle 401 unauthenticated
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -34,5 +33,67 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+/*
+|--------------------------------------------------------------------------
+| In-Memory Cache (SWR-Style) for High-Speed Tab Switching & Read Queries
+|--------------------------------------------------------------------------
+*/
+const cache = new Map();
+const DEFAULT_CACHE_TTL_MS = 20000; // 20 seconds
+
+export function clearApiCache() {
+  cache.clear();
+}
+
+if (typeof window !== 'undefined') {
+  window.__hjyClearApiCache = clearApiCache;
+}
+
+api.clearCache = clearApiCache;
+
+const originalGet = api.get.bind(api);
+api.get = async function (url, config = {}) {
+  const shouldSkip = config.skipCache || config.cache === false;
+  const token = localStorage.getItem('auth_token') || '';
+  const cacheKey = `${token}:${url}:${JSON.stringify(config.params || {})}`;
+
+  const now = Date.now();
+  const cached = cache.get(cacheKey);
+
+  if (!shouldSkip && cached && (now - cached.timestamp < (config.cacheTtl || DEFAULT_CACHE_TTL_MS))) {
+    return Promise.resolve({
+      ...cached.response,
+      data: JSON.parse(JSON.stringify(cached.response.data)),
+      __fromCache: true,
+    });
+  }
+
+  const response = await originalGet(url, config);
+
+  if (!shouldSkip && response && response.status === 200) {
+    cache.set(cacheKey, {
+      response: {
+        data: response.data,
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      },
+      timestamp: now,
+    });
+  }
+
+  return response;
+};
+
+// Invalidate in-memory cache whenever state-mutating requests occur
+['post', 'put', 'patch', 'delete'].forEach((method) => {
+  const originalMethod = api[method].bind(api);
+  api[method] = async function (...args) {
+    const result = await originalMethod(...args);
+    clearApiCache();
+    return result;
+  };
+});
 
 export default api;

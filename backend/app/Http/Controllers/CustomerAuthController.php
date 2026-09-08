@@ -127,7 +127,7 @@ class CustomerAuthController extends Controller
             'first_name' => 'nullable|string|max:50',
             'last_name' => 'nullable|string|max:50',
             'full_name' => 'nullable|string|max:100',
-            'phone' => 'nullable|string|max:20',
+            'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'gender' => 'nullable|string|max:20',
             'date_of_birth' => 'nullable|string|max:30',
             'photo' => 'nullable|file|image|max:10240',

@@ -35,6 +35,9 @@ class User extends Authenticatable
         if (!$this->profile_photo_path) {
             return null;
         }
+        if (request()) {
+            return request()->getSchemeAndHttpHost() . '/storage/' . ltrim($this->profile_photo_path, '/');
+        }
         return url('storage/' . $this->profile_photo_path);
     }
 

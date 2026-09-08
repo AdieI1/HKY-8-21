@@ -173,15 +173,26 @@
 
 /* Fleet cells */
 .adm-fleet-cell {
-  padding: 6px 5px;
+  padding: 8px 6px;
   text-align: center;
-  font-size: 10px;
+  font-size: 10.5px;
   line-height: 1.35;
   vertical-align: middle;
   border: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  user-select: none;
+}
+
+.adm-fleet-cell:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+  filter: brightness(0.96);
+  z-index: 2;
 }
 
 .adm-fleet-cell.delivery  { background: #FFF1F1; color: #C53030; font-weight: 600; border-radius: 6px; }
+.adm-fleet-cell.completed { background: #EFF6FF; color: #1D4ED8; font-weight: 600; border-radius: 6px; border: 1px solid #DBEAFE; }
 .adm-fleet-cell.available { background: #F0FDF4; color: #16A34A; font-weight: 600; border-radius: 6px; }
 .adm-fleet-cell.on-break  { background: #FFFBEB; color: #D97706; font-weight: 600; border-radius: 6px; }
 .adm-fleet-cell.empty     { color: #bbb; }
@@ -206,6 +217,7 @@
 }
 
 .adm-legend-dot.delivery    { background: #EF4444; }
+.adm-legend-dot.completed   { background: #3B82F6; }
 .adm-legend-dot.available   { background: #22C55E; }
 .adm-legend-dot.break       { background: #F59E0B; }
 .adm-legend-dot.maintenance { background: #94A3B8; }

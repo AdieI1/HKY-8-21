@@ -33,19 +33,7 @@
         applySavedState();
     }
 
-    if (typeof MutationObserver !== 'undefined') {
-        const observer = new MutationObserver(function () {
-            if (document.querySelectorAll('.nav-group').length > 0) applySavedState();
-        });
-        if (document.body) {
-            observer.observe(document.body, { childList: true, subtree: true });
-        } else {
-            document.addEventListener('DOMContentLoaded', function () {
-                observer.observe(document.body, { childList: true, subtree: true });
-            });
-        }
-    }
-
+    // Passive click listener for static HTML fallback (without aggressive body mutation observer)
     document.addEventListener('click', function (e) {
         const label = e.target.closest('.nav-group-label');
         if (!label) return;

@@ -23,6 +23,9 @@ use App\Http\Controllers\FuelInventoryController;
 use App\Http\Controllers\FuelIssuanceController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\SystemSettingController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DangerZoneController;
+use App\Http\Controllers\RouteElevationController;
 
 
 /*
@@ -30,6 +33,21 @@ use App\Http\Controllers\SystemSettingController;
 | PUBLIC ROUTES
 |--------------------------------------------------------------------------
 */
+
+Route::get('/danger-zones', [
+    DangerZoneController::class,
+    'index'
+]);
+
+Route::post('/route/elevation', [
+    RouteElevationController::class,
+    'getElevation'
+]);
+
+Route::post('/route/steepness', [
+    RouteElevationController::class,
+    'getSteepness'
+]);
 
 Route::post('/login', [
     AuthController::class,
@@ -54,6 +72,16 @@ Route::get('/customer/email/verify/{user}', [
 */
 
 Route::middleware('auth:sanctum')->group(function () {
+
+    Route::get('/dashboard/overview', [
+        DashboardController::class,
+        'overview'
+    ]);
+
+    Route::get('/dispatch/overview', [
+        DashboardController::class,
+        'dispatchOverview'
+    ]);
 
     /*
     |--------------------------------------------------------------------------

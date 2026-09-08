@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../api/api-client';
+import reverb from '../utils/reverb';
 import AssignMap from '../components/dispatch/AssignMap';
 import { DispatchHeader, DispatchSidebar } from '../components/dispatch/DispatchChrome';
 
@@ -137,6 +138,20 @@ function DispatchPage() {
     setLoading(true);
     setLoadError('');
     try {
+      try {
+        const overviewRes = await api.get('/dispatch/overview');
+        if (overviewRes.data) {
+          setDeliveries(overviewRes.data.deliveries || []);
+          setDrivers(overviewRes.data.drivers || []);
+          setVehicles(overviewRes.data.vehicles || []);
+          setIncidents(overviewRes.data.incidents || []);
+          setFuelInventory(overviewRes.data.fuel_inventory || []);
+          return;
+        }
+      } catch (_) {
+        // Fallback to parallel requests if endpoint not available
+      }
+
       const [deliveriesRes, driversRes, vehiclesRes, incidentsRes, fuelRes] = await Promise.all([
         api.get('/deliveries'),
         api.get('/drivers'),
@@ -144,11 +159,11 @@ function DispatchPage() {
         api.get('/incident-reports'),
         api.get('/fuel-inventory'),
       ]);
-      setDeliveries(deliveriesRes.data);
-      setDrivers(driversRes.data);
-      setVehicles(vehiclesRes.data);
-      setIncidents(incidentsRes.data);
-      setFuelInventory(fuelRes.data);
+      setDeliveries(deliveriesRes.data || []);
+      setDrivers(driversRes.data || []);
+      setVehicles(vehiclesRes.data || []);
+      setIncidents(incidentsRes.data || []);
+      setFuelInventory(fuelRes.data || []);
     } catch (err) {
       setLoadError('Could not load dispatch data. Is the backend running and are you logged in?');
     } finally {
@@ -158,6 +173,15 @@ function DispatchPage() {
 
   useEffect(() => {
     loadData();
+
+    // Instant real-time update when dispatch status changes
+    const unsubscribe = reverb.subscribe('deliveries', 'delivery.updated', () => {
+      loadData();
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [loadData]);
 
 
