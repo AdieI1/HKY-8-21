@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../../api/api-client';
-import PinRouteMap, { geocode } from './PinRouteMap';
+import PinRouteMap, { geocode, isWithinMindanao } from './PinRouteMap';
 import { validatePhoneNumber, formatPhoneInput } from '../../utils/validation';
 
 export default function CreateRequestModal({
@@ -12,6 +12,7 @@ export default function CreateRequestModal({
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [locating, setLocating] = useState('');
   const [receiptPreview, setReceiptPreview] = useState(null);
@@ -25,6 +26,7 @@ export default function CreateRequestModal({
     if (showCreateModal) {
       setForm(EMPTY_FORM);
       setFormError('');
+      setErrors({});
       setReceiptPreview(null);
 
       api.get('/system-settings')
@@ -55,17 +57,42 @@ export default function CreateRequestModal({
     setForm((prev) => ({ ...prev, total_price: calcPrice }));
   }, [form.distance_km, form.weight, pricingRates]);
 
+  const clearFieldError = (field) => {
+    if (errors[field]) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
+  const handleInputChange = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    clearFieldError(field);
+  };
 
   const locateAddress = async (which) => {
     const address = which === 'pickup' ? form.pickup?.address : form.dropoff?.address;
-    if (!address) return;
+    if (!address || !address.trim()) {
+      setErrors((prev) => ({ ...prev, [which]: 'Missing output' }));
+      return;
+    }
     setLocating(which);
     const coords = await geocode(address);
     setLocating('');
     if (!coords) {
-      setFormError(`Couldn't find "${address}" on the map. Try a more specific address, or click the map directly.`);
+      setFormError(`Couldn't locate "${address}" in Mindanao. Please enter a valid location in Mindanao or click directly on the map.`);
+      setErrors((prev) => ({ ...prev, [which]: 'Must be in Mindanao' }));
       return;
     }
+    if (!isWithinMindanao(coords.lat, coords.lng)) {
+      setFormError(`"${address}" is outside Mindanao! HJY Logistics operates exclusively within the Mindanao region.`);
+      setErrors((prev) => ({ ...prev, [which]: 'Outside Mindanao' }));
+      return;
+    }
+    clearFieldError(which);
+    setFormError('');
     const point = { ...coords, address };
     if (which === 'pickup') setForm((prev) => ({ ...prev, pickup: point }));
     else setForm((prev) => ({ ...prev, dropoff: point }));
@@ -81,6 +108,7 @@ export default function CreateRequestModal({
       setForm((prev) => ({ ...prev, payment_receipt: file }));
       setReceiptPreview(URL.createObjectURL(file));
       setFormError('');
+      clearFieldError('payment_receipt');
     }
   };
 
@@ -94,39 +122,95 @@ export default function CreateRequestModal({
 
   const handlePickupChange = useCallback((point) => {
     setForm((prev) => ({ ...prev, pickup: point }));
+    if (point && isWithinMindanao(point.lat, point.lng)) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.pickup;
+        return next;
+      });
+    }
   }, []);
 
   const handleDropoffChange = useCallback((point) => {
     setForm((prev) => ({ ...prev, dropoff: point }));
+    if (point && isWithinMindanao(point.lat, point.lng)) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.dropoff;
+        return next;
+      });
+    }
   }, []);
 
   const handleDistanceChange = useCallback((km) => {
     setForm((prev) => (prev.distance_km === km ? prev : { ...prev, distance_km: km }));
   }, []);
 
-  const submitRequest = async (asDraft) => {
-    if (!form.first_name || !form.last_name || !form.phone || !form.email || !form.password) {
-      setFormError('Please fill in all required customer fields.');
-      return;
-    }
-    if (!validatePhoneNumber(form.phone)) {
-      setFormError('Contact number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
-      return;
-    }
-    if (form.password !== form.confirmPassword) {
-      setFormError('Passwords do not match.');
-      return;
+  const validateForm = (asDraft) => {
+    const newErrors = {};
+
+    // Customer Information
+    if (!form.first_name?.trim()) newErrors.first_name = 'Missing output';
+    if (!form.last_name?.trim()) newErrors.last_name = 'Missing output';
+
+    if (!form.phone?.trim()) {
+      newErrors.phone = 'Missing output';
+    } else if (!validatePhoneNumber(form.phone)) {
+      newErrors.phone = 'Invalid phone number';
     }
 
+    if (!form.email?.trim()) newErrors.email = 'Missing output';
+    if (!form.password?.trim()) newErrors.password = 'Missing output';
+
+    if (!form.confirmPassword?.trim()) {
+      newErrors.confirmPassword = 'Missing output';
+    } else if (form.password && form.confirmPassword && form.password !== form.confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match';
+    }
+
+    // Cargo Information
+    if (!form.item_name?.trim()) newErrors.item_name = 'Missing output';
+    if (!form.weight || Number(form.weight) <= 0) newErrors.weight = 'Missing output';
+
+    // Location Information
+    if (!form.pickup?.address?.trim()) {
+      newErrors.pickup = 'Missing output';
+    } else if (form.pickup?.lat != null && !isWithinMindanao(form.pickup.lat, form.pickup.lng)) {
+      newErrors.pickup = 'Location outside Mindanao';
+    }
+
+    if (!form.dropoff?.address?.trim()) {
+      newErrors.dropoff = 'Missing output';
+    } else if (form.dropoff?.lat != null && !isWithinMindanao(form.dropoff.lat, form.dropoff.lng)) {
+      newErrors.dropoff = 'Location outside Mindanao';
+    }
+
+    // Bank Details if bank transfer and not a draft
     if (!asDraft && form.payment_method === 'bank_transfer') {
-      if (!form.bank_name?.trim() || !form.account_name?.trim() || !form.account_number?.trim()) {
-        setFormError('Please fill in all Bank Details (Bank Name, Account Name, and Account Number).');
-        return;
+      if (!form.bank_name?.trim()) newErrors.bank_name = 'Missing output';
+      if (!form.account_name?.trim()) newErrors.account_name = 'Missing output';
+      if (!form.account_number?.trim()) newErrors.account_number = 'Missing output';
+      if (!form.payment_receipt) newErrors.payment_receipt = 'Missing output';
+    }
+
+    return newErrors;
+  };
+
+  const submitRequest = async (asDraft) => {
+    const validationErrors = validateForm(asDraft);
+    setErrors(validationErrors);
+
+    if (Object.keys(validationErrors).length > 0) {
+      if (validationErrors.pickup?.includes('Mindanao') || validationErrors.dropoff?.includes('Mindanao')) {
+        setFormError('Pick-up and Drop-off locations must be strictly within Mindanao only.');
+      } else if (validationErrors.phone === 'Invalid phone number') {
+        setFormError('Contact number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
+      } else if (validationErrors.confirmPassword === 'Passwords do not match') {
+        setFormError('Passwords do not match.');
+      } else {
+        setFormError('Please fill in all highlighted required fields (missing output).');
       }
-      if (!form.payment_receipt) {
-        setFormError('Please upload the Bank Transfer Receipt photo.');
-        return;
-      }
+      return;
     }
 
     setSaving(true);
@@ -168,9 +252,9 @@ export default function CreateRequestModal({
       await loadData();
     } catch (err) {
       console.error('Create request failed:', err.response?.data || err);
-      const errors = err.response?.data?.errors;
+      const backendErrors = err.response?.data?.errors;
       const message = err.response?.data?.message;
-      setFormError(errors ? Object.values(errors)[0][0] : message || 'Failed to create request.');
+      setFormError(backendErrors ? Object.values(backendErrors)[0][0] : message || 'Failed to create request.');
     } finally {
       setSaving(false);
     }
@@ -187,44 +271,71 @@ export default function CreateRequestModal({
         </div>
 
         <div className="create-request-body" style={{ padding: 20 }}>
-          {formError && <div className="form-error" style={{ color: '#d32f2f', marginBottom: 12, background: '#FEE2E2', padding: '10px 14px', borderRadius: 6 }}>{formError}</div>}
+          {formError && <div className="form-error" style={{ color: '#d32f2f', marginBottom: 12, background: '#FEE2E2', padding: '10px 14px', borderRadius: 6, fontWeight: 600 }}><i className="fas fa-circle-exclamation" style={{ marginRight: 6 }}></i>{formError}</div>}
 
           {/* Customer Information */}
           <div className="form-section">
             <h3 className="section-title-form">Customer Information</h3>
             <div className="form-row">
-              <div className="form-group">
+              <div className="form-group" style={{ position: 'relative' }}>
                 <label>First Name<span className="required">*</span></label>
-                <input type="text" className="form-input" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className={`form-input ${errors.first_name ? 'input-error' : ''}`}
+                    placeholder={errors.first_name ? 'Missing output' : 'Enter first name'}
+                    value={form.first_name}
+                    onChange={(e) => handleInputChange('first_name', e.target.value)}
+                  />
+                  {errors.first_name && <span className="input-missing-tag">Missing output</span>}
+                </div>
+                {errors.first_name && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.first_name}</div>}
               </div>
-              <div className="form-group">
+
+              <div className="form-group" style={{ position: 'relative' }}>
                 <label>Contact Number<span className="required">*</span></label>
-                <input
-                  type="tel"
-                  className="form-input"
-                  value={form.phone}
-                  maxLength={11}
-                  inputMode="numeric"
-                  onChange={(e) => {
-                    setForm({ ...form, phone: formatPhoneInput(e.target.value) });
-                  }}
-                  onKeyDown={(e) => {
-                    if (
-                      !/^\d$/.test(e.key) &&
-                      !['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'].includes(e.key) &&
-                      !e.ctrlKey &&
-                      !e.metaKey
-                    ) {
-                      e.preventDefault();
-                    }
-                  }}
-                />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="tel"
+                    className={`form-input ${errors.phone ? 'input-error' : ''}`}
+                    placeholder={errors.phone ? 'Missing output' : '09xxxxxxxxx'}
+                    value={form.phone}
+                    maxLength={11}
+                    inputMode="numeric"
+                    onChange={(e) => {
+                      handleInputChange('phone', formatPhoneInput(e.target.value));
+                    }}
+                    onKeyDown={(e) => {
+                      if (
+                        !/^\d$/.test(e.key) &&
+                        !['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Tab', 'Enter'].includes(e.key) &&
+                        !e.ctrlKey &&
+                        !e.metaKey
+                      ) {
+                        e.preventDefault();
+                      }
+                    }}
+                  />
+                  {errors.phone && <span className="input-missing-tag">Missing output</span>}
+                </div>
+                {errors.phone && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.phone}</div>}
               </div>
             </div>
+
             <div className="form-row">
-              <div className="form-group">
+              <div className="form-group" style={{ position: 'relative' }}>
                 <label>Last Name<span className="required">*</span></label>
-                <input type="text" className="form-input" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className={`form-input ${errors.last_name ? 'input-error' : ''}`}
+                    placeholder={errors.last_name ? 'Missing output' : 'Enter last name'}
+                    value={form.last_name}
+                    onChange={(e) => handleInputChange('last_name', e.target.value)}
+                  />
+                  {errors.last_name && <span className="input-missing-tag">Missing output</span>}
+                </div>
+                {errors.last_name && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.last_name}</div>}
               </div>
             </div>
           </div>
@@ -233,28 +344,65 @@ export default function CreateRequestModal({
           <div className="form-section">
             <h3 className="section-title-form">Account Setup</h3>
             <div className="form-row">
-              <div className="form-group">
+              <div className="form-group" style={{ position: 'relative' }}>
                 <label>Email Address<span className="required">*</span></label>
-                <input type="email" className="form-input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="email"
+                    className={`form-input ${errors.email ? 'input-error' : ''}`}
+                    placeholder={errors.email ? 'Missing output' : 'name@example.com'}
+                    value={form.email}
+                    onChange={(e) => handleInputChange('email', e.target.value)}
+                  />
+                  {errors.email && <span className="input-missing-tag">Missing output</span>}
+                </div>
+                {errors.email && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.email}</div>}
               </div>
+
               <div className="form-group">
                 <label>Username</label>
-                <input type="text" className="form-input" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Optional username"
+                  value={form.username}
+                  onChange={(e) => handleInputChange('username', e.target.value)}
+                />
               </div>
             </div>
+
             <div className="form-row">
-              <div className="form-group password-group">
+              <div className="form-group password-group" style={{ position: 'relative' }}>
                 <label>Password<span className="required">*</span></label>
                 <div className="password-input-wrapper" style={{ position: 'relative' }}>
-                  <input type={showPassword ? 'text' : 'password'} className="form-input" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    className={`form-input ${errors.password ? 'input-error' : ''}`}
+                    placeholder={errors.password ? 'Missing output' : 'Enter password'}
+                    value={form.password}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
+                  />
+                  {errors.password && <span className="input-missing-tag" style={{ right: 38 }}>Missing output</span>}
                   <button type="button" className="btn-toggle-password" onClick={() => setShowPassword((p) => !p)} style={{ position: 'absolute', right: 10, top: 8, background: 'none', border: 'none', cursor: 'pointer' }}>
                     <i className={`fas ${showPassword ? 'fa-eye' : 'fa-eye-slash'}`}></i>
                   </button>
                 </div>
+                {errors.password && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.password}</div>}
               </div>
-              <div className="form-group password-group">
+
+              <div className="form-group password-group" style={{ position: 'relative' }}>
                 <label>Confirm Password<span className="required">*</span></label>
-                <input type={showPassword ? 'text' : 'password'} className="form-input" value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    className={`form-input ${errors.confirmPassword ? 'input-error' : ''}`}
+                    placeholder={errors.confirmPassword ? 'Missing output' : 'Confirm password'}
+                    value={form.confirmPassword}
+                    onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                  />
+                  {errors.confirmPassword && <span className="input-missing-tag">Missing output</span>}
+                </div>
+                {errors.confirmPassword && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.confirmPassword}</div>}
               </div>
             </div>
           </div>
@@ -263,41 +411,103 @@ export default function CreateRequestModal({
             {/* Cargo & Location (Left Column) */}
             <div className="form-section half-width">
               <h3 className="section-title-form">Cargo Information:</h3>
-              <div className="form-group">
-                <label>Item Name:</label>
-                <input type="text" className="form-input" value={form.item_name} onChange={(e) => setForm({ ...form, item_name: e.target.value })} />
+              <div className="form-group" style={{ position: 'relative' }}>
+                <label>Item Name<span className="required">*</span></label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className={`form-input ${errors.item_name ? 'input-error' : ''}`}
+                    placeholder={errors.item_name ? 'Missing output' : 'e.g. Steel Bars, Commercial Rice'}
+                    value={form.item_name}
+                    onChange={(e) => handleInputChange('item_name', e.target.value)}
+                  />
+                  {errors.item_name && <span className="input-missing-tag">Missing output</span>}
+                </div>
+                {errors.item_name && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.item_name}</div>}
               </div>
+
               <div className="form-group">
                 <label>Cargo Type:</label>
-                <select className="form-select" value={form.cargo_type} onChange={(e) => setForm({ ...form, cargo_type: e.target.value })}>
+                <select className="form-select" value={form.cargo_type} onChange={(e) => handleInputChange('cargo_type', e.target.value)}>
                   <option>Construction</option><option>Electronics</option><option>Furniture</option><option>Food</option><option>Other</option>
                 </select>
               </div>
+
               <div className="form-group">
                 <label>Cargo Fragility:</label>
-                <select className="form-select" value={form.fragility} onChange={(e) => setForm({ ...form, fragility: e.target.value })}>
+                <select className="form-select" value={form.fragility} onChange={(e) => handleInputChange('fragility', e.target.value)}>
                   <option value="low">Standard</option><option value="medium">Fragile</option><option value="high">Extremely Fragile</option>
                 </select>
               </div>
-              <div className="form-group">
-                <label>Cargo Weight (kg):</label>
-                <input type="number" className="form-input" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} placeholder="e.g. 100" />
+
+              <div className="form-group" style={{ position: 'relative' }}>
+                <label>Cargo Weight (kg)<span className="required">*</span></label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="number"
+                    className={`form-input ${errors.weight ? 'input-error' : ''}`}
+                    placeholder={errors.weight ? 'Missing output' : 'e.g. 100'}
+                    value={form.weight}
+                    onChange={(e) => handleInputChange('weight', e.target.value)}
+                  />
+                  {errors.weight && <span className="input-missing-tag">Missing output</span>}
+                </div>
+                {errors.weight && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.weight}</div>}
               </div>
 
-              <h3 className="section-title-form">Delivery Location:</h3>
-              <div className="form-group location-group">
-                <label>Pick-up Location</label>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <input type="text" className="form-input" placeholder="e.g. Port Area, Cagayan de Oro City" value={form.pickup?.address || ''} onChange={(e) => setForm({ ...form, pickup: { ...(form.pickup || {}), address: e.target.value } })} />
-                  <button type="button" onClick={() => locateAddress('pickup')} disabled={locating === 'pickup'} style={{ padding: '0 12px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}>{locating === 'pickup' ? '...' : 'Locate'}</button>
+              <h3 className="section-title-form" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>Delivery Location:</span>
+                <span className="mindanao-lock-badge" style={{ fontSize: 10 }}>
+                  <i className="fas fa-lock"></i> Mindanao Only
+                </span>
+              </h3>
+
+              <div className="form-group location-group" style={{ position: 'relative' }}>
+                <label>Pick-up Location (Mindanao)<span className="required">*</span></label>
+                <div style={{ display: 'flex', gap: 6, position: 'relative' }}>
+                  <div style={{ flex: 1, position: 'relative' }}>
+                    <input
+                      type="text"
+                      className={`form-input ${errors.pickup ? 'input-error' : ''}`}
+                      placeholder={errors.pickup ? 'Missing output' : 'e.g. Port Area, Cagayan de Oro City'}
+                      value={form.pickup?.address || ''}
+                      onChange={(e) => {
+                        const nextAddr = e.target.value;
+                        setForm((prev) => ({ ...prev, pickup: { ...(prev.pickup || {}), address: nextAddr } }));
+                        clearFieldError('pickup');
+                      }}
+                    />
+                    {errors.pickup && <span className="input-missing-tag">Missing output</span>}
+                  </div>
+                  <button type="button" onClick={() => locateAddress('pickup')} disabled={locating === 'pickup'} style={{ padding: '0 12px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+                    {locating === 'pickup' ? '...' : 'Locate'}
+                  </button>
                 </div>
+                {errors.pickup && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.pickup}</div>}
               </div>
-              <div className="form-group location-group">
-                <label>Drop-off Location</label>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <input type="text" className="form-input" placeholder="e.g. Malaybalay City, Bukidnon" value={form.dropoff?.address || ''} onChange={(e) => setForm({ ...form, dropoff: { ...(form.dropoff || {}), address: e.target.value } })} />
-                  <button type="button" onClick={() => locateAddress('dropoff')} disabled={locating === 'dropoff'} style={{ padding: '0 12px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}>{locating === 'dropoff' ? '...' : 'Locate'}</button>
+
+              <div className="form-group location-group" style={{ position: 'relative' }}>
+                <label>Drop-off Location (Mindanao)<span className="required">*</span></label>
+                <div style={{ display: 'flex', gap: 6, position: 'relative' }}>
+                  <div style={{ flex: 1, position: 'relative' }}>
+                    <input
+                      type="text"
+                      className={`form-input ${errors.dropoff ? 'input-error' : ''}`}
+                      placeholder={errors.dropoff ? 'Missing output' : 'e.g. Malaybalay City, Bukidnon'}
+                      value={form.dropoff?.address || ''}
+                      onChange={(e) => {
+                        const nextAddr = e.target.value;
+                        setForm((prev) => ({ ...prev, dropoff: { ...(prev.dropoff || {}), address: nextAddr } }));
+                        clearFieldError('dropoff');
+                      }}
+                    />
+                    {errors.dropoff && <span className="input-missing-tag">Missing output</span>}
+                  </div>
+                  <button type="button" onClick={() => locateAddress('dropoff')} disabled={locating === 'dropoff'} style={{ padding: '0 12px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+                    {locating === 'dropoff' ? '...' : 'Locate'}
+                  </button>
                 </div>
+                {errors.dropoff && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.dropoff}</div>}
               </div>
 
               <PinRouteMap
@@ -310,7 +520,7 @@ export default function CreateRequestModal({
 
               <div className="form-group">
                 <label>Distance (km)</label>
-                <input type="number" className="form-input" value={form.distance_km} onChange={(e) => setForm({ ...form, distance_km: e.target.value })} placeholder="Auto-calculated from map" />
+                <input type="number" className="form-input" value={form.distance_km} onChange={(e) => handleInputChange('distance_km', e.target.value)} placeholder="Auto-calculated from map" />
               </div>
             </div>
 
@@ -329,17 +539,16 @@ export default function CreateRequestModal({
                 <span style={{ fontSize: 11, color: '#6B7280', marginTop: 3, display: 'block' }}>
                   Auto-calculated: ₱{pricingRates.distance_rate}/km + ₱{pricingRates.base_labor_fee} labor fee + ₱{pricingRates.weight_rate}/kg
                 </span>
-
               </div>
 
               <h3 className="section-title-form">Payment Terms:</h3>
               <div className="radio-group">
                 <label className="radio-label">
-                  <input type="radio" name="paymentTerm" checked={form.payment_term === 'downpayment'} onChange={() => setForm({ ...form, payment_term: 'downpayment' })} />
+                  <input type="radio" name="paymentTerm" checked={form.payment_term === 'downpayment'} onChange={() => handleInputChange('payment_term', 'downpayment')} />
                   <span className="radio-text">Pay Down-payment (50%)</span>
                 </label>
                 <label className="radio-label">
-                  <input type="radio" name="paymentTerm" checked={form.payment_term === 'full'} onChange={() => setForm({ ...form, payment_term: 'full' })} />
+                  <input type="radio" name="paymentTerm" checked={form.payment_term === 'full'} onChange={() => handleInputChange('payment_term', 'full')} />
                   <span className="radio-text">Pay Full-payment</span>
                 </label>
               </div>
@@ -347,39 +556,90 @@ export default function CreateRequestModal({
               <h3 className="section-title-form">Payment Methods:</h3>
               <div className="radio-group">
                 <label className="radio-label">
-                  <input type="radio" name="paymentMethod" checked={form.payment_method === 'bank_transfer'} onChange={() => setForm({ ...form, payment_method: 'bank_transfer' })} />
+                  <input type="radio" name="paymentMethod" checked={form.payment_method === 'bank_transfer'} onChange={() => handleInputChange('payment_method', 'bank_transfer')} />
                   <span className="radio-text">Pay Through Bank Transfer</span>
                 </label>
                 <label className="radio-label">
-                  <input type="radio" name="paymentMethod" checked={form.payment_method === 'cash'} onChange={() => setForm({ ...form, payment_method: 'cash' })} />
+                  <input type="radio" name="paymentMethod" checked={form.payment_method === 'cash'} onChange={() => handleInputChange('payment_method', 'cash')} />
                   <span className="radio-text">Pay in Cash</span>
                 </label>
               </div>
 
-              {/* Bank Details Section in Blank Area Below Payment Methods */}
+              {/* Bank Details Section */}
               {form.payment_method === 'bank_transfer' && (
                 <div className="bank-transfer-details" style={{ marginTop: 20, padding: 16, background: '#F4F5F8', borderRadius: 8, border: '1px solid #E2E8F0' }}>
                   <h4 style={{ color: '#DC2626', fontSize: 15, fontWeight: 700, margin: '0 0 14px 0' }}>
                     Bank Details <span style={{ color: '#DC2626' }}>*</span>
                   </h4>
-                  <div className="form-group" style={{ marginBottom: 12 }}>
+
+                  <div className="form-group" style={{ marginBottom: 12, position: 'relative' }}>
                     <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Bank Name<span className="required">*</span></label>
-                    <input type="text" className="form-input" placeholder="e.g. BDO, BPI, Landbank, GCash" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} />
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="text"
+                        className={`form-input ${errors.bank_name ? 'input-error' : ''}`}
+                        placeholder={errors.bank_name ? 'Missing output' : 'e.g. BDO, BPI, Landbank, GCash'}
+                        value={form.bank_name}
+                        onChange={(e) => handleInputChange('bank_name', e.target.value)}
+                      />
+                      {errors.bank_name && <span className="input-missing-tag">Missing output</span>}
+                    </div>
+                    {errors.bank_name && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.bank_name}</div>}
                   </div>
-                  <div className="form-group" style={{ marginBottom: 12 }}>
+
+                  <div className="form-group" style={{ marginBottom: 12, position: 'relative' }}>
                     <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Account Name<span className="required">*</span></label>
-                    <input type="text" className="form-input" placeholder="e.g. HJY Trucking Services" value={form.account_name} onChange={(e) => setForm({ ...form, account_name: e.target.value })} />
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="text"
+                        className={`form-input ${errors.account_name ? 'input-error' : ''}`}
+                        placeholder={errors.account_name ? 'Missing output' : 'e.g. HJY Trucking Services'}
+                        value={form.account_name}
+                        onChange={(e) => handleInputChange('account_name', e.target.value)}
+                      />
+                      {errors.account_name && <span className="input-missing-tag">Missing output</span>}
+                    </div>
+                    {errors.account_name && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.account_name}</div>}
                   </div>
-                  <div className="form-group" style={{ marginBottom: 16 }}>
+
+                  <div className="form-group" style={{ marginBottom: 16, position: 'relative' }}>
                     <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Account Number<span className="required">*</span></label>
-                    <input type="text" className="form-input" placeholder="e.g. 1234-5678-9012" value={form.account_number} onChange={(e) => setForm({ ...form, account_number: e.target.value })} />
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="text"
+                        className={`form-input ${errors.account_number ? 'input-error' : ''}`}
+                        placeholder={errors.account_number ? 'Missing output' : 'e.g. 1234-5678-9012'}
+                        value={form.account_number}
+                        onChange={(e) => handleInputChange('account_number', e.target.value)}
+                      />
+                      {errors.account_number && <span className="input-missing-tag">Missing output</span>}
+                    </div>
+                    {errors.account_number && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.account_number}</div>}
                   </div>
+
                   <div className="form-group" style={{ marginBottom: 6 }}>
                     <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Upload Bank Transfer Photo<span className="required">*</span></label>
                     <input type="file" id="bank-receipt-file" accept="image/*" style={{ display: 'none' }} onChange={handleReceiptChange} />
-                    <label htmlFor="bank-receipt-file" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#DCE1EB', padding: '10px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#273342' }}>
-                      <i className="fas fa-camera"></i> Upload Bank Receipt
+                    <label
+                      htmlFor="bank-receipt-file"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        background: errors.payment_receipt ? '#FEE2E2' : '#DCE1EB',
+                        border: errors.payment_receipt ? '1.5px solid #EF4444' : '1px solid transparent',
+                        padding: '10px 16px',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        color: errors.payment_receipt ? '#991B1B' : '#273342',
+                        boxShadow: errors.payment_receipt ? '0 0 0 3px rgba(239, 68, 68, 0.25)' : 'none',
+                      }}
+                    >
+                      <i className="fas fa-camera"></i> {errors.payment_receipt ? 'Missing output: Upload Bank Receipt' : 'Upload Bank Receipt'}
                     </label>
+                    {errors.payment_receipt && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> Missing output</div>}
 
                     {receiptPreview && (
                       <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, background: '#fff', padding: 8, borderRadius: 6, border: '1px solid #ddd' }}>

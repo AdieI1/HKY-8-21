@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-routing-machine';
@@ -16,6 +16,11 @@ import {
   renderSteepnessPolylines,
   createSteepnessLegendControl,
 } from '../../utils/routeElevation';
+import {
+  computeTripSpeedMetrics,
+  getSpeedCategory,
+  SPEED_LIMIT_KMH,
+} from '../../utils/speedTelemetry';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -24,19 +29,84 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-// Cache geocode results in memory so we don't spam Nominatim on GPS updates
+// Cagayan de Oro City Center Fallbacks
+const CDO_DEFAULT_CENTER = { lat: 8.4862, lng: 124.6522 };
+const DEFAULT_HQ = { lat: 8.4982, lng: 124.6540 };
+
+function toCoordinate(latitude, longitude) {
+  if (latitude == null || latitude === '' || longitude == null || longitude === '') {
+    return null;
+  }
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+}
+
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const radius = 6371;
+  const latitudeDelta = ((lat2 - lat1) * Math.PI) / 180;
+  const longitudeDelta = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(longitudeDelta / 2) ** 2;
+  return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function calculateBearing(lat1, lon1, lat2, lon2) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const toDeg = (rad) => (rad * 180) / Math.PI;
+  const phi1 = toRad(lat1);
+  const phi2 = toRad(lat2);
+  const deltaLambda = toRad(lon2 - lon1);
+
+  const y = Math.sin(deltaLambda) * Math.cos(phi2);
+  const x =
+    Math.cos(phi1) * Math.sin(phi2) -
+    Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
+  const theta = Math.atan2(y, x);
+  return (toDeg(theta) + 360) % 360;
+}
+
+function formatRelativeTime(dateString) {
+  if (!dateString) return 'Just now';
+  const diffMs = Date.now() - new Date(dateString).getTime();
+  const secs = Math.floor(diffMs / 1000);
+  if (secs < 30) return 'Just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 1) return `${secs}s ago`;
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+// In-memory geocoding cache
 const geocodeCache = new Map();
 async function geocode(address) {
   if (!address) return null;
   const trimmed = address.trim();
   if (geocodeCache.has(trimmed)) return geocodeCache.get(trimmed);
+
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(trimmed)}`
-    );
+    // Restricted to entire Mindanao bounding box
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=ph&viewbox=121.50,10.25,126.75,5.30&bounded=1&q=${encodeURIComponent(
+      trimmed
+    )}`;
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
     const data = await res.json();
-    const result =
-      data && data.length ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : null;
+    let result = null;
+    if (data && Array.isArray(data) && data.length > 0) {
+      for (const item of data) {
+        const lat = parseFloat(item.lat);
+        const lng = parseFloat(item.lon);
+        if (lat >= 5.30 && lat <= 10.25 && lng >= 121.50 && lng <= 126.75) {
+          result = { lat, lng };
+          break;
+        }
+      }
+    }
     if (result) geocodeCache.set(trimmed, result);
     return result;
   } catch {
@@ -46,33 +116,78 @@ async function geocode(address) {
 
 export default function ViewLocationMap({
   pickupAddress,
+  pickupLat,
+  pickupLng,
   dropoffAddress,
+  dropoffLat,
+  dropoffLng,
   driverLocation,
+  trackingHistory = [],
+  deliveryStatus,
+  driverName,
+  driverPhone,
+  vehiclePlate,
   onEtaChange,
   onDangerZonesDetected,
 }) {
   const containerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const routingControlRef = useRef(null);
+  const fallbackPolylineRef = useRef(null);
+  const pickupMarkerRef = useRef(null);
+  const dropoffMarkerRef = useRef(null);
   const driverMarkerRef = useRef(null);
+  const driverPulseCircleRef = useRef(null);
+  const breadcrumbTrailRef = useRef(null);
+  const trajectoryLineRef = useRef(null);
   const dangerZoneLayerRef = useRef(null);
-  const centeredOnDriverRef = useRef(false);
+  const steepnessLayerRef = useRef(null);
+  const steepnessLegendControlRef = useRef(null);
+  const steepnessDataRef = useRef(null);
+
+  const initialFitDoneRef = useRef(false);
+  const prevRouteKeyRef = useRef('');
+  const prevDriverCoordRef = useRef(null);
+  const currentBearingRef = useRef(0);
   const etaCallbackRef = useRef(onEtaChange);
   const detectedCallbackRef = useRef(onDangerZonesDetected);
 
   const [status, setStatus] = useState('loading');
   const [coords, setCoords] = useState({ pickup: null, dropoff: null });
   const [dangerZones, setDangerZones] = useState(DEFAULT_DANGER_ZONES);
-  const [showDangerZones, setShowDangerZones] = useState(true);
+  // Route hazards are optional and defaulted to OFF to focus on steepness and speed
+  const [showDangerZones, setShowDangerZones] = useState(false);
   const [filterRouteOnly, setFilterRouteOnly] = useState(true);
   const [showLegend, setShowLegend] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState([]);
   const [zonesOnRoute, setZonesOnRoute] = useState([]);
   const [steepnessSummary, setSteepnessSummary] = useState(null);
   const [showSteepness, setShowSteepness] = useState(true);
-  const steepnessLayerRef = useRef(null);
-  const steepnessLegendControlRef = useRef(null);
-  const steepnessDataRef = useRef(null);
+  const [followDriver, setFollowDriver] = useState(true);
+  const [showBreadcrumbs, setShowBreadcrumbs] = useState(true);
+  const [showSpeedHud, setShowSpeedHud] = useState(true);
+  const [showLayersMenu, setShowLayersMenu] = useState(false);
+  const layersMenuRef = useRef(null);
+
+  // Speed and movement telemetry computed from tracking history and latest GPS ping
+  const speedMetrics = useMemo(() => {
+    return computeTripSpeedMetrics(trackingHistory, driverLocation);
+  }, [trackingHistory, driverLocation]);
+
+  // Click-outside listener to close the overlays dropdown menu
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (layersMenuRef.current && !layersMenuRef.current.contains(e.target)) {
+        setShowLayersMenu(false);
+      }
+    }
+    if (showLayersMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showLayersMenu]);
 
   useEffect(() => {
     etaCallbackRef.current = onEtaChange;
@@ -82,7 +197,7 @@ export default function ViewLocationMap({
     detectedCallbackRef.current = onDangerZonesDetected;
   }, [onDangerZonesDetected]);
 
-  // 0. Load server danger zones (combining predefined zones with live incidents)
+  // 0. Load server danger zones
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -92,7 +207,7 @@ export default function ViewLocationMap({
           setDangerZones(res.data);
         }
       } catch {
-        // Fallback to DEFAULT_DANGER_ZONES already in state
+        // Fallback to DEFAULT_DANGER_ZONES
       }
     })();
     return () => {
@@ -100,19 +215,30 @@ export default function ViewLocationMap({
     };
   }, []);
 
-  // 1. Initialize Map instance once on mount
+  // 1. Initialize Leaflet Map instance
   useEffect(() => {
-    if (!containerRef.current) return;
-    if (mapInstanceRef.current) return;
+    if (!containerRef.current || mapInstanceRef.current) return;
 
     const map = L.map(containerRef.current, {
       zoomControl: true,
       attributionControl: false,
-    }).setView([8.4542, 124.6319], 13); // Default center (CDO)
+      maxBounds: [
+        [5.30, 121.50],
+        [10.25, 126.75],
+      ],
+      maxBoundsViscosity: 1.0,
+      minZoom: 7,
+    }).setView([CDO_DEFAULT_CENTER.lat, CDO_DEFAULT_CENTER.lng], 13);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
+      detectRetina: true,
     }).addTo(map);
+
+    // If user manually drags/pans map, temporarily disable auto-follow so it doesn't fight them
+    map.on('dragstart', () => {
+      setFollowDriver(false);
+    });
 
     mapInstanceRef.current = map;
 
@@ -122,39 +248,65 @@ export default function ViewLocationMap({
 
     return () => {
       clearTimeout(timer);
-      if (dangerZoneLayerRef.current) {
-        try {
-          map.removeLayer(dangerZoneLayerRef.current);
-        } catch (_) {}
-      }
       if (routingControlRef.current) {
-        try {
-          map.removeControl(routingControlRef.current);
-        } catch (_) {}
+        try { map.removeControl(routingControlRef.current); } catch (_) {}
+      }
+      if (fallbackPolylineRef.current) {
+        try { map.removeLayer(fallbackPolylineRef.current); } catch (_) {}
+      }
+      if (dangerZoneLayerRef.current) {
+        try { map.removeLayer(dangerZoneLayerRef.current); } catch (_) {}
+      }
+      if (steepnessLayerRef.current) {
+        try { map.removeLayer(steepnessLayerRef.current); } catch (_) {}
+      }
+      if (steepnessLegendControlRef.current) {
+        try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}
+      }
+      if (breadcrumbTrailRef.current) {
+        try { map.removeLayer(breadcrumbTrailRef.current); } catch (_) {}
+      }
+      if (trajectoryLineRef.current) {
+        try { map.removeLayer(trajectoryLineRef.current); } catch (_) {}
       }
       map.remove();
       mapInstanceRef.current = null;
       driverMarkerRef.current = null;
+      driverPulseCircleRef.current = null;
+      pickupMarkerRef.current = null;
+      dropoffMarkerRef.current = null;
       routingControlRef.current = null;
       dangerZoneLayerRef.current = null;
-      centeredOnDriverRef.current = false;
+      breadcrumbTrailRef.current = null;
+      trajectoryLineRef.current = null;
+      initialFitDoneRef.current = false;
+      prevRouteKeyRef.current = '';
     };
   }, []);
 
-  // 2. Geocode addresses when pickupAddress or dropoffAddress change
+  // 2. High-Accuracy Coordinates Resolution: Prioritize exact GPS props over geocoding
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
       setStatus('loading');
-      const [pickup, dropoff] = await Promise.all([
-        geocode(pickupAddress),
-        geocode(dropoffAddress),
+      const savedPickup = toCoordinate(pickupLat, pickupLng);
+      const savedDropoff = toCoordinate(dropoffLat, dropoffLng);
+
+      const [resolvedPickup, resolvedDropoff] = await Promise.all([
+        savedPickup || geocode(pickupAddress),
+        savedDropoff || geocode(dropoffAddress),
       ]);
+
       if (cancelled) return;
-      if (!pickup && !dropoff) {
+
+      const finalPickup = resolvedPickup || (resolvedDropoff ? DEFAULT_HQ : CDO_DEFAULT_CENTER);
+      const finalDropoff = resolvedDropoff || (resolvedPickup ? resolvedPickup : null);
+
+      if (!finalDropoff && !finalPickup) {
         setStatus('failed');
       } else {
-        setCoords({ pickup, dropoff });
+        setCoords({ pickup: finalPickup, dropoff: finalDropoff });
         setStatus('ready');
       }
     })();
@@ -162,111 +314,375 @@ export default function ViewLocationMap({
     return () => {
       cancelled = true;
     };
-  }, [pickupAddress, dropoffAddress]);
+  }, [pickupAddress, pickupLat, pickupLng, dropoffAddress, dropoffLat, dropoffLng]);
 
-  // 3. Create or update the Route when coordinates are ready
+  // 3. Render Permanent Pick-up & Drop-off Markers with exact coordinates & popups
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !coords.dropoff) return;
+    if (!map) return;
 
-    const startPt = driverLocation || coords.pickup;
-    if (!startPt) return;
+    // --- PICKUP MARKER ---
+    if (coords.pickup) {
+      const pickupLatLng = [coords.pickup.lat, coords.pickup.lng];
+      if (!pickupMarkerRef.current) {
+        const pickupIcon = L.divIcon({
+          className: 'map-waypoint-pin-wrapper',
+          html: `
+            <div class="map-waypoint-pin pickup" title="Pick-up Location">
+              <i class="fas fa-box"></i>
+            </div>
+          `,
+          iconSize: [34, 34],
+          iconAnchor: [17, 17],
+          popupAnchor: [0, -18],
+        });
 
-    if (!routingControlRef.current) {
-      try {
-        const control = L.Routing.control({
-          waypoints: [
-            L.latLng(startPt.lat, startPt.lng),
-            L.latLng(coords.dropoff.lat, coords.dropoff.lng),
+        const marker = L.marker(pickupLatLng, { icon: pickupIcon, zIndexOffset: 800 }).addTo(map);
+        marker.bindPopup(`
+          <div class="map-popup-card">
+            <span class="map-popup-tag pickup">ORIGIN • PICK-UP</span>
+            <div class="map-popup-title">${pickupAddress || 'Pick-up Location'}</div>
+            <div class="map-popup-coord">GPS: ${coords.pickup.lat.toFixed(6)}, ${coords.pickup.lng.toFixed(6)}</div>
+          </div>
+        `);
+        pickupMarkerRef.current = marker;
+      } else {
+        pickupMarkerRef.current.setLatLng(pickupLatLng);
+      }
+    }
+
+    // --- DROPOFF MARKER ---
+    if (coords.dropoff) {
+      const dropoffLatLng = [coords.dropoff.lat, coords.dropoff.lng];
+      if (!dropoffMarkerRef.current) {
+        const dropoffIcon = L.divIcon({
+          className: 'map-waypoint-pin-wrapper',
+          html: `
+            <div class="map-waypoint-pin dropoff" title="Drop-off Destination">
+              <i class="fas fa-flag-checkered"></i>
+            </div>
+          `,
+          iconSize: [34, 34],
+          iconAnchor: [17, 17],
+          popupAnchor: [0, -18],
+        });
+
+        const marker = L.marker(dropoffLatLng, { icon: dropoffIcon, zIndexOffset: 800 }).addTo(map);
+        marker.bindPopup(`
+          <div class="map-popup-card">
+            <span class="map-popup-tag dropoff">DESTINATION • DROP-OFF</span>
+            <div class="map-popup-title">${dropoffAddress || 'Drop-off Destination'}</div>
+            <div class="map-popup-coord">GPS: ${coords.dropoff.lat.toFixed(6)}, ${coords.dropoff.lng.toFixed(6)}</div>
+          </div>
+        `);
+        dropoffMarkerRef.current = marker;
+      } else {
+        dropoffMarkerRef.current.setLatLng(dropoffLatLng);
+      }
+    }
+  }, [coords, pickupAddress, dropoffAddress]);
+
+  // 4. Stable Route Engine: Calculate baseline route between pickup & dropoff once (no OSRM spamming)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !coords.pickup || !coords.dropoff) return;
+
+    const routeKey = `${coords.pickup.lat.toFixed(4)},${coords.pickup.lng.toFixed(4)}->${coords.dropoff.lat.toFixed(4)},${coords.dropoff.lng.toFixed(4)}`;
+    if (routeKey === prevRouteKeyRef.current) return;
+    prevRouteKeyRef.current = routeKey;
+
+    if (routingControlRef.current) {
+      try { map.removeControl(routingControlRef.current); } catch (_) {}
+      routingControlRef.current = null;
+    }
+    if (fallbackPolylineRef.current) {
+      try { map.removeLayer(fallbackPolylineRef.current); } catch (_) {}
+      fallbackPolylineRef.current = null;
+    }
+
+    const waypoints = [
+      L.latLng(coords.pickup.lat, coords.pickup.lng),
+      L.latLng(coords.dropoff.lat, coords.dropoff.lng),
+    ];
+
+    try {
+      const control = L.Routing.control({
+        waypoints,
+        routeWhileDragging: false,
+        addWaypoints: false,
+        draggableWaypoints: false,
+        fitSelectedRoutes: false,
+        show: false,
+        createMarker: () => null, // We maintain our custom, styled markers
+        lineOptions: {
+          styles: [
+            { color: '#0284c7', weight: 6, opacity: 0.85 },
+            { color: '#38bdf8', weight: 3, opacity: 0.95 },
           ],
-          routeWhileDragging: false,
-          addWaypoints: false,
-          draggableWaypoints: false,
-          fitSelectedRoutes: !driverLocation,
-          show: false,
-          lineOptions: {
-            styles: [{ color: '#0284c7', weight: 5, opacity: 0.85 }],
-          },
-          createMarker: (i, wp, nWps) => {
-            const isStart = i === 0;
-            const isEnd = i === nWps - 1;
-            if (isStart && driverLocation) {
-              return null;
+        },
+      })
+        .on('routesfound', (e) => {
+          if (e.routes && e.routes[0]) {
+            const route = e.routes[0];
+            const totalSeconds = route.summary.totalTime;
+            const hrs = Math.floor(totalSeconds / 3600);
+            const mins = Math.round((totalSeconds % 3600) / 60);
+            const text = hrs > 0 ? `${hrs}hr${hrs > 1 ? 's' : ''} ${mins}mins` : `${mins}mins`;
+            etaCallbackRef.current?.(text);
+
+            if (route.coordinates && route.coordinates.length > 0) {
+              setRouteCoordinates(route.coordinates);
+            } else {
+              setRouteCoordinates([
+                { lat: coords.pickup.lat, lng: coords.pickup.lng },
+                { lat: coords.dropoff.lat, lng: coords.dropoff.lng },
+              ]);
             }
-            return L.marker(wp.latLng, {
-              icon: L.divIcon({
-                className: 'route-waypoint-marker',
-                html: `
-                  <div style="
-                    background: ${isStart ? '#10b981' : '#dc2626'};
-                    color: #fff;
-                    width: 30px;
-                    height: 30px;
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    border: 2px solid #fff;
-                    box-shadow: 0 2px 6px rgba(0,0,0,0.35);
-                    font-size: 13px;
-                  ">
-                    <i class="fas fa-${isStart ? 'box' : 'flag-checkered'}"></i>
-                  </div>
-                `,
-                iconSize: [30, 30],
-                iconAnchor: [15, 15],
-                popupAnchor: [0, -16],
-              }),
-            }).bindPopup(isStart ? '<b>Pick-up Location</b>' : isEnd ? '<b>Drop-off Destination</b>' : '<b>Waypoint</b>');
-          },
+          }
         })
-          .on('routesfound', (e) => {
-            if (e.routes && e.routes[0]) {
-              const route = e.routes[0];
-              const totalSeconds = route.summary.totalTime;
-              const hrs = Math.floor(totalSeconds / 3600);
-              const mins = Math.round((totalSeconds % 3600) / 60);
-              const text = hrs > 0 ? `${hrs}hr${hrs > 1 ? 's' : ''} ${mins}mins` : `${mins}mins`;
-              if (etaCallbackRef.current) {
-                etaCallbackRef.current(text);
-              }
+        .on('routingerror', () => {
+          // Fallback straight-line polyline if OSRM service is rate-limited or unreachable
+          if (!fallbackPolylineRef.current) {
+            const polyline = L.polyline(
+              [
+                [coords.pickup.lat, coords.pickup.lng],
+                [coords.dropoff.lat, coords.dropoff.lng],
+              ],
+              { color: '#0284c7', weight: 5, dashArray: '6, 8', opacity: 0.8 }
+            ).addTo(map);
+            fallbackPolylineRef.current = polyline;
+            setRouteCoordinates([
+              { lat: coords.pickup.lat, lng: coords.pickup.lng },
+              { lat: coords.dropoff.lat, lng: coords.dropoff.lng },
+            ]);
+          }
+        })
+        .addTo(map);
 
-              // Extract route polyline coordinates for precise danger zone proximity check
-              if (route.coordinates && route.coordinates.length > 0) {
-                setRouteCoordinates(route.coordinates);
-              } else {
-                setRouteCoordinates([
-                  { lat: startPt.lat, lng: startPt.lng },
-                  { lat: coords.dropoff.lat, lng: coords.dropoff.lng },
-                ]);
-              }
-            }
-          })
-          .addTo(map);
+      routingControlRef.current = control;
+    } catch (err) {
+      console.warn('Leaflet routing initialization notice:', err);
+    }
+  }, [coords]);
 
-        routingControlRef.current = control;
-      } catch (err) {
-        console.error('Error creating route control:', err);
-      }
-    } else {
-      try {
-        routingControlRef.current.setWaypoints([
-          L.latLng(startPt.lat, startPt.lng),
-          L.latLng(coords.dropoff.lat, coords.dropoff.lng),
-        ]);
-      } catch (err) {
-        console.error('Error updating waypoints:', err);
-      }
+  // 5. Initial Camera Framing: Fit bounds to encompass Pickup, Dropoff, and Driver
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || initialFitDoneRef.current) return;
+
+    const pts = [];
+    if (coords.pickup) pts.push([coords.pickup.lat, coords.pickup.lng]);
+    if (coords.dropoff) pts.push([coords.dropoff.lat, coords.dropoff.lng]);
+    if (driverLocation?.lat && driverLocation?.lng) {
+      pts.push([driverLocation.lat, driverLocation.lng]);
+    }
+
+    if (pts.length > 0) {
+      map.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 16 });
+      initialFitDoneRef.current = true;
     }
   }, [coords, driverLocation]);
 
-  // 4. Check which danger zones intersect the active route
+  // 6. Live Driver Marker & Dynamic Heading Direction Bearing
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !driverLocation?.lat || !driverLocation?.lng) return;
+
+    const latLng = [driverLocation.lat, driverLocation.lng];
+
+    // Compute dynamic bearing angle
+    let bearing = currentBearingRef.current;
+    if (prevDriverCoordRef.current) {
+      const dist = haversineKm(
+        prevDriverCoordRef.current.lat,
+        prevDriverCoordRef.current.lng,
+        driverLocation.lat,
+        driverLocation.lng
+      );
+      if (dist > 0.003) {
+        // moved > 3 meters
+        bearing = calculateBearing(
+          prevDriverCoordRef.current.lat,
+          prevDriverCoordRef.current.lng,
+          driverLocation.lat,
+          driverLocation.lng
+        );
+        currentBearingRef.current = bearing;
+      }
+    } else if (coords.dropoff) {
+      // Default bearing pointing towards drop-off
+      bearing = calculateBearing(
+        driverLocation.lat,
+        driverLocation.lng,
+        coords.dropoff.lat,
+        coords.dropoff.lng
+      );
+      currentBearingRef.current = bearing;
+    }
+    prevDriverCoordRef.current = { lat: driverLocation.lat, lng: driverLocation.lng };
+
+    // Distance remaining to drop-off
+    const remainingKm = coords.dropoff
+      ? haversineKm(driverLocation.lat, driverLocation.lng, coords.dropoff.lat, coords.dropoff.lng)
+      : null;
+
+    const driverHtml = `
+      <div class="driver-marker-wrapper" title="${driverName || 'Driver'} • Live GPS • ${speedMetrics.currentSpeed} km/h">
+        <div class="driver-speed-pill ${speedMetrics.category.badgeClass}">
+          <span class="speed-pulse-dot" style="background: ${speedMetrics.category.color};"></span>
+          <span>${speedMetrics.currentSpeed} km/h</span>
+        </div>
+        <div class="driver-marker-radar"></div>
+        <div class="driver-marker-core">
+          <div class="driver-heading-pointer" style="transform: translateX(-50%) rotate(${Math.round(bearing)}deg); transform-origin: 50% 24px;"></div>
+          <i class="fas fa-truck"></i>
+        </div>
+      </div>
+    `;
+
+    const driverIcon = L.divIcon({
+      className: 'driver-live-marker',
+      html: driverHtml,
+      iconSize: [48, 48],
+      iconAnchor: [24, 24],
+      popupAnchor: [0, -26],
+    });
+
+    const popupHtml = `
+      <div class="map-popup-card">
+        <span class="map-popup-tag driver">LIVE DRIVER GPS</span>
+        <div class="map-popup-title">${driverName || 'Assigned Driver'}</div>
+        <div class="map-popup-speed-row" style="background: ${speedMetrics.category.bg}; border: 1px solid ${speedMetrics.category.border}; color: ${speedMetrics.category.color};">
+          <i class="fas ${speedMetrics.category.icon}"></i>
+          <span><strong>${speedMetrics.currentSpeed} km/h</strong> • ${speedMetrics.category.label}</span>
+        </div>
+        <div class="map-popup-meta">
+          <span><i class="fas fa-truck"></i> ${vehiclePlate || 'Assigned Fleet Vehicle'}</span>
+          <span><i class="fas fa-phone"></i> ${driverPhone || 'No contact on file'}</span>
+          <span><i class="fas fa-clock"></i> Updated ${formatRelativeTime(driverLocation.timestamp)}</span>
+          ${remainingKm != null ? `<span><i class="fas fa-route"></i> ${remainingKm.toFixed(1)} km to destination</span>` : ''}
+          <span><i class="fas fa-tachometer-alt"></i> Avg: ${speedMetrics.avgSpeed} km/h • Peak: ${speedMetrics.peakSpeed} km/h</span>
+        </div>
+        <div class="map-popup-coord">GPS: ${driverLocation.lat.toFixed(6)}, ${driverLocation.lng.toFixed(6)}</div>
+      </div>
+    `;
+
+    if (!driverMarkerRef.current) {
+      driverMarkerRef.current = L.marker(latLng, { icon: driverIcon, zIndexOffset: 1200 })
+        .addTo(map)
+        .bindPopup(popupHtml);
+    } else {
+      driverMarkerRef.current.setIcon(driverIcon);
+      driverMarkerRef.current.setLatLng(latLng);
+      driverMarkerRef.current.setPopupContent(popupHtml);
+    }
+
+    // Subtle GPS accuracy aura circle
+    if (!driverPulseCircleRef.current) {
+      driverPulseCircleRef.current = L.circle(latLng, {
+        radius: 35,
+        color: '#C53030',
+        fillColor: '#C53030',
+        fillOpacity: 0.12,
+        weight: 1.5,
+        dashArray: '3, 4',
+      }).addTo(map);
+    } else {
+      driverPulseCircleRef.current.setLatLng(latLng);
+    }
+
+    // Smooth auto-follow if enabled
+    if (followDriver) {
+      map.panTo(latLng, { animate: true, duration: 0.8 });
+    }
+  }, [driverLocation, coords, driverName, driverPhone, vehiclePlate, followDriver, speedMetrics]);
+
+  // 7. Render Traveled Breadcrumb History Polyline
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (breadcrumbTrailRef.current) {
+      try { map.removeLayer(breadcrumbTrailRef.current); } catch (_) {}
+      breadcrumbTrailRef.current = null;
+    }
+
+    if (!showBreadcrumbs || !Array.isArray(trackingHistory) || trackingHistory.length < 2) {
+      return;
+    }
+
+    const trailPts = trackingHistory
+      .filter((pt) => pt.latitude != null && pt.longitude != null)
+      .map((pt) => [Number(pt.latitude), Number(pt.longitude)]);
+
+    if (trailPts.length < 2) return;
+
+    const polyline = L.polyline(trailPts, {
+      color: '#0284c7',
+      weight: 4,
+      opacity: 0.8,
+      dashArray: '6, 6',
+      lineJoin: 'round',
+    });
+
+    polyline.bindTooltip(
+      `<span><i class="fas fa-history"></i> Traveled Path (${trailPts.length} GPS pings) • Avg Speed: <strong>${speedMetrics.avgSpeed} km/h</strong> • Peak: <strong>${speedMetrics.peakSpeed} km/h</strong></span>`,
+      { sticky: true }
+    );
+
+    polyline.addTo(map);
+    breadcrumbTrailRef.current = polyline;
+
+    return () => {
+      if (breadcrumbTrailRef.current && map) {
+        try { map.removeLayer(breadcrumbTrailRef.current); } catch (_) {}
+        breadcrumbTrailRef.current = null;
+      }
+    };
+  }, [trackingHistory, showBreadcrumbs, speedMetrics]);
+
+  // 8. Dynamic Trajectory Line from Driver to Drop-off Destination
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (trajectoryLineRef.current) {
+      try { map.removeLayer(trajectoryLineRef.current); } catch (_) {}
+      trajectoryLineRef.current = null;
+    }
+
+    if (driverLocation?.lat && driverLocation?.lng && coords.dropoff) {
+      const line = L.polyline(
+        [
+          [driverLocation.lat, driverLocation.lng],
+          [coords.dropoff.lat, coords.dropoff.lng],
+        ],
+        {
+          color: '#f59e0b',
+          weight: 2.5,
+          opacity: 0.55,
+          dashArray: '4, 8',
+        }
+      ).addTo(map);
+
+      trajectoryLineRef.current = line;
+    }
+
+    return () => {
+      if (trajectoryLineRef.current && map) {
+        try { map.removeLayer(trajectoryLineRef.current); } catch (_) {}
+        trajectoryLineRef.current = null;
+      }
+    };
+  }, [driverLocation, coords.dropoff]);
+
+  // 9. Danger Zones Detection along active route
   useEffect(() => {
     const waypoints =
       routeCoordinates.length > 0
         ? routeCoordinates
-        : coords.dropoff && (driverLocation || coords.pickup)
-        ? [driverLocation || coords.pickup, coords.dropoff]
+        : coords.dropoff && coords.pickup
+        ? [coords.pickup, coords.dropoff]
         : [];
 
     if (waypoints.length === 0) {
@@ -278,25 +694,27 @@ export default function ViewLocationMap({
     const detected = dangerZones.filter((zone) => isZoneNearRoute(zone, waypoints, 2.0));
     setZonesOnRoute(detected);
     detectedCallbackRef.current?.(detected);
-  }, [routeCoordinates, dangerZones, coords, driverLocation]);
+  }, [routeCoordinates, dangerZones, coords]);
 
-  // 4b. Fetch route steepness / elevation profile
+  // 10. Route Steepness / Elevation Profile
   useEffect(() => {
     if (!routeCoordinates || routeCoordinates.length < 2) return;
     let cancelled = false;
 
-    fetchRouteSteepness(routeCoordinates).then((data) => {
-      if (cancelled) return;
-      steepnessDataRef.current = data;
-      setSteepnessSummary(data.summary);
-    }).catch(() => {});
+    fetchRouteSteepness(routeCoordinates)
+      .then((data) => {
+        if (cancelled) return;
+        steepnessDataRef.current = data;
+        setSteepnessSummary(data.summary);
+      })
+      .catch(() => {});
 
     return () => {
       cancelled = true;
     };
   }, [routeCoordinates]);
 
-  // 4c. Render route steepness layer and legend
+  // 11. Render Steepness Polylines and Legend
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -335,13 +753,13 @@ export default function ViewLocationMap({
     };
   }, [showSteepness, steepnessSummary, routeCoordinates]);
 
-  // 5. Render Danger Zones Overlay Layer
+  // 12. Danger Zones Overlay Layer
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
     if (dangerZoneLayerRef.current) {
-      map.removeLayer(dangerZoneLayerRef.current);
+      try { map.removeLayer(dangerZoneLayerRef.current); } catch (_) {}
       dangerZoneLayerRef.current = null;
     }
 
@@ -351,13 +769,14 @@ export default function ViewLocationMap({
     const waypoints =
       routeCoordinates.length > 0
         ? routeCoordinates
-        : coords.dropoff && (driverLocation || coords.pickup)
-        ? [driverLocation || coords.pickup, coords.dropoff]
+        : coords.dropoff && coords.pickup
+        ? [coords.pickup, coords.dropoff]
         : [];
 
-    // ONLY render near hazards on the chosen route (or all if user toggles off filter)
     const targetZones = filterRouteOnly
-      ? (waypoints.length > 0 ? dangerZones.filter((zone) => isZoneNearRoute(zone, waypoints, 2.8)) : [])
+      ? waypoints.length > 0
+        ? dangerZones.filter((zone) => isZoneNearRoute(zone, waypoints, 2.8))
+        : []
       : dangerZones;
 
     targetZones.forEach((zone) => {
@@ -365,7 +784,6 @@ export default function ViewLocationMap({
       const cat = HAZARD_CATEGORIES[zone.category] || HAZARD_CATEGORIES.accident_prone;
       const onRoute = waypoints.length > 0 ? isZoneNearRoute(zone, waypoints, 2.8) : false;
 
-      // Visual hazard zone circle
       const circle = L.circle([zone.lat, zone.lng], {
         radius: zone.radius || 750,
         color: onRoute ? '#dc2626' : cat.color,
@@ -375,7 +793,6 @@ export default function ViewLocationMap({
         dashArray: onRoute ? '4, 4' : null,
       });
 
-      // Custom marker with pulsing radar animation for critical or on-route hazards
       const marker = L.marker([zone.lat, zone.lng], {
         icon: createDangerZoneIcon(zone, onRoute),
         zIndexOffset: onRoute ? 600 : 250,
@@ -394,224 +811,327 @@ export default function ViewLocationMap({
 
     return () => {
       if (dangerZoneLayerRef.current && map) {
-        map.removeLayer(dangerZoneLayerRef.current);
+        try { map.removeLayer(dangerZoneLayerRef.current); } catch (_) {}
         dangerZoneLayerRef.current = null;
       }
     };
-  }, [dangerZones, showDangerZones, filterRouteOnly, routeCoordinates, coords, driverLocation]);
+  }, [dangerZones, showDangerZones, filterRouteOnly, routeCoordinates, coords]);
 
-  // 6. Update Driver Marker and center view smoothly
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !driverLocation?.lat || !driverLocation?.lng) return;
-
-    const latLng = [driverLocation.lat, driverLocation.lng];
-
-    const driverIcon = L.divIcon({
-      className: 'driver-live-marker',
-      html: `
-        <div style="
-          position: relative;
-          width: 44px;
-          height: 44px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        ">
-          <div style="
-            position: absolute;
-            width: 42px;
-            height: 42px;
-            border-radius: 50%;
-            background: rgba(158, 30, 33, 0.25);
-          "></div>
-          <div style="
-            position: relative;
-            width: 32px;
-            height: 32px;
-            background: #9E1E21;
-            color: #ffffff;
-            border: 2.5px solid #ffffff;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.35);
-            font-size: 14px;
-          ">
-            <i class="fas fa-truck"></i>
-          </div>
-        </div>
-      `,
-      iconSize: [44, 44],
-      iconAnchor: [22, 22],
-      popupAnchor: [0, -24],
-    });
-
-    if (!driverMarkerRef.current) {
-      driverMarkerRef.current = L.marker(latLng, { icon: driverIcon, zIndexOffset: 1000 })
-        .addTo(map)
-        .bindPopup('<b>Driver Live Location</b><br/>In Transit');
-    } else {
-      driverMarkerRef.current.setLatLng(latLng);
-    }
-
-    if (!centeredOnDriverRef.current) {
-      map.setView(latLng, 15, { animate: true });
-      centeredOnDriverRef.current = true;
-    } else {
-      map.panTo(latLng, { animate: true });
-    }
-  }, [driverLocation]);
-
-  // Recenter button click
-  const handleRecenter = () => {
+  // Camera Action Handlers
+  const handleFocusDriver = useCallback(() => {
     const map = mapInstanceRef.current;
     if (map && driverLocation?.lat && driverLocation?.lng) {
       map.setView([driverLocation.lat, driverLocation.lng], 16, { animate: true });
-    } else if (map && coords.dropoff) {
-      map.setView([coords.dropoff.lat, coords.dropoff.lng], 14, { animate: true });
+      setFollowDriver(true);
+      if (driverMarkerRef.current) {
+        driverMarkerRef.current.openPopup();
+      }
     }
-  };
+  }, [driverLocation]);
+
+  const handleFitRoute = useCallback(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const pts = [];
+    if (coords.pickup) pts.push([coords.pickup.lat, coords.pickup.lng]);
+    if (coords.dropoff) pts.push([coords.dropoff.lat, coords.dropoff.lng]);
+    if (driverLocation?.lat && driverLocation?.lng) {
+      pts.push([driverLocation.lat, driverLocation.lng]);
+    }
+    if (pts.length > 0) {
+      map.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 16 });
+      setFollowDriver(false);
+    }
+  }, [coords, driverLocation]);
 
   return (
     <div className="map-area" style={{ position: 'relative', height: '100%', width: '100%' }}>
       <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
 
-      {/* Floating Danger Zones & Steepness Control Bar */}
-      <div className="map-danger-control-bar" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-        {/* Steepness Overlay Toggle Button */}
+      {/* Compact Floating Map Overlays & Telemetry Control Button */}
+      <div className="map-layers-control-wrapper" ref={layersMenuRef}>
         <button
           type="button"
-          onClick={() => setShowSteepness(!showSteepness)}
-          className={`map-danger-toggle-btn ${showSteepness ? 'active' : ''}`}
-          style={{
-            background: showSteepness ? '#0284c7' : '#fff',
-            color: showSteepness ? '#fff' : '#334155',
-            borderColor: showSteepness ? '#0284c7' : '#cbd5e1',
-          }}
-          title="Toggle Steep Road Elevation Analysis"
+          onClick={() => setShowLayersMenu(!showLayersMenu)}
+          className={`map-layers-trigger-btn ${showLayersMenu ? 'active' : ''}`}
+          title="Map Overlays & Telemetry (Steepness, Speed, Route Hazards)"
         >
-          <i className="fas fa-mountain"></i>
-          <span>Steepness</span>
-          {steepnessSummary && (steepnessSummary.steep_segments_count > 0 || steepnessSummary.very_steep_segments_count > 0) && (
-            <span
-              className="map-danger-toggle-badge"
-              style={{ background: steepnessSummary.very_steep_segments_count > 0 ? '#ef4444' : '#f59e0b' }}
-            >
-              {steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count}
-            </span>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setShowDangerZones(!showDangerZones)}
-          className={`map-danger-toggle-btn ${showDangerZones ? 'active' : ''}`}
-          title="Toggle Danger Zones Overlay"
-        >
-          <i className="fas fa-exclamation-triangle"></i>
-          <span>{filterRouteOnly ? 'Route Hazards' : 'All Hazards'}</span>
-          <span className="map-danger-toggle-badge" title={`${zonesOnRoute.length} hazard zone(s) near this chosen route`}>
-            {zonesOnRoute.length} ON ROUTE
-          </span>
-        </button>
-
-        {showDangerZones && (
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <button
-              type="button"
-              onClick={() => setFilterRouteOnly(!filterRouteOnly)}
-              style={{
-                background: filterRouteOnly ? '#fff' : '#fee2e2',
-                color: filterRouteOnly ? '#334155' : '#991b1b',
-                border: '1px solid #cbd5e1',
-                borderRadius: '16px',
-                padding: '4px 10px',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-              title="Click to toggle between only showing near hazards on chosen route vs all Mindanao hazards"
-            >
-              <i className={`fas ${filterRouteOnly ? 'fa-route' : 'fa-globe-asia'}`}></i>
-              {filterRouteOnly ? 'Route Only' : 'All Mindanao'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowLegend(!showLegend)}
-              style={{
-                background: '#fff',
-                border: '1px solid #cbd5e1',
-                borderRadius: '16px',
-                padding: '4px 10px',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                color: '#475569',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-              }}
-            >
-              <i className="fas fa-layer-group" style={{ marginRight: '4px' }}></i>
-              {showLegend ? 'Hide Legend' : 'Legend'}
-            </button>
+          <i className="fas fa-layer-group"></i>
+          <span>Overlays</span>
+          <div className="map-layers-active-indicators">
+            {showSpeedHud && <span className="layer-dot speed" title="Speed HUD: ON" />}
+            {showSteepness && <span className="layer-dot steepness" title="Steepness: ON" />}
+            {showDangerZones && <span className="layer-dot hazard" title="Hazards: ON" />}
           </div>
-        )}
+          <i className={`fas fa-chevron-${showLayersMenu ? 'up' : 'down'}`} style={{ fontSize: '10px', opacity: 0.6 }}></i>
+        </button>
 
-        {showDangerZones && showLegend && (
-          <div className="map-danger-legend">
-            <div className="map-danger-legend-title">
-              <span>Hazard Categories</span>
-              <i
-                className="fas fa-times"
-                style={{ cursor: 'pointer', opacity: 0.7 }}
-                onClick={() => setShowLegend(false)}
-              ></i>
+        {/* Dropdown Menu Popover */}
+        {showLayersMenu && (
+          <div className="map-layers-popover">
+            <div className="map-layers-popover-header">
+              <span><i className="fas fa-sliders-h" style={{ marginRight: 6 }}></i> MAP OVERLAYS</span>
+              <button
+                type="button"
+                className="map-layers-popover-close"
+                onClick={() => setShowLayersMenu(false)}
+                title="Close menu"
+              >
+                <i className="fas fa-times"></i>
+              </button>
             </div>
-            {Object.entries(HAZARD_CATEGORIES).map(([key, cat]) => (
-              <div key={key} className="map-danger-legend-row">
-                <div className="legend-dot" style={{ background: cat.color }} />
-                <span>{cat.label}</span>
+
+            <div className="map-layers-items-list">
+              {/* 1. Speed Telemetry HUD Toggle */}
+              <div
+                className={`map-layer-item ${showSpeedHud ? 'enabled' : ''}`}
+                onClick={() => setShowSpeedHud(!showSpeedHud)}
+              >
+                <div className="map-layer-item-icon speed">
+                  <i className="fas fa-gauge-high"></i>
+                </div>
+                <div className="map-layer-item-text">
+                  <div className="map-layer-item-title">
+                    <span>Speed HUD</span>
+                    <span className="map-layer-item-pill speed">{speedMetrics.currentSpeed} km/h</span>
+                  </div>
+                  <div className="map-layer-item-desc">Live speedometer & movement gauge</div>
+                </div>
+                <div className={`map-layer-switch ${showSpeedHud ? 'on' : ''}`}>
+                  <div className="map-layer-switch-handle"></div>
+                </div>
               </div>
-            ))}
+
+              {/* 2. Route Steepness Toggle (Default: ON) */}
+              <div
+                className={`map-layer-item ${showSteepness ? 'enabled' : ''}`}
+                onClick={() => setShowSteepness(!showSteepness)}
+              >
+                <div className="map-layer-item-icon steepness">
+                  <i className="fas fa-mountain"></i>
+                </div>
+                <div className="map-layer-item-text">
+                  <div className="map-layer-item-title">
+                    <span>Route Steepness</span>
+                    {steepnessSummary && (
+                      <span className="map-layer-item-pill steepness">
+                        {steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count > 0
+                          ? `${steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count} STEEP`
+                          : `${steepnessSummary.max_grade_pct}% MAX`}
+                      </span>
+                    )}
+                  </div>
+                  <div className="map-layer-item-desc">Grade elevation & steep incline warning</div>
+                </div>
+                <div className={`map-layer-switch ${showSteepness ? 'on' : ''}`}>
+                  <div className="map-layer-switch-handle"></div>
+                </div>
+              </div>
+
+              {/* 3. Route Hazards Toggle (OPTIONAL - Default: OFF) */}
+              <div
+                className={`map-layer-item ${showDangerZones ? 'enabled' : ''}`}
+                onClick={() => setShowDangerZones(!showDangerZones)}
+              >
+                <div className="map-layer-item-icon hazard">
+                  <i className="fas fa-exclamation-triangle"></i>
+                </div>
+                <div className="map-layer-item-text">
+                  <div className="map-layer-item-title">
+                    <span>Route Hazards</span>
+                    <span className={`map-layer-item-pill ${showDangerZones ? 'hazard' : 'muted'}`}>
+                      {showDangerZones ? `${zonesOnRoute.length} ON ROUTE` : 'OPTIONAL (OFF)'}
+                    </span>
+                  </div>
+                  <div className="map-layer-item-desc">Accident zones, floodways & security alerts</div>
+                </div>
+                <div className={`map-layer-switch ${showDangerZones ? 'on' : ''}`}>
+                  <div className="map-layer-switch-handle"></div>
+                </div>
+              </div>
+
+              {/* Sub-controls for Hazards if Hazards is turned ON */}
+              {showDangerZones && (
+                <div className="map-layer-suboptions">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setFilterRouteOnly(!filterRouteOnly); }}
+                    className="map-layer-subbtn"
+                  >
+                    <i className={`fas ${filterRouteOnly ? 'fa-route' : 'fa-globe-asia'}`}></i>
+                    {filterRouteOnly ? 'Route Only' : 'All Mindanao'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setShowLegend(!showLegend); }}
+                    className="map-layer-subbtn"
+                  >
+                    <i className="fas fa-layer-group"></i>
+                    {showLegend ? 'Hide Legend' : 'Show Legend'}
+                  </button>
+                </div>
+              )}
+
+              {/* 4. Traveled Trail Breadcrumbs Toggle */}
+              {trackingHistory && trackingHistory.length > 1 && (
+                <div
+                  className={`map-layer-item ${showBreadcrumbs ? 'enabled' : ''}`}
+                  onClick={() => setShowBreadcrumbs(!showBreadcrumbs)}
+                >
+                  <div className="map-layer-item-icon trail">
+                    <i className="fas fa-history"></i>
+                  </div>
+                  <div className="map-layer-item-text">
+                    <div className="map-layer-item-title">
+                      <span>Traveled Trail</span>
+                      <span className="map-layer-item-pill trail">{trackingHistory.length} pings</span>
+                    </div>
+                    <div className="map-layer-item-desc">GPS history path recorded by vehicle</div>
+                  </div>
+                  <div className={`map-layer-switch ${showBreadcrumbs ? 'on' : ''}`}>
+                    <div className="map-layer-switch-handle"></div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Hazard Legend Popover if open */}
+            {showDangerZones && showLegend && (
+              <div className="map-danger-legend" style={{ position: 'static', marginTop: 10, boxShadow: 'none', border: '1px solid #e2e8f0' }}>
+                <div className="map-danger-legend-title">
+                  <span>Hazard Categories</span>
+                  <i
+                    className="fas fa-times"
+                    style={{ cursor: 'pointer', opacity: 0.7 }}
+                    onClick={(e) => { e.stopPropagation(); setShowLegend(false); }}
+                  ></i>
+                </div>
+                {Object.entries(HAZARD_CATEGORIES).map(([key, cat]) => (
+                  <div key={key} className="map-danger-legend-row">
+                    <div className="legend-dot" style={{ background: cat.color }} />
+                    <span>{cat.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Floating Recenter / Driver Focus Button */}
-      {driverLocation && (
+      {/* Floating Live Speedometer & Movement Telemetry HUD */}
+      {showSpeedHud && (
+        <div className={`map-speed-hud ${speedMetrics.isOverspeed ? 'overspeed-alert' : ''}`}>
+          <div className="speed-hud-header">
+            <div className="speed-hud-title">
+              <span
+                className={`speed-hud-status-dot ${speedMetrics.isMoving ? 'active' : 'idle'}`}
+                style={{ background: speedMetrics.category.color }}
+              ></span>
+              <span>LIVE SPEED TELEMETRY</span>
+            </div>
+            <button
+              type="button"
+              className="speed-hud-close-btn"
+              onClick={() => setShowSpeedHud(false)}
+              title="Minimize Speedometer HUD"
+            >
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
+
+          <div className="speed-hud-main">
+            <div className="speed-dial-display">
+              <div className="speed-number-wrap">
+                <span className="speed-number" style={{ color: speedMetrics.category.color }}>
+                  {speedMetrics.currentSpeedDisplay}
+                </span>
+                <span className="speed-unit">KM/H</span>
+              </div>
+              <div
+                className="speed-status-pill"
+                style={{
+                  background: speedMetrics.category.bg,
+                  color: speedMetrics.category.color,
+                  border: `1px solid ${speedMetrics.category.border}`,
+                }}
+              >
+                <i className={`fas ${speedMetrics.category.icon}`}></i>
+                <span>{speedMetrics.category.shortLabel}</span>
+              </div>
+            </div>
+
+            {/* Gauge progress bar showing speed out of 80 km/h fleet limit */}
+            <div className="speed-gauge-bar-track" title={`Speed: ${speedMetrics.currentSpeed} km/h (Fleet Limit: 80 km/h)`}>
+              <div
+                className="speed-gauge-bar-fill"
+                style={{
+                  width: `${Math.min(100, (speedMetrics.currentSpeed / 80) * 100)}%`,
+                  background: speedMetrics.category.color,
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="speed-hud-metrics-grid">
+            <div className="speed-metric-box">
+              <span className="speed-metric-lbl">AVG SPEED</span>
+              <strong className="speed-metric-val">{speedMetrics.avgSpeed} <small>km/h</small></strong>
+            </div>
+            <div className="speed-metric-box">
+              <span className="speed-metric-lbl">PEAK SPEED</span>
+              <strong className="speed-metric-val">{speedMetrics.peakSpeed} <small>km/h</small></strong>
+            </div>
+            <div className="speed-metric-box">
+              <span className="speed-metric-lbl">TRAVELED</span>
+              <strong className="speed-metric-val">{speedMetrics.totalDistanceKm} <small>km</small></strong>
+            </div>
+          </div>
+
+          {speedMetrics.isOverspeed && (
+            <div className="speed-hud-overspeed-warning">
+              <i className="fas fa-exclamation-triangle"></i>
+              <span>Overspeed Alert! Exceeding 80 km/h safety limit.</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Floating Action Controls Bar (Bottom Right) */}
+      <div className="map-view-actions">
+        {driverLocation && (
+          <>
+            <button
+              type="button"
+              onClick={handleFocusDriver}
+              className="map-action-btn primary"
+              title="Center camera on live driver location"
+            >
+              <i className="fas fa-crosshairs"></i>
+              Focus Driver
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setFollowDriver(!followDriver)}
+              className={`map-action-btn ${followDriver ? 'active' : ''}`}
+              title={followDriver ? 'Auto-following driver location' : 'Click to enable auto-follow'}
+            >
+              <i className="fas fa-satellite-dish"></i>
+              {followDriver ? 'Following' : 'Follow: Off'}
+            </button>
+          </>
+        )}
+
         <button
           type="button"
-          onClick={handleRecenter}
-          style={{
-            position: 'absolute',
-            bottom: '20px',
-            right: '20px',
-            zIndex: 1000,
-            background: '#9E1E21',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '24px',
-            padding: '8px 16px',
-            fontSize: '13px',
-            fontWeight: 600,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-          title="Center on Driver"
+          onClick={handleFitRoute}
+          className="map-action-btn"
+          title="Fit full route (Pickup, Dropoff, Driver) in view"
         >
-          <i className="fas fa-crosshairs"></i>
-          Focus Driver
+          <i className="fas fa-compress-arrows-alt"></i>
+          Fit Route
         </button>
-      )}
+      </div>
 
       {status === 'failed' && (
         <div
@@ -630,7 +1150,7 @@ export default function ViewLocationMap({
           }}
         >
           <i className="fas fa-exclamation-circle" style={{ marginRight: '6px' }}></i>
-          Couldn't load route coordinates for this address.
+          Notice: Showing regional center map. Pinned coordinates not available.
         </div>
       )}
     </div>

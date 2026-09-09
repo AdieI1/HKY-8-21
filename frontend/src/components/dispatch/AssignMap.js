@@ -59,16 +59,21 @@ async function geocode(address) {
 
   try {
     const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address)}`
+      `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=ph&viewbox=121.50,10.25,126.75,5.30&bounded=1&q=${encodeURIComponent(address)}`
     );
     const data = await response.json();
 
-    if (!data.length) return null;
+    if (data && Array.isArray(data) && data.length > 0) {
+      for (const item of data) {
+        const lat = Number(item.lat);
+        const lng = Number(item.lon);
+        if (lat >= 5.30 && lat <= 10.25 && lng >= 121.50 && lng <= 126.75) {
+          return { lat, lng };
+        }
+      }
+    }
 
-    return {
-      lat: Number(data[0].lat),
-      lng: Number(data[0].lon),
-    };
+    return null;
   } catch (error) {
     return null;
   }
@@ -183,7 +188,14 @@ export default function AssignMap({
       if (!mapEl) return;
 
       mapEl.innerHTML = '';
-      map = L.map(mapEl);
+      map = L.map(mapEl, {
+        maxBounds: [
+          [5.30, 121.50],
+          [10.25, 126.75],
+        ],
+        maxBoundsViscosity: 1.0,
+        minZoom: 7,
+      });
       mapInstanceRef.current = map;
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -393,12 +405,21 @@ export default function AssignMap({
           >
             <i className="fas fa-mountain"></i>
             <span>Steepness</span>
-            {steepnessSummary && (steepnessSummary.steep_segments_count > 0 || steepnessSummary.very_steep_segments_count > 0) && (
+            {steepnessSummary && (steepnessSummary.moderate_segments_count > 0 || steepnessSummary.steep_segments_count > 0 || steepnessSummary.very_steep_segments_count > 0) && (
               <span
                 className="map-danger-toggle-badge"
-                style={{ background: steepnessSummary.very_steep_segments_count > 0 ? '#ef4444' : '#f59e0b' }}
+                style={{
+                  background:
+                    steepnessSummary.very_steep_segments_count > 0
+                      ? '#ef4444'
+                      : steepnessSummary.steep_segments_count > 0
+                      ? '#ea580c'
+                      : '#f59e0b',
+                }}
               >
-                {steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count}
+                {steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count > 0
+                  ? `${steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count} STEEP`
+                  : `${steepnessSummary.max_grade_pct}% MAX`}
               </span>
             )}
           </button>
@@ -514,6 +535,7 @@ export default function AssignMap({
               <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
                 {steepnessSummary.very_steep_segments_count > 0 && `${steepnessSummary.very_steep_segments_count} very steep section(s) (≥12%). `}
                 {steepnessSummary.steep_segments_count > 0 && `${steepnessSummary.steep_segments_count} steep section(s) (8-12%). `}
+                {steepnessSummary.moderate_segments_count > 0 && `${steepnessSummary.moderate_segments_count} moderate slope section(s) (5-8%). `}
                 Total Elevation Gain: +{steepnessSummary.elevation_gain_m}m • Descent: -{steepnessSummary.elevation_loss_m}m.
                 Advise assigned driver to use low gears and exhaust/engine brakes.
               </div>

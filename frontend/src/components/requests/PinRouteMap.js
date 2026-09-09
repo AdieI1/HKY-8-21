@@ -25,13 +25,58 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
+// Mindanao geographical boundaries (South: Sarangani ~5.3°N, North: Surigao ~10.25°N, West: Zamboanga ~121.5°E, East: Mati ~126.75°E)
+export const MINDANAO_BOUNDS = [
+  [5.30, 121.50], // South-West
+  [10.25, 126.75], // North-East
+];
+
+export function isWithinMindanao(lat, lng) {
+  if (lat == null || lng == null) return false;
+  const nLat = Number(lat);
+  const nLng = Number(lng);
+  return (
+    Number.isFinite(nLat) &&
+    Number.isFinite(nLng) &&
+    nLat >= 5.30 &&
+    nLat <= 10.25 &&
+    nLng >= 121.50 &&
+    nLng <= 126.75
+  );
+}
+
 export async function geocode(address) {
   if (!address) return null;
   try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(address)}`);
+    // Restrict query to Mindanao bounding box and country PH
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=ph&viewbox=121.50,10.25,126.75,5.30&bounded=1&q=${encodeURIComponent(address)}`;
+    const res = await fetch(url);
     const data = await res.json();
-    if (!data.length) return null;
-    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    if (data && Array.isArray(data) && data.length > 0) {
+      for (const item of data) {
+        const lat = parseFloat(item.lat);
+        const lng = parseFloat(item.lon);
+        if (isWithinMindanao(lat, lng)) {
+          return { lat, lng };
+        }
+      }
+    }
+
+    // Fallback search appending Mindanao, Philippines
+    const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=ph&q=${encodeURIComponent(address + ', Mindanao, Philippines')}`;
+    const fbRes = await fetch(fallbackUrl);
+    const fbData = await fbRes.json();
+    if (fbData && Array.isArray(fbData) && fbData.length > 0) {
+      for (const item of fbData) {
+        const lat = parseFloat(item.lat);
+        const lng = parseFloat(item.lon);
+        if (isWithinMindanao(lat, lng)) {
+          return { lat, lng };
+        }
+      }
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -48,7 +93,7 @@ export async function reverseGeocode(lat, lng) {
 }
 
 export function hasCoords(point) {
-  return !!point && point.lat != null && point.lng != null;
+  return !!point && point.lat != null && point.lng != null && isWithinMindanao(point.lat, point.lng);
 }
 
 export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoffChange, onDistanceChange }) {
@@ -61,6 +106,7 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
   const [zonesOnRoute, setZonesOnRoute] = useState([]);
   const [steepnessSummary, setSteepnessSummary] = useState(null);
   const [showSteepness, setShowSteepness] = useState(true);
+  const [mindanaoError, setMindanaoError] = useState('');
 
   const mapRef = useRef(null);
   const pickupMarkerRef = useRef(null);
@@ -99,11 +145,20 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
 
   useEffect(() => {
     if (!mapEl || mapRef.current) return;
-    const map = L.map(mapEl).setView([8.4542, 124.6319], 12);
+    const map = L.map(mapEl, {
+      maxBounds: MINDANAO_BOUNDS,
+      maxBoundsViscosity: 1.0,
+      minZoom: 7,
+    }).setView([8.4542, 124.6319], 10);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
 
     map.on('click', async (e) => {
       const { lat, lng } = e.latlng;
+      if (!isWithinMindanao(lat, lng)) {
+        setMindanaoError('Location outside Mindanao! HJY Logistics operates exclusively within the Mindanao region.');
+        return;
+      }
+      setMindanaoError('');
       const address = await reverseGeocode(lat, lng);
       if (activeModeRef.current === 'pickup') {
         onPickupChange({ lat, lng, address });
@@ -305,6 +360,17 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
 
   return (
     <div style={{ marginTop: 8, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+        <span className="mindanao-lock-badge" title="HJY Logistics serves the Mindanao archipelago only">
+          <i className="fas fa-lock"></i> Mindanao Region Only
+        </span>
+        {mindanaoError && (
+          <span style={{ color: '#dc2626', background: '#fee2e2', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700 }}>
+            <i className="fas fa-ban" style={{ marginRight: 4 }}></i>{mindanaoError}
+          </span>
+        )}
+      </div>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
@@ -391,12 +457,21 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
           >
             <i className="fas fa-mountain"></i>
             <span>Steepness</span>
-            {steepnessSummary && (steepnessSummary.steep_segments_count > 0 || steepnessSummary.very_steep_segments_count > 0) && (
+            {steepnessSummary && (steepnessSummary.moderate_segments_count > 0 || steepnessSummary.steep_segments_count > 0 || steepnessSummary.very_steep_segments_count > 0) && (
               <span
                 className="map-danger-toggle-badge"
-                style={{ background: steepnessSummary.very_steep_segments_count > 0 ? '#ef4444' : '#f59e0b' }}
+                style={{
+                  background:
+                    steepnessSummary.very_steep_segments_count > 0
+                      ? '#ef4444'
+                      : steepnessSummary.steep_segments_count > 0
+                      ? '#ea580c'
+                      : '#f59e0b',
+                }}
               >
-                {steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count}
+                {steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count > 0
+                  ? `${steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count} STEEP`
+                  : `${steepnessSummary.max_grade_pct}% MAX`}
               </span>
             )}
           </button>
@@ -505,6 +580,7 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
             <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
               {steepnessSummary.very_steep_segments_count > 0 && `${steepnessSummary.very_steep_segments_count} very steep section(s) (≥12%). `}
               {steepnessSummary.steep_segments_count > 0 && `${steepnessSummary.steep_segments_count} steep section(s) (8-12%). `}
+              {steepnessSummary.moderate_segments_count > 0 && `${steepnessSummary.moderate_segments_count} moderate slope section(s) (5-8%). `}
               Total Elevation Gain: +{steepnessSummary.elevation_gain_m}m • Descent: -{steepnessSummary.elevation_loss_m}m.
             </div>
           </div>

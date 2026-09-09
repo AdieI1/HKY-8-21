@@ -6,25 +6,36 @@ import api from '../api/api-client';
  */
 export const STEEPNESS_CONFIG = {
   normal: {
-    label: 'Normal Road',
+    label: 'Normal Road (< 5%)',
     color: '#0284c7', // Sky Blue matching base route
     weight: 4,
     opacity: 0.85,
-    maxGrade: 8.0,
+    maxGrade: 5.0,
     badgeBg: '#f0f9ff',
     badgeText: '#0369a1',
     badgeBorder: '#bae6fd',
   },
-  steep: {
-    label: 'Steep Road (8% - 12%)',
-    color: '#f59e0b', // Amber / Orange
-    weight: 6,
+  moderate: {
+    label: 'Moderate Slope (5% - 7.9%)',
+    color: '#f59e0b', // Amber / Gold
+    weight: 5,
     opacity: 0.95,
-    minGrade: 8.0,
-    maxGrade: 12.0,
+    minGrade: 5.0,
+    maxGrade: 8.0,
     badgeBg: '#fffbeb',
     badgeText: '#b45309',
     badgeBorder: '#fde68a',
+  },
+  steep: {
+    label: 'Steep Road (8% - 11.9%)',
+    color: '#ea580c', // Vivid Orange
+    weight: 6,
+    opacity: 0.98,
+    minGrade: 8.0,
+    maxGrade: 12.0,
+    badgeBg: '#fff7ed',
+    badgeText: '#c2410c',
+    badgeBorder: '#fed7aa',
   },
   very_steep: {
     label: 'Very Steep Road (≥ 12%)',
@@ -52,6 +63,7 @@ export async function fetchRouteSteepness(coordinates, options = {}) {
         elevation_gain_m: 0,
         elevation_loss_m: 0,
         max_grade_pct: 0,
+        moderate_segments_count: 0,
         steep_segments_count: 0,
         very_steep_segments_count: 0,
         has_steep_segments: false,
@@ -97,6 +109,7 @@ export async function fetchRouteSteepness(coordinates, options = {}) {
         elevation_gain_m: 0,
         elevation_loss_m: 0,
         max_grade_pct: 0,
+        moderate_segments_count: 0,
         steep_segments_count: 0,
         very_steep_segments_count: 0,
         has_steep_segments: false,
@@ -111,6 +124,7 @@ export async function fetchRouteSteepness(coordinates, options = {}) {
  * Creates HTML popup/tooltip content for a route segment
  */
 export function createSegmentTooltipHtml(segment) {
+  const isModerate = segment.level === 'moderate';
   const isSteep = segment.level === 'steep';
   const isVerySteep = segment.level === 'very_steep';
   const style = STEEPNESS_CONFIG[segment.level] || STEEPNESS_CONFIG.normal;
@@ -119,6 +133,8 @@ export function createSegmentTooltipHtml(segment) {
     ? '🚨 CRITICAL STEEP ROAD'
     : isSteep
     ? '⚠️ STEEP ROAD WARNING'
+    : isModerate
+    ? '▲ MODERATE SLOPE'
     : 'Road Segment';
 
   const directionText =
@@ -130,16 +146,20 @@ export function createSegmentTooltipHtml(segment) {
 
   const advisory = isVerySteep
     ? segment.direction === 'downhill'
-      ? 'CRITICAL: High runaway risk. Downshift to low gear now. Use engine brake and retarder; avoid riding the service brakes.'
-      : 'CRITICAL: Heavy engine load. Maintain momentum in low gear, monitor engine temperature and avoid stopping on gradient.'
+      ? 'CRITICAL: Severe runaway risk. Stop or downshift to 1st/2nd gear immediately. Engage engine brake and retarder; do NOT ride service brakes.'
+      : 'CRITICAL: Extreme engine load. Shift to 1st/2nd gear, monitor coolant/transmission temps, and avoid stalling on gradient.'
     : isSteep
     ? segment.direction === 'downhill'
-      ? 'CAUTION: Steep descent. Shift to lower gear to prevent brake overheating and fade.'
+      ? 'CAUTION: Steep descent. Shift to lower gear (2nd/3rd gear) to prevent brake overheating and fade.'
       : 'CAUTION: Steep incline. Heavy cargo trucks shift to lower gear to maintain torque.'
+    : isModerate
+    ? segment.direction === 'downhill'
+      ? 'ADVISORY: Moderate descent (DPWH standard). Downshift to maintain controlled engine braking.'
+      : 'ADVISORY: Moderate incline. Heavy cargo trucks shift down to maintain engine momentum.'
     : 'Standard highway grade. Safe for all commercial truck classes.';
 
   return `
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-width: 210px; font-size: 12px; color: #1e293b;">
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-width: 220px; font-size: 12px; color: #1e293b;">
       <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 6px;">
         <span style="font-weight: 700; color: ${style.color}; font-size: 13px;">${title}</span>
         <span style="background: ${style.badgeBg}; color: ${style.badgeText}; border: 1px solid ${style.badgeBorder}; padding: 1px 6px; border-radius: 9999px; font-weight: 700; font-size: 11px;">
@@ -152,7 +172,7 @@ export function createSegmentTooltipHtml(segment) {
         <div><strong>Elevation:</strong> ${segment.start_elevation_m}m → ${segment.end_elevation_m}m</div>
         <div><strong>Delta:</strong> ${segment.elevation_change_m > 0 ? '+' : ''}${segment.elevation_change_m}m</div>
       </div>
-      <div style="background: ${style.badgeBg}; border-left: 3px solid ${style.color}; padding: 5px 8px; border-radius: 4px; font-size: 11px; color: #334155; line-height: 1.35;">
+      <div style="background: ${style.badgeBg}; border-left: 3px solid ${style.color}; padding: 6px 8px; border-radius: 4px; font-size: 11px; color: #334155; line-height: 1.4;">
         ${advisory}
       </div>
     </div>
@@ -177,17 +197,13 @@ export function renderSteepnessPolylines(map, segments, options = {}) {
   segments.forEach((seg) => {
     if (!seg.start || !seg.end) return;
 
-    const isHazard = seg.level === 'steep' || seg.level === 'very_steep';
+    const isHazard = seg.level === 'moderate' || seg.level === 'steep' || seg.level === 'very_steep';
 
     // The base OSRM route is already rendered in Sky Blue (#0284c7).
-    // By default, only overlay hazard segments (steep & very steep) so the map
-    // never gets cluttered with duplicate lines or diagonal chords.
+    // Overlay all elevated grades (moderate, steep, and very steep)
     if (!isHazard && !renderNormal) return;
 
-    // Determine the precise path coordinates for this segment:
-    // 1. Use seg.path if provided (contains all intermediate curve vertices)
-    // 2. Or slice from options.originalCoords using start_index and end_index
-    // 3. Fallback to straight segment [start, end]
+    // Determine the precise path coordinates for this segment
     let latLngs = null;
     if (Array.isArray(seg.path) && seg.path.length > 1) {
       latLngs = seg.path.map((p) => [p.lat, p.lng]);
@@ -253,7 +269,7 @@ export function renderSteepnessPolylines(map, segments, options = {}) {
 
     // Tooltip on hover
     polyline.bindTooltip(
-      `<strong>${seg.level === 'very_steep' ? '🔴' : seg.level === 'steep' ? '🟠' : '🔵'} ${seg.abs_grade}% Grade</strong> (${seg.direction}, ${seg.distance_m}m)`,
+      `<strong>${seg.level === 'very_steep' ? '🔴' : seg.level === 'steep' ? '🟠' : '🟡'} ${seg.abs_grade}% Grade</strong> (${seg.direction}, ${seg.distance_m}m)`,
       {
         sticky: true,
         direction: 'top',
@@ -286,41 +302,56 @@ export function createSteepnessLegendControl(summary = {}, onToggle = null) {
   legend.onAdd = function () {
     const div = L.DomUtil.create('div', 'hjy-steepness-legend-box');
     div.style.background = 'rgba(255, 255, 255, 0.96)';
-    div.style.padding = '8px 12px';
-    div.style.borderRadius = '8px';
-    div.style.boxShadow = '0 2px 8px rgba(0,0,0,0.18)';
+    div.style.padding = '10px 14px';
+    div.style.borderRadius = '10px';
+    div.style.boxShadow = '0 4px 14px rgba(0,0,0,0.18)';
     div.style.fontSize = '11.5px';
     div.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     div.style.color = '#1e293b';
     div.style.border = '1px solid #cbd5e1';
-    div.style.lineHeight = '1.4';
-    div.style.maxWidth = '220px';
-    div.style.backdropFilter = 'blur(4px)';
+    div.style.lineHeight = '1.45';
+    div.style.maxWidth = '230px';
+    div.style.backdropFilter = 'blur(6px)';
 
+    const moderateCount = summary.moderate_segments_count || 0;
     const steepCount = summary.steep_segments_count || 0;
     const verySteepCount = summary.very_steep_segments_count || 0;
     const maxGrade = summary.max_grade_pct || 0;
+    const gainM = summary.elevation_gain_m || 0;
+    const lossM = summary.elevation_loss_m || 0;
 
     div.innerHTML = `
-      <div style="font-weight: 700; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
-        <span><i class="fas fa-mountain" style="color: #64748b; margin-right: 4px;"></i> Route Terrain</span>
-        ${maxGrade > 0 ? `<span style="font-size: 10.5px; background: #fee2e2; color: #991b1b; padding: 1px 5px; border-radius: 4px; font-weight: 700;">Max ${maxGrade}%</span>` : ''}
+      <div style="font-weight: 700; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
+        <span style="font-size: 12px; color: #0f172a;"><i class="fas fa-mountain" style="color: #0284c7; margin-right: 5px;"></i> Road Elevation</span>
+        ${maxGrade > 0 ? `<span style="font-size: 10px; background: ${maxGrade >= 12 ? '#fee2e2' : maxGrade >= 8 ? '#ffedd5' : '#fef3c7'}; color: ${maxGrade >= 12 ? '#991b1b' : maxGrade >= 8 ? '#c2410c' : '#92400e'}; padding: 1px 6px; border-radius: 4px; font-weight: 800;">Max ${maxGrade}%</span>` : ''}
       </div>
+
+      ${(gainM > 0 || lossM > 0) ? `
+        <div style="display: flex; gap: 8px; font-size: 10.5px; color: #64748b; margin-bottom: 6px; background: #f8fafc; padding: 4px 8px; border-radius: 6px;">
+          <span>▲ Climb: +${gainM}m</span>
+          <span>▼ Descent: -${lossM}m</span>
+        </div>
+      ` : ''}
+
       <div style="display: flex; align-items: center; margin-bottom: 4px;">
         <span style="display: inline-block; width: 14px; height: 4px; background: ${STEEPNESS_CONFIG.normal.color}; border-radius: 2px; margin-right: 6px;"></span>
-        <span>Normal Road (< 8%)</span>
+        <span>Normal Road (< 5%)</span>
+      </div>
+      <div style="display: flex; align-items: center; margin-bottom: 4px;">
+        <span style="display: inline-block; width: 14px; height: 5px; background: ${STEEPNESS_CONFIG.moderate.color}; border-radius: 2px; margin-right: 6px;"></span>
+        <span>Moderate Slope (5-8%) ${moderateCount > 0 ? `<strong style="color: #b45309;">(${moderateCount})</strong>` : ''}</span>
       </div>
       <div style="display: flex; align-items: center; margin-bottom: 4px;">
         <span style="display: inline-block; width: 14px; height: 5px; background: ${STEEPNESS_CONFIG.steep.color}; border-radius: 2px; margin-right: 6px;"></span>
-        <span>Steep Road (8-12%) ${steepCount > 0 ? `<strong>(${steepCount})</strong>` : ''}</span>
+        <span>Steep Road (8-12%) ${steepCount > 0 ? `<strong style="color: #c2410c;">(${steepCount})</strong>` : ''}</span>
       </div>
       <div style="display: flex; align-items: center; margin-bottom: 6px;">
         <span style="display: inline-block; width: 14px; height: 6px; background: ${STEEPNESS_CONFIG.very_steep.color}; border-radius: 2px; margin-right: 6px;"></span>
         <span>Very Steep (≥ 12%) ${verySteepCount > 0 ? `<strong style="color: #b91c1c;">(${verySteepCount})</strong>` : ''}</span>
       </div>
-      ${steepCount > 0 || verySteepCount > 0 ? `
-        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 4px 6px; font-size: 10px; color: #92400e; margin-top: 4px;">
-          ⚠️ <strong>Truck Advisory:</strong> Steep grades ahead. Inspect brakes & downshift.
+      ${(moderateCount > 0 || steepCount > 0 || verySteepCount > 0) ? `
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 5px 8px; font-size: 10px; color: #92400e; margin-top: 4px; line-height: 1.35;">
+          ⚠️ <strong>Truck Advisory:</strong> Mountain grades detected. Downshift to lower gear.
         </div>
       ` : ''}
     `;

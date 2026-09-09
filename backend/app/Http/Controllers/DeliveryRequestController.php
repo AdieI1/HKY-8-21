@@ -17,7 +17,7 @@ class DeliveryRequestController extends Controller
 {
     public function index()
     {
-        return DeliveryRequest::with('customer')->get();
+        return DeliveryRequest::with('customer')->latest('request_id')->get();
     }
 
     public function store(Request $request)

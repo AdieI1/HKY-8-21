@@ -56,6 +56,10 @@ function RequestsPage() {
   const [showApprovedModal, setShowApprovedModal] = useState(false);
 
   useEffect(() => {
+    setCurrentPage(1);
+  }, [view, statusFilter, searchTerm]);
+
+  useEffect(() => {
     const update = () => setCurrentDate(new Date().toLocaleDateString('en-PH', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' }));
     update();
     const interval = setInterval(update, 60000);
@@ -117,7 +121,13 @@ function RequestsPage() {
       });
     }
 
-    return list;
+    // Always sort latest requests first (descending by request_id / created_at)
+    return [...list].sort((a, b) => {
+      const idA = Number(a.request_id || 0);
+      const idB = Number(b.request_id || 0);
+      if (idA !== idB) return idB - idA;
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
   }, [view, draftRequests, activeRequests, statusFilter, searchTerm]);
 
   // Pagination Logic

@@ -743,23 +743,65 @@ function FuelInventoryPage() {
               {formError && <div style={{ background: '#fee2e2', color: '#dc2626', padding: '10px 14px', borderRadius: 6, marginBottom: 14 }}>{formError}</div>}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {receiveTarget ? (
-                  <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 8, border: '1px solid #bbf7d0' }}>
-                    <h4 style={{ margin: '0 0 4px', color: '#166534' }}>Receiving to: {receiveTarget.fuel_type}</h4>
-                    <p style={{ margin: 0, fontSize: 13, color: '#15803d' }}>Current Stock: {receiveTarget.current_stock} {receiveTarget.unit}</p>
-                  </div>
-                ) : (
-                  <div>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Fuel Type *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Diesel Fuel / Unleaded Gasoline"
-                      value={receiveForm.fuel_type}
-                      onChange={(e) => setReceiveForm({ ...receiveForm, fuel_type: e.target.value })}
-                      style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                )}
+                <div>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Fuel Type *</label>
+                  <select
+                    value={receiveForm.fuel_type}
+                    onChange={(e) => {
+                      const selectedType = e.target.value;
+                      const matched = fuels.find(
+                        (f) => f.fuel_type.trim().toLowerCase() === selectedType.trim().toLowerCase()
+                      );
+                      setReceiveTarget(matched || null);
+                      setReceiveForm((prev) => ({
+                        ...prev,
+                        fuel_type: selectedType,
+                        supplier_name: matched?.supplier_name || prev.supplier_name,
+                        unit_price: matched?.unit_price ? String(matched.unit_price) : prev.unit_price,
+                        reorder_level: matched?.reorder_level ? String(matched.reorder_level) : prev.reorder_level,
+                      }));
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #cbd5e1',
+                      boxSizing: 'border-box',
+                      fontSize: 14,
+                      background: '#fff',
+                      color: receiveForm.fuel_type ? '#0f172a' : '#64748b',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value="">-- Select Fuel Type --</option>
+                    {Array.from(
+                      new Set([
+                        ...fuels.map((f) => f.fuel_type),
+                        'Diesel Fuel',
+                        'Unleaded Gasoline',
+                        'Premium Gasoline',
+                        'Biodiesel (B2/B5)',
+                      ].filter(Boolean))
+                    ).map((type) => {
+                      const matchedFuel = fuels.find(
+                        (f) => f.fuel_type.trim().toLowerCase() === type.trim().toLowerCase()
+                      );
+                      return (
+                        <option key={type} value={type}>
+                          {type} {matchedFuel ? `(Current Stock: ${matchedFuel.current_stock} ${matchedFuel.unit || 'L'})` : '(New Type)'}
+                        </option>
+                      );
+                    })}
+                  </select>
+
+                  {receiveTarget && (
+                    <div style={{ marginTop: 6, fontSize: 12, color: '#166534', background: '#f0fdf4', padding: '6px 10px', borderRadius: 6, border: '1px solid #bbf7d0', display: 'flex', justifyContent: 'space-between' }}>
+                      <span><i className="fas fa-gas-pump" style={{ marginRight: 4 }}></i> Current Stock: <strong>{receiveTarget.current_stock} {receiveTarget.unit || 'Liters'}</strong></span>
+                      <span>Supplier: <strong>{receiveTarget.supplier_name || '—'}</strong></span>
+                    </div>
+                  )}
+                </div>
 
                 <div>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Supplier Name</label>

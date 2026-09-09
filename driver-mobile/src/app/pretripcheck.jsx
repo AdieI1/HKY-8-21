@@ -40,15 +40,31 @@ export default function PreTripCheck() {
     }
   }, [deliveryId]);
 
+  const prevDataRef = useRef(null);
+
   useEffect(() => {
     let active = true;
 
     const fetchDetails = async (isInitial = false) => {
       try {
         const data = await getDelivery(deliveryId);
-        if (!active) return;
-        setDelivery(data);
+        if (!active || !data) return;
+
+        // Check inspection status first to redirect if ready
         checkInspectionStatus(data);
+
+        // Only update state if meaningful fields changed
+        const prev = prevDataRef.current;
+        const hasChanged =
+          !prev ||
+          prev.status !== data.status ||
+          (prev.checklists?.length || 0) !== (data.checklists?.length || 0) ||
+          prev.updated_at !== data.updated_at;
+
+        if (hasChanged) {
+          prevDataRef.current = data;
+          setDelivery(data);
+        }
       } catch (error) {
         console.log("LOAD TRIP TICKET ERROR:", error);
       } finally {
@@ -65,7 +81,7 @@ export default function PreTripCheck() {
       if (!hasNavigated.current) {
         fetchDetails(false);
       }
-    }, 2500);
+    }, 3000);
 
     return () => {
       active = false;

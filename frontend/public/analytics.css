@@ -511,3 +511,331 @@
 .btn-export:hover {
     background: #0f172a;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   ANALYTICS PDF REPORT MODAL & PRINT STYLES
+   ═══════════════════════════════════════════════════════════ */
+
+.btn-report-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.btn-report-export {
+    background: #dc2626;
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(220, 38, 38, 0.25);
+}
+
+.btn-report-export:hover {
+    background: #b91c1c;
+    transform: translateY(-1px);
+}
+
+.btn-report-import {
+    background: #ffffff;
+    color: #0369a1;
+    border-color: #bae6fd;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.btn-report-import:hover {
+    background: #f0f9ff;
+    border-color: #7dd3fc;
+}
+
+/* Modal Overlay */
+.analytics-report-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.65);
+    backdrop-filter: blur(4px);
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    overflow-y: auto;
+}
+
+.analytics-report-modal {
+    background: #ffffff;
+    width: 100%;
+    max-width: 860px;
+    max-height: 92vh;
+    border-radius: 12px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.report-modal-actions-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: #1e293b;
+    color: #ffffff;
+}
+
+.report-modal-actions-bar .report-title-tag {
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.report-modal-btn-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-report-print {
+    background: #10b981;
+    color: #ffffff;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-report-print:hover {
+    background: #059669;
+}
+
+.btn-report-close {
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.btn-report-close:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* Printable Document Body */
+.report-document-body {
+    padding: 36px 40px;
+    overflow-y: auto;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color: #0f172a;
+    background: #ffffff;
+}
+
+.report-doc-header {
+    border-bottom: 2.5px solid #dc2626;
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.report-brand-name {
+    font-size: 20px;
+    font-weight: 800;
+    color: #b91c1c;
+    letter-spacing: -0.5px;
+    margin: 0;
+}
+
+.report-brand-sub {
+    font-size: 12px;
+    color: #475569;
+    margin-top: 3px;
+}
+
+.report-meta-box {
+    text-align: right;
+    font-size: 11.5px;
+    color: #64748b;
+    line-height: 1.5;
+}
+
+.report-meta-box strong {
+    color: #0f172a;
+}
+
+.report-kpi-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.report-kpi-item {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+
+.report-kpi-item-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #64748b;
+    margin-bottom: 4px;
+}
+
+.report-kpi-item-val {
+    font-size: 18px;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.report-kpi-item-sub {
+    font-size: 10.5px;
+    color: #64748b;
+    margin-top: 2px;
+}
+
+.report-section-heading {
+    font-size: 13.5px;
+    font-weight: 800;
+    color: #1e293b;
+    border-left: 3px solid #dc2626;
+    padding-left: 8px;
+    margin: 20px 0 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.report-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+    margin-bottom: 24px;
+}
+
+.report-table th {
+    background: #f1f5f9;
+    color: #334155;
+    font-weight: 700;
+    padding: 8px 10px;
+    text-align: left;
+    border: 1px solid #e2e8f0;
+}
+
+.report-table td {
+    padding: 8px 10px;
+    border: 1px solid #e2e8f0;
+    color: #1e293b;
+}
+
+.report-table tr:nth-child(even) td {
+    background: #fafafa;
+}
+
+/* Formal Bottom Sign-off Section */
+.report-sign-off-section {
+    margin-top: 36px;
+    padding-top: 20px;
+    border-top: 1.5px solid #cbd5e1;
+}
+
+.report-sign-off-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+}
+
+.sign-off-box {
+    font-size: 12.5px;
+}
+
+.sign-off-label {
+    font-weight: 700;
+    color: #475569;
+    margin-bottom: 36px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.sign-off-line {
+    border-bottom: 1.5px solid #0f172a;
+    margin-bottom: 6px;
+    width: 80%;
+}
+
+.sign-off-name {
+    font-size: 13.5px;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.sign-off-role {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 2px;
+}
+
+.sign-off-date {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 4px;
+}
+
+/* Print Stylesheet */
+@media print {
+    body, html {
+        background: #ffffff !important;
+    }
+    body * {
+        visibility: hidden;
+    }
+    .analytics-report-overlay,
+    .analytics-report-overlay * {
+        visibility: visible;
+    }
+    .analytics-report-overlay {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        background: transparent !important;
+        padding: 0 !important;
+        backdrop-filter: none !important;
+        overflow: visible !important;
+    }
+    .analytics-report-modal {
+        max-width: 100% !important;
+        max-height: none !important;
+        box-shadow: none !important;
+        border: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        overflow: visible !important;
+    }
+    .report-modal-actions-bar {
+        display: none !important;
+    }
+    .sidebar,
+    .header,
+    .dashboard-container {
+        display: none !important;
+    }
+}
+

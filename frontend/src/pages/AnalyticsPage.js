@@ -46,7 +46,35 @@ function AnalyticsPage() {
   const [historyPage, setHistoryPage] = useState(1);
   const [timeFilter, setTimeFilter] = useState('all');
   const [selectedDelivery, setSelectedDelivery] = useState(null);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importedPdfFile, setImportedPdfFile] = useState(null);
+  const [importedPdfUrl, setImportedPdfUrl] = useState(null);
   const PAGE_SIZE = 8;
+
+  const authUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem('auth_user') || '{}');
+    } catch {
+      return {};
+    }
+  }, []);
+
+  const adminName = useMemo(() => {
+    return (
+      authUser.full_name ||
+      authUser.name ||
+      (authUser.first_name ? `${authUser.first_name} ${authUser.last_name || ''}`.trim() : '') ||
+      authUser.username ||
+      'System Administrator'
+    );
+  }, [authUser]);
+
+  useEffect(() => {
+    return () => {
+      if (importedPdfUrl) URL.revokeObjectURL(importedPdfUrl);
+    };
+  }, [importedPdfUrl]);
 
   useEffect(() => {
     const update = () => {
@@ -357,22 +385,46 @@ function AnalyticsPage() {
             </div>
           )}
 
-          {/* Time Filter Bar */}
-          <div className="analytics-period-bar">
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginRight: 4 }}>Timeframe:</span>
-            {[
-              { key: 'month', label: 'This Month' },
-              { key: 'all', label: 'All Time' },
-            ].map((t) => (
+          {/* Time Filter & PDF Report Actions Bar */}
+          <div className="analytics-period-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginRight: 4 }}>Timeframe:</span>
+              {[
+                { key: 'month', label: 'This Month' },
+                { key: 'all', label: 'All Time' },
+              ].map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  className={`period-btn${timeFilter === t.key ? ' active' : ''}`}
+                  onClick={() => setTimeFilter(t.key)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <button
-                key={t.key}
                 type="button"
-                className={`period-btn${timeFilter === t.key ? ' active' : ''}`}
-                onClick={() => setTimeFilter(t.key)}
+                className="btn-report-action btn-report-export"
+                onClick={() => setShowReportModal(true)}
+                title="Generate and print/save official PDF analytics report with admin signature"
               >
-                {t.label}
+                <i className="fas fa-file-pdf"></i>
+                <span>Export PDF Report</span>
               </button>
-            ))}
+
+              <button
+                type="button"
+                className="btn-report-action btn-report-import"
+                onClick={() => setShowImportModal(true)}
+                title="Import or upload external PDF audit file"
+              >
+                <i className="fas fa-file-arrow-up"></i>
+                <span>Import PDF File</span>
+              </button>
+            </div>
           </div>
 
           {/* 4 Modern KPI Stat Cards */}
@@ -942,6 +994,273 @@ function AnalyticsPage() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Printable PDF Report Modal */}
+      {showReportModal && (
+        <div className="analytics-report-overlay">
+          <div className="analytics-report-modal">
+            <div className="report-modal-actions-bar">
+              <div className="report-title-tag">
+                <i className="fas fa-file-pdf" style={{ color: '#ef4444' }}></i>
+                <span>Official Business Analytics &amp; Fleet Operations Report</span>
+              </div>
+              <div className="report-modal-btn-group">
+                <button
+                  type="button"
+                  className="btn-report-print"
+                  onClick={() => window.print()}
+                  title="Print or Save to PDF via Browser Dialog"
+                >
+                  <i className="fas fa-print"></i>
+                  <span>Print / Save as PDF</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn-report-close"
+                  onClick={() => setShowReportModal(false)}
+                >
+                  <i className="fas fa-times"></i>
+                </button>
+              </div>
+            </div>
+
+            <div className="report-document-body">
+              {/* Document Header */}
+              <div className="report-doc-header">
+                <div>
+                  <h2 className="report-brand-name">HJY TRUCKING &amp; LOGISTICS SERVICES</h2>
+                  <div className="report-brand-sub">Fleet Operations &amp; Performance Audit Report</div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                    Mindanao Regional Operations Center • Cagayan de Oro City, Philippines
+                  </div>
+                </div>
+                <div className="report-meta-box">
+                  <div><strong>Doc Ref:</strong> REP-{now.getFullYear()}{String(now.getMonth() + 1).padStart(2, '0')}-{String(now.getDate()).padStart(2, '0')}</div>
+                  <div><strong>Date:</strong> {currentDate}</div>
+                  <div><strong>Timeframe:</strong> {periodLabel}</div>
+                  <div><strong>Status:</strong> Verified Administrative Copy</div>
+                </div>
+              </div>
+
+              {/* 4 KPI Summary Grid */}
+              <div className="report-kpi-summary-grid">
+                <div className="report-kpi-item">
+                  <div className="report-kpi-item-label">Total Deliveries</div>
+                  <div className="report-kpi-item-val">{statsPool.length}</div>
+                  <div className="report-kpi-item-sub">Completed transport orders</div>
+                </div>
+                <div className="report-kpi-item">
+                  <div className="report-kpi-item-label">Gross Revenue</div>
+                  <div className="report-kpi-item-val">{formatMoney(periodRevenue)}</div>
+                  <div className="report-kpi-item-sub">Approved client billing</div>
+                </div>
+                <div className="report-kpi-item">
+                  <div className="report-kpi-item-label">Client Satisfaction</div>
+                  <div className="report-kpi-item-val">{avgRating ? `${avgRating} ★` : '5.0 ★'}</div>
+                  <div className="report-kpi-item-sub">Average customer rating</div>
+                </div>
+                <div className="report-kpi-item">
+                  <div className="report-kpi-item-label">Fleet Maintenance</div>
+                  <div className="report-kpi-item-val">{maintenance.length || 'Optimal'}</div>
+                  <div className="report-kpi-item-sub">Vehicle health checks</div>
+                </div>
+              </div>
+
+              {/* Leaderboard Highlights */}
+              <div className="report-section-heading">Operational &amp; Fleet Highlights</div>
+              <table className="report-table">
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th>Name / Details</th>
+                    <th>Metric</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Top Performing Driver</strong></td>
+                    <td>{topDriver ? (topDriver.driver?.user?.full_name || 'Driver') : 'No driver recorded'}</td>
+                    <td>{topDriver ? `${topDriver.completed} completed trips (${topDriver.rating || '5.0'} ★)` : '—'}</td>
+                    <td><span style={{ color: '#059669', fontWeight: 700 }}>High Efficiency</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>Most Active Vehicle</strong></td>
+                    <td>{topVehicle ? `${topVehicle.vehicle?.model} (${topVehicle.vehicle?.plate_number})` : 'No vehicle recorded'}</td>
+                    <td>{topVehicle ? `${topVehicle.trips} trips completed` : '—'}</td>
+                    <td><span style={{ color: topVehicle?.needsMaintenance ? '#d97706' : '#059669', fontWeight: 700 }}>{topVehicle?.needsMaintenance ? 'Maintenance Due' : 'Operational'}</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>#1 Ranked Customer</strong></td>
+                    <td>{topCustomer ? topCustomer.customer?.full_name : 'No client recorded'}</td>
+                    <td>{topCustomer ? `${topCustomer.requests} requests (${formatMoney(topCustomer.spend)})` : '—'}</td>
+                    <td><span style={{ color: '#2563eb', fontWeight: 700 }}>VIP Commercial</span></td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* Deliveries Audit Log */}
+              <div className="report-section-heading">Recent Delivery Audit Logs ({statsPool.slice(0, 10).length} Records)</div>
+              <table className="report-table">
+                <thead>
+                  <tr>
+                    <th>Tracking #</th>
+                    <th>Date</th>
+                    <th>Vehicle</th>
+                    <th>Driver</th>
+                    <th>Trip Cost</th>
+                    <th>Payment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {statsPool.slice(0, 10).map((del) => (
+                    <tr key={del.delivery_id}>
+                      <td><strong>{deliveryCode(del.delivery_id)}</strong></td>
+                      <td>{formatDate(del.trip_date || del.created_at)}</td>
+                      <td>{del.vehicle?.model || 'Truck'} ({del.vehicle?.plate_number || '—'})</td>
+                      <td>{del.driver?.user?.full_name || 'Assigned Driver'}</td>
+                      <td>{formatMoney(del.trip_cost)}</td>
+                      <td>
+                        <span style={{
+                          color: del.payment_verification === 'approved' ? '#059669' : '#d97706',
+                          fontWeight: 700,
+                        }}>
+                          {del.payment_verification ? del.payment_verification.toUpperCase() : 'PENDING'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Bottom Sign-off Section with Prepared By */}
+              <div className="report-sign-off-section">
+                <div className="report-sign-off-grid">
+                  <div className="sign-off-box">
+                    <div className="sign-off-label">Prepared By:</div>
+                    <div className="sign-off-line"></div>
+                    <div className="sign-off-name">{adminName}</div>
+                    <div className="sign-off-role">System Administrator / Logistics Operations</div>
+                    <div className="sign-off-date">Date: {currentDate}</div>
+                  </div>
+
+                  <div className="sign-off-box">
+                    <div className="sign-off-label">Approved By:</div>
+                    <div className="sign-off-line"></div>
+                    <div className="sign-off-name">Operations Director</div>
+                    <div className="sign-off-role">HJY Trucking Services — Mindanao Region</div>
+                    <div className="sign-off-date">Signature &amp; Official Stamp</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import PDF File Modal */}
+      {showImportModal && (
+        <div className="analytics-report-overlay">
+          <div className="analytics-report-modal" style={{ maxWidth: 640 }}>
+            <div className="report-modal-actions-bar">
+              <div className="report-title-tag">
+                <i className="fas fa-file-import" style={{ color: '#38bdf8' }}></i>
+                <span>Import External PDF Report Document</span>
+              </div>
+              <button
+                type="button"
+                className="btn-report-close"
+                onClick={() => setShowImportModal(false)}
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            <div style={{ padding: 24, background: '#fff' }}>
+              <p style={{ fontSize: 13, color: '#475569', margin: '0 0 16px' }}>
+                Upload an external analytics audit or signed inspection PDF report to archive with administrative endorsement.
+              </p>
+
+              <div
+                style={{
+                  border: '2px dashed #cbd5e1',
+                  borderRadius: 10,
+                  padding: 30,
+                  textAlign: 'center',
+                  background: '#f8fafc',
+                  cursor: 'pointer',
+                  marginBottom: 16,
+                }}
+                onClick={() => document.getElementById('analytics-pdf-file-input')?.click()}
+              >
+                <input
+                  id="analytics-pdf-file-input"
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setImportedPdfFile(file);
+                      if (importedPdfUrl) URL.revokeObjectURL(importedPdfUrl);
+                      setImportedPdfUrl(URL.createObjectURL(file));
+                    }
+                  }}
+                />
+                <i className="fas fa-cloud-arrow-up" style={{ fontSize: 36, color: '#0284c7', marginBottom: 10 }}></i>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
+                  {importedPdfFile ? importedPdfFile.name : 'Click to select or drop a PDF file here'}
+                </div>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                  {importedPdfFile ? `${(importedPdfFile.size / 1024).toFixed(1)} KB • PDF Document` : 'Accepts standard PDF documents up to 25MB'}
+                </div>
+              </div>
+
+              {importedPdfUrl && (
+                <div style={{ marginBottom: 16, border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ background: '#f1f5f9', padding: '8px 12px', fontSize: 12, fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
+                    <span><i className="fas fa-check-circle" style={{ color: '#16a34a', marginRight: 6 }}></i> PDF Loaded Successfully</span>
+                    <a href={importedPdfUrl} target="_blank" rel="noreferrer" style={{ color: '#0284c7', textDecoration: 'none' }}>
+                      Open in Tab <i className="fas fa-external-link-alt"></i>
+                    </a>
+                  </div>
+                  <iframe src={importedPdfUrl} title="Imported PDF Preview" style={{ width: '100%', height: 260, border: 'none' }} />
+                </div>
+              )}
+
+              {/* Bottom Sign-off Section on Import */}
+              <div className="report-sign-off-section" style={{ marginTop: 20, paddingTop: 14 }}>
+                <div className="report-sign-off-grid">
+                  <div className="sign-off-box">
+                    <div className="sign-off-label" style={{ marginBottom: 18 }}>Prepared By:</div>
+                    <div className="sign-off-line"></div>
+                    <div className="sign-off-name">{adminName}</div>
+                    <div className="sign-off-role">System Administrator</div>
+                    <div className="sign-off-date">Imported on: {currentDate}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowImportModal(false)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: 6,
+                    border: '1px solid #cbd5e1',
+                    background: '#fff',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

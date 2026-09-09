@@ -4,6 +4,7 @@ import api from '../api/api-client';
 import ViewLocationMap from '../components/delivery/ViewLocationMap';
 import NotificationBell from '../components/NotificationBell';
 import reverb from '../utils/reverb';
+import { computeTripSpeedMetrics } from '../utils/speedTelemetry';
 
 const STATUS_STEPS = [
   { key: 'pending', label: 'Pending Dispatch' },
@@ -92,6 +93,33 @@ function DeliveryPage() {
       loadData();
     });
 
+    // Instant real-time location updates via Laravel Reverb WebSocket
+    const unsubscribeLocation = reverb.subscribe('deliveries', 'delivery.location_updated', (data) => {
+      const loc = data?.location || data;
+      if (!loc || !loc.delivery_id) return;
+
+      setDeliveries((prev) =>
+        prev.map((d) => {
+          if (d.delivery_id === loc.delivery_id) {
+            const tracking = Array.isArray(d.tracking) ? [...d.tracking] : [];
+            tracking.push({
+              tracking_id: loc.tracking_id || Date.now(),
+              latitude: loc.latitude,
+              longitude: loc.longitude,
+              speed: loc.speed !== undefined ? loc.speed : null,
+              status_update: loc.status,
+              timestamp: loc.timestamp || new Date().toISOString(),
+            });
+            return {
+              ...d,
+              tracking,
+            };
+          }
+          return d;
+        })
+      );
+    });
+
     // Background safety poll (15s instead of aggressive 10s)
     const interval = setInterval(async () => {
       try {
@@ -105,6 +133,7 @@ function DeliveryPage() {
     return () => {
       clearInterval(interval);
       unsubscribe();
+      unsubscribeLocation();
     };
   }, [loadData]);
 
@@ -148,12 +177,50 @@ function DeliveryPage() {
 
   const currentStepIndex = selectedDelivery ? STATUS_STEPS.findIndex((s) => s.key === selectedDelivery.status) : -1;
 
-  const latestDriverLocation = useMemo(() => {
+  const sortedTracking = useMemo(() => {
     const tracking = selectedDelivery?.tracking || [];
-    const locations = tracking.filter((entry) => entry.latitude != null && entry.longitude != null);
-    const latest = locations[locations.length - 1];
-    return latest ? { lat: Number(latest.latitude), lng: Number(latest.longitude), timestamp: latest.timestamp } : null;
+    const valid = tracking.filter(
+      (entry) =>
+        entry.latitude != null &&
+        entry.longitude != null &&
+        !isNaN(Number(entry.latitude)) &&
+        !isNaN(Number(entry.longitude))
+    );
+    return [...valid].sort((a, b) => {
+      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      if (timeA && timeB && timeA !== timeB) {
+        return timeA - timeB;
+      }
+      return (Number(a.tracking_id) || 0) - (Number(b.tracking_id) || 0);
+    });
   }, [selectedDelivery]);
+
+  const latestDriverLocation = useMemo(() => {
+    if (!sortedTracking.length) return null;
+    const latest = sortedTracking[sortedTracking.length - 1];
+    return {
+      lat: Number(latest.latitude),
+      lng: Number(latest.longitude),
+      timestamp: latest.timestamp,
+      status: latest.status_update || selectedDelivery?.status,
+      tracking_id: latest.tracking_id,
+    };
+  }, [sortedTracking, selectedDelivery]);
+
+  const selectedDeliverySpeedMetrics = useMemo(() => {
+    return computeTripSpeedMetrics(sortedTracking, latestDriverLocation);
+  }, [sortedTracking, latestDriverLocation]);
+
+  const deliverySpeeds = useMemo(() => {
+    const map = new Map();
+    deliveries.forEach((d) => {
+      if (Array.isArray(d.tracking) && d.tracking.length > 0) {
+        map.set(d.delivery_id, computeTripSpeedMetrics(d.tracking));
+      }
+    });
+    return map;
+  }, [deliveries]);
 
   const timeForStep = (stepKey) => {
     if (!selectedDelivery) return '';
@@ -213,9 +280,29 @@ function DeliveryPage() {
                       <td>{d.vehicle ? `${d.vehicle.model} – ${d.vehicle.plate_number}` : 'Unassigned'}</td>
                       <td>{formatRelativeTime(d.updated_at)}</td>
                       <td>
-                        <span className={`status-badge-monitor ${statusBadgeClass(d.status)}`} onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}>
-                          {statusLabel(d.status)}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span className={`status-badge-monitor ${statusBadgeClass(d.status)}`} onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}>
+                            {statusLabel(d.status)}
+                          </span>
+                          {(() => {
+                            const speedInfo = deliverySpeeds.get(d.delivery_id);
+                            if (!speedInfo || !speedInfo.totalPointsCount) return null;
+                            return (
+                              <span
+                                className={`table-speed-chip ${speedInfo.category.badgeClass}`}
+                                title={`Speed: ${speedInfo.currentSpeed} km/h • ${speedInfo.category.label} (Avg: ${speedInfo.avgSpeed} km/h, Peak: ${speedInfo.peakSpeed} km/h)`}
+                                style={{
+                                  background: speedInfo.category.bg,
+                                  color: speedInfo.category.color,
+                                  borderColor: speedInfo.category.border,
+                                }}
+                              >
+                                <i className={`fas ${speedInfo.category.icon}`} style={{ fontSize: '9px', marginRight: '3px' }}></i>
+                                {speedInfo.currentSpeed} km/h
+                              </span>
+                            );
+                          })()}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -273,6 +360,45 @@ function DeliveryPage() {
 
               <div className="panel-divider"></div>
 
+              <div className="panel-timeline-title">LIVE MOVEMENT &amp; SPEED TELEMETRY</div>
+              <div className="panel-detail">
+                <span className="panel-detail-label">Current Speed:</span>
+                <span className="panel-detail-value" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span
+                    className={`speed-status-pill-small ${selectedDeliverySpeedMetrics.category.badgeClass}`}
+                    style={{
+                      background: selectedDeliverySpeedMetrics.category.bg,
+                      color: selectedDeliverySpeedMetrics.category.color,
+                      border: `1px solid ${selectedDeliverySpeedMetrics.category.border}`,
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <i className={`fas ${selectedDeliverySpeedMetrics.category.icon}`}></i>
+                    {selectedDeliverySpeedMetrics.currentSpeed} km/h • {selectedDeliverySpeedMetrics.category.shortLabel}
+                  </span>
+                </span>
+              </div>
+              <div className="panel-detail">
+                <span className="panel-detail-label">Trip Avg Speed:</span>
+                <span className="panel-detail-value">{selectedDeliverySpeedMetrics.avgSpeed} km/h</span>
+              </div>
+              <div className="panel-detail">
+                <span className="panel-detail-label">Peak Speed:</span>
+                <span className="panel-detail-value">{selectedDeliverySpeedMetrics.peakSpeed} km/h</span>
+              </div>
+              <div className="panel-detail">
+                <span className="panel-detail-label">Movement Status:</span>
+                <span className="panel-detail-value">{selectedDeliverySpeedMetrics.category.label}</span>
+              </div>
+
+              <div className="panel-divider"></div>
+
               <div className="panel-timeline-title">DELIVERY TIMELINE</div>
               <div className="panel-timeline-subtitle">Last Updated {formatTime(selectedDelivery.updated_at)}</div>
               <div className="panel-timeline">
@@ -322,6 +448,28 @@ function DeliveryPage() {
                   <div className="map-detail-row"><span className="map-detail-label">Vehicle:</span><span className="map-detail-value">{selectedDelivery.vehicle ? `${selectedDelivery.vehicle.model} – ${selectedDelivery.vehicle.plate_number}` : 'Unassigned'}</span></div>
                   <div className="map-detail-row"><span className="map-detail-label">Distance:</span><span className="map-detail-value">{selectedDelivery.request?.distance_km ? `${selectedDelivery.request.distance_km} kilometers` : '—'}</span></div>
                   <div className="map-detail-row"><span className="map-detail-label">ETA:</span><span className="map-detail-value">{eta || 'Calculating...'}</span></div>
+                  <div className="map-detail-row">
+                    <span className="map-detail-label">Speed:</span>
+                    <span className="map-detail-value" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      <span
+                        style={{
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          background: selectedDeliverySpeedMetrics.category.bg,
+                          color: selectedDeliverySpeedMetrics.category.color,
+                          border: `1px solid ${selectedDeliverySpeedMetrics.category.border}`,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <i className={`fas ${selectedDeliverySpeedMetrics.category.icon}`}></i>
+                        {selectedDeliverySpeedMetrics.currentSpeed} km/h • {selectedDeliverySpeedMetrics.category.shortLabel}
+                      </span>
+                    </span>
+                  </div>
                 </div>
                 <div className="map-section">
                   <div className="map-section-title"><i className="fas fa-map-marker-alt"></i> Location</div>
@@ -333,12 +481,27 @@ function DeliveryPage() {
                   {selectedDelivery.driver?.user ? (
                     <div className="map-driver-card">
                       <img src="images/brucednegrow.png" alt="Driver" className="map-driver-avatar" />
-                      <div className="map-driver-info">
+                      <div className="map-driver-info" style={{ width: '100%' }}>
                         <div className="map-driver-name">{selectedDelivery.driver.user.full_name}</div>
                         <div className="map-driver-contact">Contact Number: {selectedDelivery.driver.user.phone || '—'}</div>
-                        <div className="map-driver-lastseen" style={{ color: '#888' }}>
-                          {latestDriverLocation ? `Live GPS updated ${formatRelativeTime(latestDriverLocation.timestamp)}` : 'Waiting for the driver app to share its location.'}
+                        <div className="map-driver-lastseen" style={{ color: '#64748b', fontSize: '11px', marginTop: '4px' }}>
+                          {latestDriverLocation ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: selectedDeliverySpeedMetrics.category.color, boxShadow: `0 0 6px ${selectedDeliverySpeedMetrics.category.color}` }}></span>
+                              Live GPS • {selectedDeliverySpeedMetrics.currentSpeed} km/h • {formatRelativeTime(latestDriverLocation.timestamp)}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#94a3b8' }}>Waiting for driver GPS signal...</span>
+                          )}
                         </div>
+                        {latestDriverLocation && (
+                          <div style={{ marginTop: '6px', fontSize: '10.5px', background: '#f1f5f9', padding: '4px 8px', borderRadius: '6px', color: '#334155', fontFamily: 'monospace' }}>
+                            <div>📍 {latestDriverLocation.lat.toFixed(5)}, {latestDriverLocation.lng.toFixed(5)} • {selectedDeliverySpeedMetrics.currentSpeed} km/h</div>
+                            <div style={{ color: '#64748b', fontSize: '10px', marginTop: '2px' }}>
+                              📡 {sortedTracking.length} GPS ping{sortedTracking.length === 1 ? '' : 's'} • Avg: {selectedDeliverySpeedMetrics.avgSpeed} km/h • Peak: {selectedDeliverySpeedMetrics.peakSpeed} km/h
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -371,8 +534,17 @@ function DeliveryPage() {
               </div>
               <ViewLocationMap
                 pickupAddress={selectedDelivery.request?.pickup_address}
+                pickupLat={selectedDelivery.request?.pickup_lat}
+                pickupLng={selectedDelivery.request?.pickup_lng}
                 dropoffAddress={selectedDelivery.request?.dropoff_address}
+                dropoffLat={selectedDelivery.request?.dropoff_lat}
+                dropoffLng={selectedDelivery.request?.dropoff_lng}
                 driverLocation={latestDriverLocation}
+                trackingHistory={sortedTracking}
+                deliveryStatus={selectedDelivery.status}
+                driverName={selectedDelivery.driver?.user?.full_name}
+                driverPhone={selectedDelivery.driver?.user?.phone}
+                vehiclePlate={selectedDelivery.vehicle ? `${selectedDelivery.vehicle.model} (${selectedDelivery.vehicle.plate_number})` : ''}
                 onEtaChange={setEta}
                 onDangerZonesDetected={setDetectedHazards}
               />

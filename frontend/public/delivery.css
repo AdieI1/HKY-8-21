@@ -773,3 +773,841 @@ body.panel-open .main-content {
         grid-template-columns: repeat(2, 1fr);
     }
 }
+
+/* ==========================================================================
+   Leaflet Live Tracking & View Location Map Styling
+   ========================================================================== */
+
+@keyframes driverRadarPulse {
+    0% {
+        transform: scale(0.65);
+        opacity: 0.85;
+    }
+    50% {
+        opacity: 0.35;
+    }
+    100% {
+        transform: scale(1.75);
+        opacity: 0;
+    }
+}
+
+@keyframes driverGlowRing {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(197, 48, 48, 0.45), 0 3px 10px rgba(0, 0, 0, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 0 8px rgba(197, 48, 48, 0), 0 3px 10px rgba(0, 0, 0, 0.3);
+    }
+}
+
+.driver-live-marker {
+    position: relative;
+    pointer-events: auto;
+    transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.driver-marker-wrapper {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.driver-marker-radar {
+    position: absolute;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: rgba(197, 48, 48, 0.35);
+    animation: driverRadarPulse 2s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+    pointer-events: none;
+}
+
+.driver-marker-core {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    background: #C53030;
+    border: 2.5px solid #ffffff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    font-size: 15px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+    animation: driverGlowRing 2.5s infinite;
+    transition: transform 0.35s ease;
+}
+
+.driver-heading-pointer {
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-bottom: 7px solid #ffffff;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
+}
+
+/* Custom Waypoint Pins */
+.map-waypoint-pin {
+    position: relative;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    font-size: 14px;
+    border: 2.5px solid #ffffff;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    transition: transform 0.2s ease;
+}
+
+.map-waypoint-pin:hover {
+    transform: scale(1.12);
+}
+
+.map-waypoint-pin.pickup {
+    background: #10b981;
+}
+
+.map-waypoint-pin.dropoff {
+    background: #ef4444;
+}
+
+/* Rich Map Popup Card */
+.map-popup-card {
+    font-family: inherit;
+    min-width: 200px;
+    padding: 4px 2px;
+}
+
+.map-popup-tag {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    color: #ffffff;
+}
+
+.map-popup-tag.pickup {
+    background: #059669;
+}
+
+.map-popup-tag.dropoff {
+    background: #dc2626;
+}
+
+.map-popup-tag.driver {
+    background: #991b1b;
+}
+
+.map-popup-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.35;
+    margin-bottom: 4px;
+}
+
+.map-popup-meta {
+    font-size: 11px;
+    color: #475569;
+    margin-top: 3px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.map-popup-meta span {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.map-popup-coord {
+    font-family: monospace;
+    font-size: 10.5px;
+    color: #64748b;
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-top: 6px;
+    display: inline-block;
+}
+
+/* Floating Action Buttons Bar */
+.map-view-actions {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    z-index: 1000;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.map-action-btn {
+    background: #ffffff;
+    color: #1e293b;
+    border: 1px solid #cbd5e1;
+    border-radius: 20px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+
+.map-action-btn:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+.map-action-btn.primary {
+    background: #C53030;
+    color: #ffffff;
+    border-color: #991b1b;
+    box-shadow: 0 4px 14px rgba(197, 48, 48, 0.35);
+}
+
+.map-action-btn.primary:hover {
+    background: #9b2020;
+}
+
+.map-action-btn.active {
+    background: #0284c7;
+    color: #ffffff;
+    border-color: #0369a1;
+}
+
+.map-breadcrumb-dot {
+    width: 8px;
+    height: 8px;
+    background: #0284c7;
+    border: 1.5px solid #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* ========================================================================= */
+/* LIVE SPEED & MOVEMENT TELEMETRY STYLES                                   */
+/* ========================================================================= */
+
+/* Driver Marker Speed Pill */
+.driver-speed-pill {
+    position: absolute;
+    top: -24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #0f172a;
+    color: #ffffff;
+    padding: 2px 7px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 800;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    border: 1.5px solid #ffffff;
+    pointer-events: none;
+    z-index: 1210;
+    letter-spacing: 0.3px;
+}
+
+.driver-speed-pill .speed-pulse-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    animation: speedPulse 1.5s infinite;
+}
+
+@keyframes speedPulse {
+    0% { transform: scale(0.9); opacity: 0.8; }
+    50% { transform: scale(1.3); opacity: 1; box-shadow: 0 0 6px currentColor; }
+    100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+/* Speed Categories for Pill */
+.driver-speed-pill.speed-cruising {
+    background: #14532d;
+    border-color: #86efac;
+    color: #dcfce7;
+}
+
+.driver-speed-pill.speed-traffic {
+    background: #78350f;
+    border-color: #fde68a;
+    color: #fef3c7;
+}
+
+.driver-speed-pill.speed-idle {
+    background: #334155;
+    border-color: #cbd5e1;
+    color: #f1f5f9;
+}
+
+.driver-speed-pill.speed-overspeed {
+    background: #7f1d1d;
+    border-color: #fca5a5;
+    color: #fee2e2;
+    animation: overspeedPulse 1s infinite alternate;
+}
+
+@keyframes overspeedPulse {
+    from { transform: translateX(-50%) scale(1); }
+    to { transform: translateX(-50%) scale(1.1); box-shadow: 0 0 12px #ef4444; }
+}
+
+/* Map Popup Speed Section */
+.map-popup-speed-row {
+    margin: 6px 0 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+    font-weight: 600;
+}
+
+.map-popup-speed-row i {
+    font-size: 13px;
+}
+
+/* Table Speed Chip */
+.table-speed-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid;
+    white-space: nowrap;
+    letter-spacing: 0.2px;
+    transition: transform 0.15s ease;
+}
+
+.table-speed-chip:hover {
+    transform: scale(1.05);
+}
+
+/* Floating Live Speedometer & Telemetry HUD on Map */
+.map-speed-hud {
+    position: absolute;
+    top: 56px;
+    right: 14px;
+    z-index: 1000;
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid #cbd5e1;
+    border-radius: 14px;
+    padding: 12px 14px;
+    width: 220px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+    font-family: inherit;
+    transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.map-speed-hud:hover {
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.22);
+    border-color: #94a3b8;
+}
+
+.map-speed-hud.overspeed-alert {
+    border-color: #ef4444;
+    background: rgba(254, 242, 242, 0.96);
+    animation: hudOverspeedGlow 1.2s infinite alternate;
+}
+
+@keyframes hudOverspeedGlow {
+    from { box-shadow: 0 8px 20px rgba(239, 68, 68, 0.2); }
+    to { box-shadow: 0 8px 28px rgba(239, 68, 68, 0.45); }
+}
+
+.speed-hud-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.speed-hud-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    color: #475569;
+    text-transform: uppercase;
+}
+
+.speed-hud-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.speed-hud-status-dot.active {
+    background: #16a34a;
+    box-shadow: 0 0 6px #16a34a;
+    animation: speedDotPulse 1.4s infinite;
+}
+
+.speed-hud-status-dot.idle {
+    background: #94a3b8;
+}
+
+@keyframes speedDotPulse {
+    0% { transform: scale(0.9); opacity: 0.7; }
+    50% { transform: scale(1.3); opacity: 1; }
+    100% { transform: scale(0.9); opacity: 0.7; }
+}
+
+.speed-hud-close-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color 0.15s ease;
+}
+
+.speed-hud-close-btn:hover {
+    color: #0f172a;
+    background: #f1f5f9;
+}
+
+.speed-hud-main {
+    text-align: center;
+    padding: 4px 0 8px;
+}
+
+.speed-dial-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.speed-number-wrap {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 4px;
+}
+
+.speed-number {
+    font-size: 38px;
+    font-weight: 900;
+    line-height: 1;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    letter-spacing: -1px;
+}
+
+.speed-unit {
+    font-size: 12px;
+    font-weight: 800;
+    color: #64748b;
+    letter-spacing: 0.5px;
+}
+
+.speed-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    margin-top: 2px;
+}
+
+/* Speed Progress Gauge Bar */
+.speed-gauge-bar-track {
+    position: relative;
+    width: 100%;
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 3px;
+    margin: 10px 0 6px;
+    overflow: hidden;
+}
+
+.speed-gauge-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.3s ease;
+}
+
+/* Metrics Mini Grid */
+.speed-hud-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid #f1f5f9;
+    text-align: center;
+}
+
+.speed-metric-box {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.speed-metric-lbl {
+    font-size: 9px;
+    font-weight: 700;
+    color: #94a3b8;
+    letter-spacing: 0.3px;
+}
+
+.speed-metric-val {
+    font-size: 12px;
+    font-weight: 800;
+    color: #1e293b;
+}
+
+.speed-metric-val small {
+    font-size: 9px;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.speed-hud-overspeed-warning {
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+    border-radius: 6px;
+    color: #b91c1c;
+    font-size: 10.5px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    line-height: 1.25;
+}
+
+/* ========================================================================= */
+/* COMPACT MAP OVERLAYS CONTROLS (SINGLE BUTTON + POPOVER MENU)             */
+/* ========================================================================= */
+
+.map-layers-control-wrapper {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 1020;
+}
+
+.map-layers-trigger-btn {
+    background: #ffffff;
+    color: #0f172a;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 24px;
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+}
+
+.map-layers-trigger-btn:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+}
+
+.map-layers-trigger-btn.active {
+    background: #0f172a;
+    color: #ffffff;
+    border-color: #0f172a;
+}
+
+.map-layers-active-indicators {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.layer-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.layer-dot.speed {
+    background: #16a34a;
+}
+
+.layer-dot.steepness {
+    background: #ea580c;
+}
+
+.layer-dot.hazard {
+    background: #dc2626;
+}
+
+.map-layers-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    width: 290px;
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid #cbd5e1;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.2);
+    padding: 12px 14px;
+    z-index: 1030;
+    animation: popoverFadeIn 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes popoverFadeIn {
+    from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.map-layers-popover-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    font-weight: 800;
+    color: #475569;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+}
+
+.map-layers-popover-close {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+}
+
+.map-layers-popover-close:hover {
+    color: #0f172a;
+    background: #f1f5f9;
+}
+
+.map-layers-items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.map-layer-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+}
+
+.map-layer-item:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+
+.map-layer-item.enabled {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+}
+
+.map-layer-item-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.map-layer-item-icon.speed {
+    background: #dcfce7;
+    color: #16a34a;
+}
+
+.map-layer-item-icon.steepness {
+    background: #ffedd5;
+    color: #ea580c;
+}
+
+.map-layer-item-icon.hazard {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.map-layer-item-icon.trail {
+    background: #e0f2fe;
+    color: #0284c7;
+}
+
+.map-layer-item-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.map-layer-item-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.map-layer-item-pill {
+    font-size: 9.5px;
+    font-weight: 800;
+    padding: 1px 6px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
+.map-layer-item-pill.speed {
+    background: #16a34a;
+    color: #ffffff;
+}
+
+.map-layer-item-pill.steepness {
+    background: #ea580c;
+    color: #ffffff;
+}
+
+.map-layer-item-pill.hazard {
+    background: #dc2626;
+    color: #ffffff;
+}
+
+.map-layer-item-pill.muted {
+    background: #e2e8f0;
+    color: #64748b;
+}
+
+.map-layer-item-pill.trail {
+    background: #0284c7;
+    color: #ffffff;
+}
+
+.map-layer-item-desc {
+    font-size: 10px;
+    color: #64748b;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Switch UI */
+.map-layer-switch {
+    width: 34px;
+    height: 18px;
+    border-radius: 9px;
+    background: #cbd5e1;
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.2s ease;
+}
+
+.map-layer-switch.on {
+    background: #16a34a;
+}
+
+.map-layer-switch-handle {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #ffffff;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    transition: transform 0.2s ease;
+}
+
+.map-layer-switch.on .map-layer-switch-handle {
+    transform: translateX(16px);
+}
+
+.map-layer-suboptions {
+    display: flex;
+    gap: 6px;
+    padding: 4px 6px;
+    margin-left: 36px;
+}
+
+.map-layer-subbtn {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    padding: 3px 8px;
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+    color: #475569;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+}
+
+.map-layer-subbtn:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+}
+
+
+

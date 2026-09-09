@@ -83,7 +83,7 @@ class RouteElevationController extends Controller
         $last = end($coordinates);
         $count = count($coordinates);
         $routeHash = md5(json_encode([$first, $last, $count, $sampleInterval, $steepThreshold, $verySteepThreshold]));
-        $cacheKey = "route_steepness_{$routeHash}";
+        $cacheKey = "route_steepness_v5_{$routeHash}";
 
         $cachedResult = Cache::get($cacheKey);
         if ($cachedResult !== null) {

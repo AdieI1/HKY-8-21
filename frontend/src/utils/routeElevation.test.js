@@ -19,13 +19,15 @@ describe('routeElevation utility tests', () => {
     jest.clearAllMocks();
   });
 
-  test('STEEPNESS_CONFIG has normal, steep, and very_steep with distinct colors', () => {
+  test('STEEPNESS_CONFIG has normal, moderate, steep, and very_steep with distinct colors', () => {
     expect(STEEPNESS_CONFIG.normal).toBeDefined();
+    expect(STEEPNESS_CONFIG.moderate).toBeDefined();
     expect(STEEPNESS_CONFIG.steep).toBeDefined();
     expect(STEEPNESS_CONFIG.very_steep).toBeDefined();
 
     expect(STEEPNESS_CONFIG.normal.color).toBe('#0284c7');
-    expect(STEEPNESS_CONFIG.steep.color).toBe('#f59e0b');
+    expect(STEEPNESS_CONFIG.moderate.color).toBe('#f59e0b');
+    expect(STEEPNESS_CONFIG.steep.color).toBe('#ea580c');
     expect(STEEPNESS_CONFIG.very_steep.color).toBe('#ef4444');
   });
 

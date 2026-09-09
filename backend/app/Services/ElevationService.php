@@ -93,11 +93,10 @@ class ElevationService
             );
         }
 
-        // Target at most ~150 to 180 sampled points along any route.
-        // This guarantees external elevation queries complete in ONE single fast batch (< 0.5s),
-        // completely preventing PHP dev server blocking and eliminating noisy DEM micro-jitter.
-        $targetSamples = 160.0;
-        $effectiveInterval = max($intervalMeters, $totalDistance / $targetSamples);
+        // High-density sampling target: up to 500 points along any route.
+        // Keeps interval between 35m (short trips) and ~650m (long cross-island corridors).
+        $targetSamples = 500.0;
+        $effectiveInterval = max(35.0, min(800.0, $totalDistance / $targetSamples));
 
         $sampled = [$coords[0]];
         $lastSaved = $coords[0];
@@ -129,8 +128,8 @@ class ElevationService
             $lastCoord['lng']
         );
 
-        // If the final point is close to the last sampled point (< 25m), replace it, otherwise append
-        if ($finalDist < 25.0 && count($sampled) > 1) {
+        // If the final point is close to the last sampled point (< 20m), replace it, otherwise append
+        if ($finalDist < 20.0 && count($sampled) > 1) {
             $sampled[count($sampled) - 1] = $lastCoord;
         } else {
             $sampled[] = $lastCoord;
@@ -344,7 +343,8 @@ class ElevationService
     private function fetchFromOpenMeteo(array $points): array
     {
         $results = [];
-        $chunks = array_chunk($points, 500); // 500 per call
+        // Open-Meteo strictly limits to 100 coordinates per request
+        $chunks = array_chunk($points, 100);
 
         foreach ($chunks as $chunk) {
             $lats = implode(',', array_map(fn($p) => $p['orig_lat'], $chunk));
@@ -481,41 +481,84 @@ class ElevationService
         $totalGain = 0.0;
         $totalLoss = 0.0;
         $maxGrade = 0.0;
+        $moderateCount = 0;
         $steepCount = 0;
         $verySteepCount = 0;
 
         $ptCount = count($pointsWithElevation);
 
-        // Smooth elevation points with a 3-point moving average to filter out DEM step artifacts
+        // 5-point binomial Gaussian filter [1, 4, 6, 4, 1] / 16.0
+        // Effectively filters discrete DEM raster stepping artifacts without dampening true macro gradients
         $smoothedElevations = [];
         for ($i = 0; $i < $ptCount; $i++) {
-            $prev = $i > 0 ? $pointsWithElevation[$i - 1]['elevation'] : $pointsWithElevation[$i]['elevation'];
-            $curr = $pointsWithElevation[$i]['elevation'];
-            $next = $i < $ptCount - 1 ? $pointsWithElevation[$i + 1]['elevation'] : $pointsWithElevation[$i]['elevation'];
-            $smoothedElevations[$i] = round(($prev + (2.0 * $curr) + $next) / 4.0, 1);
+            $p_2 = $pointsWithElevation[max(0, $i - 2)]['elevation'];
+            $p_1 = $pointsWithElevation[max(0, $i - 1)]['elevation'];
+            $p_0 = $pointsWithElevation[$i]['elevation'];
+            $p1  = $pointsWithElevation[min($ptCount - 1, $i + 1)]['elevation'];
+            $p2  = $pointsWithElevation[min($ptCount - 1, $i + 2)]['elevation'];
+
+            $smoothedElevations[$i] = round((1.0 * $p_2 + 4.0 * $p_1 + 6.0 * $p_0 + 4.0 * $p1 + 1.0 * $p2) / 16.0, 2);
         }
 
         for ($i = 0; $i < $ptCount - 1; $i++) {
             $p1 = $pointsWithElevation[$i];
             $p2 = $pointsWithElevation[$i + 1];
 
-            $dist = $this->calculateHaversineDistance(
+            $startIndex = $p1['orig_index'] ?? $i;
+            $endIndex = $p2['orig_index'] ?? ($i + 1);
+
+            // Extract the full curvature path of the route and compute true road curve distance
+            $segmentPath = [];
+            $roadCurveDist = 0.0;
+
+            if ($endIndex >= $startIndex && isset($normalized[$startIndex]) && isset($normalized[$endIndex])) {
+                $slice = array_slice($normalized, $startIndex, $endIndex - $startIndex + 1);
+                $sliceLen = count($slice);
+                for ($k = 0; $k < $sliceLen; $k++) {
+                    $segmentPath[] = [
+                        'lat' => $slice[$k]['lat'],
+                        'lng' => $slice[$k]['lng'],
+                    ];
+                    if ($k > 0) {
+                        $roadCurveDist += $this->calculateHaversineDistance(
+                            $slice[$k - 1]['lat'],
+                            $slice[$k - 1]['lng'],
+                            $slice[$k]['lat'],
+                            $slice[$k]['lng']
+                        );
+                    }
+                }
+            } else {
+                $segmentPath = [
+                    ['lat' => $p1['lat'], 'lng' => $p1['lng']],
+                    ['lat' => $p2['lat'], 'lng' => $p2['lng']],
+                ];
+                $roadCurveDist = $this->calculateHaversineDistance(
+                    $p1['lat'],
+                    $p1['lng'],
+                    $p2['lat'],
+                    $p2['lng']
+                );
+            }
+
+            // Accurate traveled distance along asphalt (prevents chord shortcutting on switchbacks)
+            $dist = $roadCurveDist > 0.0 ? $roadCurveDist : $this->calculateHaversineDistance(
                 $p1['lat'],
                 $p1['lng'],
                 $p2['lat'],
                 $p2['lng']
             );
 
-            // Skip zero or near-zero distance to prevent divide-by-zero & micro-jitter
-            if ($dist < 20.0) {
+            // Skip zero or near-zero micro distances (< 15m) to avoid noisy spikes
+            if ($dist < 15.0) {
                 continue;
             }
 
             $elev1 = $smoothedElevations[$i];
             $elev2 = $smoothedElevations[$i + 1];
-            $elevChange = $elev2 - $elev1;
+            $elevChange = round($elev2 - $elev1, 2);
 
-            // Raw grade percentage
+            // True road grade percentage
             $rawGrade = ($elevChange / $dist) * 100.0;
             // Realistic highway grade clamping: commercial highways rarely exceed 25-30%
             $grade = max(-28.0, min(28.0, $rawGrade));
@@ -533,13 +576,16 @@ class ElevationService
 
             $totalDistance += $dist;
 
-            // Classify level
+            // Classify level (DPWH standard: >= 5% is elevated/moderate slope where heavy trucks downshift)
             if ($absGrade >= $verySteepThreshold) {
                 $level = 'very_steep';
                 $verySteepCount++;
             } elseif ($absGrade >= $steepThreshold) {
                 $level = 'steep';
                 $steepCount++;
+            } elseif ($absGrade >= 5.0) {
+                $level = 'moderate';
+                $moderateCount++;
             } else {
                 $level = 'normal';
             }
@@ -551,26 +597,6 @@ class ElevationService
                 $direction = 'downhill';
             } else {
                 $direction = 'flat';
-            }
-
-            $startIndex = $p1['orig_index'] ?? $i;
-            $endIndex = $p2['orig_index'] ?? ($i + 1);
-
-            // Extract the full curvature path of the route for this segment
-            $segmentPath = [];
-            if ($endIndex >= $startIndex && isset($normalized[$startIndex]) && isset($normalized[$endIndex])) {
-                $slice = array_slice($normalized, $startIndex, $endIndex - $startIndex + 1);
-                foreach ($slice as $pt) {
-                    $segmentPath[] = [
-                        'lat' => $pt['lat'],
-                        'lng' => $pt['lng'],
-                    ];
-                }
-            } else {
-                $segmentPath = [
-                    ['lat' => $p1['lat'], 'lng' => $p1['lng']],
-                    ['lat' => $p2['lat'], 'lng' => $p2['lng']],
-                ];
             }
 
             $segments[] = [
@@ -585,8 +611,8 @@ class ElevationService
                 'direction' => $direction,
                 'distance_m' => round($dist, 1),
                 'elevation_change_m' => round($elevChange, 1),
-                'start_elevation_m' => $elev1,
-                'end_elevation_m' => $elev2,
+                'start_elevation_m' => round($elev1, 1),
+                'end_elevation_m' => round($elev2, 1),
             ];
         }
 
@@ -597,9 +623,11 @@ class ElevationService
                 'elevation_gain_m' => round($totalGain, 1),
                 'elevation_loss_m' => round($totalLoss, 1),
                 'max_grade_pct' => round($maxGrade, 1),
+                'moderate_segments_count' => $moderateCount,
                 'steep_segments_count' => $steepCount,
                 'very_steep_segments_count' => $verySteepCount,
-                'has_steep_segments' => ($steepCount > 0 || $verySteepCount > 0),
+                'has_steep_segments' => ($steepCount > 0 || $verySteepCount > 0 || $moderateCount > 0),
+                'moderate_threshold' => 5.0,
                 'steep_threshold' => $steepThreshold,
                 'very_steep_threshold' => $verySteepThreshold,
             ],

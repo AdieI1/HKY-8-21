@@ -39,7 +39,7 @@ class DeliveryController extends Controller
             'assignedBy',
             'permit',
             'tracking' => function ($q) {
-                $q->latest('tracking_id')->limit(10);
+                $q->orderBy('tracking_id', 'asc');
             },
             'checklists',
             'reviews',
@@ -770,14 +770,55 @@ class DeliveryController extends Controller
         $validated = $request->validate([
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
+            'speed' => 'nullable|numeric|min:0|max:200',
         ]);
+
+        $speed = null;
+        if ($request->filled('speed') && is_numeric($request->input('speed'))) {
+            $speed = round((float) $request->input('speed'), 1);
+        } else {
+            // Automatically derive speed from previous GPS ping if available
+            $lastPing = DeliveryTracking::where('delivery_id', $delivery->delivery_id)
+                ->whereNotNull('latitude')
+                ->whereNotNull('longitude')
+                ->orderBy('tracking_id', 'desc')
+                ->first();
+
+            if ($lastPing && $lastPing->latitude && $lastPing->longitude && $lastPing->timestamp) {
+                $lat1 = (float) $lastPing->latitude;
+                $lon1 = (float) $lastPing->longitude;
+                $lat2 = (float) $validated['latitude'];
+                $lon2 = (float) $validated['longitude'];
+
+                $latDelta = deg2rad($lat2 - $lat1);
+                $lonDelta = deg2rad($lon2 - $lon1);
+                $a = sin($latDelta / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * (sin($lonDelta / 2) ** 2);
+                $distKm = 6371 * 2 * atan2(sqrt($a), sqrt(1 - $a));
+
+                $deltaSec = abs(now()->diffInSeconds($lastPing->timestamp));
+                if ($distKm < 0.003) {
+                    $speed = 0.0;
+                } elseif ($deltaSec >= 1 && $deltaSec <= 1800) {
+                    $computed = ($distKm / ($deltaSec / 3600));
+                    $speed = round(min(140, $computed), 1);
+                }
+            }
+        }
 
         $tracking = DeliveryTracking::create([
             'delivery_id' => $delivery->delivery_id,
             'latitude' => $validated['latitude'],
             'longitude' => $validated['longitude'],
+            'speed' => $speed,
             'status_update' => $delivery->status,
+            'timestamp' => now(),
         ]);
+
+        try {
+            \App\Events\DeliveryLocationUpdated::dispatch($delivery, $tracking);
+        } catch (\Throwable $e) {
+            \Log::warning('DeliveryLocationUpdated broadcast failed: ' . $e->getMessage());
+        }
 
         return response()->json($tracking, 201);
     }

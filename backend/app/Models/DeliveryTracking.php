@@ -16,6 +16,7 @@ class DeliveryTracking extends Model
         'delivery_id',
         'latitude',
         'longitude',
+        'speed',
         'status_update',
         'timestamp'
     ];

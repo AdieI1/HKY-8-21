@@ -989,3 +989,81 @@
         min-width: auto;
     }
 }
+
+/* ==========================================================================
+   Form Input Error & Red Glow Validation Styles
+   ========================================================================== */
+
+@keyframes redGlowPulse {
+    0%, 100% {
+        box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.28), 0 1px 3px rgba(239, 68, 68, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.42), 0 2px 6px rgba(239, 68, 68, 0.25);
+    }
+}
+
+.form-input.input-error,
+.form-select.input-error {
+    border-color: #ef4444 !important;
+    background-color: #fff5f5 !important;
+    color: #991b1b !important;
+    animation: redGlowPulse 2s ease-in-out infinite;
+    transition: all 0.2s ease;
+}
+
+.form-input.input-error::placeholder {
+    color: #ef4444 !important;
+    font-style: italic;
+    font-weight: 600;
+    opacity: 0.95;
+}
+
+.form-input.input-error:focus {
+    border-color: #dc2626 !important;
+    box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.35) !important;
+}
+
+.input-missing-tag {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    pointer-events: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.input-error-msg {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: #dc2626;
+    font-size: 11.5px;
+    font-weight: 600;
+    margin-top: 4px;
+}
+
+.mindanao-lock-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
