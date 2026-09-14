@@ -54,6 +54,14 @@ export default function RequestDetailsModal({
             <div className="request-right">
               <div className="request-info-item"><span className="request-label">Contact Number:</span><span className="request-value">{selectedRequest.customer?.phone || '—'}</span></div>
               <div className="request-info-item"><span className="request-label">Date requested:</span><span className="request-value">{formatDate(selectedRequest.created_at)}</span></div>
+              <div className="request-info-item">
+                <span className="request-label">Delivery Schedule:</span>
+                <span className="request-value" style={{ fontWeight: (selectedRequest.is_scheduled || selectedRequest.scheduled_date) ? '600' : 'normal', color: (selectedRequest.is_scheduled || selectedRequest.scheduled_date) ? '#ea580c' : 'inherit' }}>
+                  {(selectedRequest.is_scheduled || selectedRequest.scheduled_date)
+                    ? `Scheduled: ${selectedRequest.scheduled_date ? formatDate(selectedRequest.scheduled_date) : 'Yes'} (${selectedRequest.scheduled_time_slot || 'Standard'})`
+                    : 'Immediate Delivery (Deliver Now)'}
+                </span>
+              </div>
               <div className="request-info-item"><span className="request-label">Item name:</span><span className="request-value">{selectedRequest.item_name || '—'}</span></div>
               <div className="request-info-item"><span className="request-label">Cargo type:</span><span className="request-value">{selectedRequest.cargo_type || '—'}</span></div>
               <div className="request-info-item">

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../api/api-client';
+import reverb from '../utils/reverb';
 import Sidebar from '../components/Sidebar';
 import RequestDetailsModal from '../components/requests/RequestDetailsModal';
 import CreateRequestModal from '../components/requests/CreateRequestModal';
@@ -11,13 +12,25 @@ const ITEMS_PER_PAGE = 8;
 function formatDate(dateString) {
   if (!dateString) return '—';
   const d = new Date(dateString);
-  if (isNaN(d)) return '—';
-  return d.toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: '2-digit' });
+  return isNaN(d) ? '—' : d.toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: '2-digit' });
+}
+
+function formatRelativeTime(dateString) {
+  if (!dateString) return '—';
+  const d = new Date(dateString);
+  if (isNaN(d.getTime())) return '—';
+  const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (diffSec < 60) return 'Just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}h ago`;
+  const diffDay = Math.floor(diffHour / 24);
+  return diffDay < 7 ? `${diffDay}d ago` : d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
 }
 
 function formatMoney(amount) {
-  if (amount == null) return '—';
-  return '₱' + Number(amount || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 });
+  return amount == null ? '—' : '₱' + Number(amount || 0).toLocaleString('en-PH', { maximumFractionDigits: 0 });
 }
 
 function requestCode(id, short) {
@@ -26,9 +39,10 @@ function requestCode(id, short) {
 
 function isOverdue(request) {
   if (request.status !== 'pending') return false;
-  const created = new Date(request.created_at);
-  const daysOld = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
-  return daysOld >= OVERDUE_DAYS;
+  if (request.is_scheduled && request.scheduled_date) {
+    return Date.now() > new Date(request.scheduled_date + 'T23:59:59').getTime();
+  }
+  return (Date.now() - new Date(request.created_at).getTime()) / 86400000 >= OVERDUE_DAYS;
 }
 
 const EMPTY_FORM = {
@@ -37,6 +51,7 @@ const EMPTY_FORM = {
   pickup: { address: '', lat: null, lng: null }, dropoff: { address: '', lat: null, lng: null },
   distance_km: '', total_price: 800, payment_term: 'downpayment', payment_method: 'bank_transfer',
   bank_name: '', account_name: '', account_number: '', payment_receipt: null,
+  is_scheduled: false, scheduled_date: '', scheduled_time_slot: '09:00 AM',
 };
 
 function RequestsPage() {
@@ -81,6 +96,12 @@ function RequestsPage() {
 
   useEffect(() => {
     loadData();
+    const unsub = reverb.subscribe('system-notifications', 'notification.created', () => loadData());
+    const interval = setInterval(loadData, 60000);
+    return () => {
+      clearInterval(interval);
+      unsub();
+    };
   }, [loadData]);
 
   const activeRequests = useMemo(() => requests.filter((r) => r.status !== 'draft'), [requests]);
@@ -90,10 +111,35 @@ function RequestsPage() {
     const pending = activeRequests.filter((r) => r.status === 'pending').length;
     const overdue = activeRequests.filter(isOverdue).length;
     const approved = activeRequests.filter((r) => r.status === 'approved').length;
-    return { pending, overdue, approved };
+    const scheduled = activeRequests.filter((r) => r.is_scheduled || r.scheduled_date).length;
+    return { pending, overdue, approved, scheduled };
   }, [activeRequests]);
 
-  const overdueList = useMemo(() => activeRequests.filter(isOverdue), [activeRequests]);
+  const requestActivities = useMemo(() => {
+    const list = [];
+    requests.forEach((r) => {
+      const code = requestCode(r.request_id);
+      const cust = r.customer?.full_name || 'Customer';
+      const cTime = new Date(r.created_at || Date.now()).getTime();
+      const uTime = new Date(r.updated_at || r.created_at || Date.now()).getTime();
+
+      if (isOverdue(r)) {
+        list.push({ id: `overdue-${r.request_id}`, type: 'overdue', icon: 'fas fa-exclamation-triangle', title: `${code} Overdue!`, sub: `${cust} • Pending response`, time: formatRelativeTime(r.created_at), timeMs: Date.now() + 100000000, request: r });
+      }
+      if (r.is_scheduled || r.scheduled_date) {
+        list.push({ id: `sched-${r.request_id}`, type: 'scheduled', icon: 'far fa-calendar-alt', title: `${code} Scheduled`, sub: `${cust} • ${r.scheduled_date ? formatDate(r.scheduled_date) : 'Upcoming'}${r.scheduled_time_slot ? ` (${r.scheduled_time_slot})` : ''}`, time: formatRelativeTime(r.updated_at || r.created_at), timeMs: uTime + 200, request: r });
+      }
+      if (r.status === 'approved') {
+        list.push({ id: `appr-${r.request_id}`, type: 'approved', icon: 'fas fa-check-circle', title: `${code} Approved`, sub: `${cust} • Ready for fleet dispatch`, time: formatRelativeTime(r.updated_at || r.created_at), timeMs: uTime + 100, request: r });
+      }
+      if (r.status !== 'draft') {
+        list.push({ id: `new-${r.request_id}`, type: 'submitted', icon: 'fas fa-paper-plane', title: `New Request ${code}`, sub: `${cust} • ${r.item_name || 'Cargo delivery'}`, time: formatRelativeTime(r.created_at), timeMs: cTime, request: r });
+      } else {
+        list.push({ id: `draft-${r.request_id}`, type: 'draft', icon: 'fas fa-file-alt', title: `Draft ${code} Saved`, sub: `${r.item_name || 'Draft delivery'}`, time: formatRelativeTime(r.updated_at || r.created_at), timeMs: uTime, request: r });
+      }
+    });
+    return list.sort((a, b) => b.timeMs - a.timeMs);
+  }, [requests]);
 
   // Filter & Search Logic
   const filteredRequests = useMemo(() => {
@@ -106,6 +152,8 @@ function RequestsPage() {
         list = list.filter((r) => r.status === 'pending' && !isOverdue(r));
       } else if (statusFilter === 'approved') {
         list = list.filter((r) => r.status === 'approved');
+      } else if (statusFilter === 'scheduled') {
+        list = list.filter((r) => r.is_scheduled || r.scheduled_date);
       }
     }
 
@@ -189,18 +237,25 @@ function RequestsPage() {
           <div className="content-row">
             <div className="left-column">
               <div className="request-stats">
-                <div className="stat-card stat-pending">
-                  <div className="stat-header"><i className="fas fa-exclamation-triangle"></i><span className="stat-label">Pending Requests:</span></div>
-                  <span className="stat-number">{stats.pending}</span>
-                </div>
-                <div className="stat-card stat-overdue">
-                  <div className="stat-header"><i className="fas fa-exclamation-triangle"></i><span className="stat-label">Overdue:</span></div>
-                  <span className="stat-number">{stats.overdue}</span>
-                </div>
-                <div className="stat-card stat-approved">
-                  <div className="stat-header"><i className="fas fa-check-circle"></i><span className="stat-label">Approved:</span></div>
-                  <span className="stat-number">{stats.approved}</span>
-                </div>
+                {[
+                  { key: 'pending', label: 'Pending', icon: 'fas fa-exclamation-triangle', count: stats.pending, cls: 'stat-pending' },
+                  { key: 'overdue', label: 'Overdue', icon: 'fas fa-exclamation-triangle', count: stats.overdue, cls: 'stat-overdue' },
+                  { key: 'approved', label: 'Approved', icon: 'fas fa-check-circle', count: stats.approved, cls: 'stat-approved' },
+                  { key: 'scheduled', label: 'Scheduled', icon: 'far fa-calendar-alt', count: stats.scheduled, cls: 'stat-scheduled' },
+                ].map((c) => (
+                  <div
+                    key={c.key}
+                    className={`stat-card ${c.cls} ${statusFilter === c.key ? 'active-filter' : ''}`}
+                    onClick={() => { setStatusFilter(statusFilter === c.key ? 'all' : c.key); setCurrentPage(1); }}
+                    title={`Click to filter by ${c.label}`}
+                  >
+                    <div className="stat-header">
+                      <i className={c.icon}></i>
+                      <span className="stat-label">{c.label}</span>
+                    </div>
+                    <span className="stat-number">{c.count}</span>
+                  </div>
+                ))}
               </div>
 
               <div className="content-section delivery-requests">
@@ -233,6 +288,7 @@ function RequestsPage() {
                         <option value="pending">Filter: Pending</option>
                         <option value="overdue">Filter: Overdue</option>
                         <option value="approved">Filter: Approved</option>
+                        <option value="scheduled">Filter: Scheduled</option>
                       </select>
                     )}
 
@@ -264,7 +320,14 @@ function RequestsPage() {
                                 {overdue ? 'Overdue' : r.status.charAt(0).toUpperCase() + r.status.slice(1)}
                               </span>
                             </td>
-                            <td>{formatDate(r.created_at)}</td>
+                            <td>
+                              {formatDate(r.created_at)}
+                              {(r.is_scheduled || r.scheduled_date) && (
+                                <div className="schedule-pill" title={`Scheduled for ${r.scheduled_date || 'Future'} (${r.scheduled_time_slot || 'Anytime'})`}>
+                                  <i className="far fa-calendar-alt"></i> Sched: {r.scheduled_date ? formatDate(r.scheduled_date) : 'Yes'}{r.scheduled_time_slot ? ` · ${r.scheduled_time_slot}` : ''}
+                                </div>
+                              )}
+                            </td>
                             <td style={{ display: 'flex', gap: 6 }}>
                               <button className="btn-details" onClick={() => openDetails(r)}>Details</button>
                               {view === 'drafts' && (
@@ -333,20 +396,30 @@ function RequestsPage() {
             <div className="right-column">
               <div className="content-section activity-logs">
                 <div className="section-header">
-                  <h3 className="section-title"><i className="fas fa-exclamation-circle"></i> Activity Logs</h3>
+                  <h3 className="section-title"><i className="fas fa-bell"></i> Request Alerts</h3>
+                  <span style={{ fontSize: '11px', fontWeight: '700', color: '#6B7280', background: '#E5E7EB', padding: '2px 8px', borderRadius: '10px' }}>
+                    {requestActivities.length}
+                  </span>
                 </div>
                 <div className="section-content">
-                  {overdueList.slice(0, 5).map((r) => (
-                    <div className="log-entry log-overdue" key={r.request_id}>
-                      <i className="fas fa-exclamation-triangle"></i>
+                  {requestActivities.slice(0, 10).map((act) => (
+                    <div
+                      className={`log-entry log-${act.type}`}
+                      key={act.id}
+                      onClick={() => openDetails(act.request)}
+                      title="Click to view request details"
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <i className={act.icon}></i>
                       <div className="log-content">
-                        <span className="log-title">{requestCode(r.request_id)} Overdue!</span>
-                        <span className="log-time">{formatDate(r.created_at)}</span>
+                        <span className="log-title">{act.title}</span>
+                        <span className="log-sub">{act.sub}</span>
+                        <span className="log-time">{act.time}</span>
                       </div>
                     </div>
                   ))}
-                  {overdueList.length === 0 && (
-                    <div className="log-entry"><span className="log-content">No overdue requests right now.</span></div>
+                  {requestActivities.length === 0 && (
+                    <div className="log-entry"><span className="log-content" style={{ color: '#888' }}>No request activities yet.</span></div>
                   )}
                 </div>
               </div>

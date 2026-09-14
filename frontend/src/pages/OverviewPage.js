@@ -195,7 +195,11 @@ function OverviewPage() {
       delData.forEach((d) => {
         const rawTime = d.updated_at || d.created_at;
         const timeMs = rawTime ? new Date(rawTime).getTime() : 0;
-        if (['in_transit', 'out_for_delivery', 'assigned', 'accepted'].includes(d.status)) {
+        const isScheduled = d.request?.is_scheduled || !!d.request?.scheduled_date;
+        const schedTime = d.request?.scheduled_time_slot ? ` at ${d.request.scheduled_time_slot}` : '';
+        const schedDate = d.request?.scheduled_date ? ` (${d.request.scheduled_date}${schedTime})` : '';
+
+        if (d.status === 'in_transit' || d.status === 'out_for_delivery') {
           dynamicActivities.push({
             id: `del-${d.delivery_id}`,
             category: 'delivery',
@@ -203,6 +207,22 @@ function OverviewPage() {
             color: '#C53030',
             title: `Driver ${d.driver?.user?.full_name || 'Driver'} is now In Transit.`,
             sub: `${shortCity(d.request?.pickup_address)} → ${shortCity(d.request?.dropoff_address)}`,
+            actor: d.driver?.user?.full_name || 'Driver',
+            role: 'Driver',
+            time: timeAgo(rawTime),
+            timeMs,
+            rawDate: rawTime,
+          });
+        } else if (d.status === 'assigned' || d.status === 'accepted') {
+          dynamicActivities.push({
+            id: `del-assign-${d.delivery_id}`,
+            category: 'delivery',
+            icon: 'fas fa-clipboard-check',
+            color: '#3B82F6',
+            title: isScheduled
+              ? `Delivery DLV${String(d.delivery_id).padStart(4, '0')} scheduled & dispatched to Driver ${d.driver?.user?.full_name || 'Driver'}${schedDate}.`
+              : `Delivery DLV${String(d.delivery_id).padStart(4, '0')} dispatched to Driver ${d.driver?.user?.full_name || 'Driver'}.`,
+            sub: `${shortCity(d.request?.pickup_address)} → ${shortCity(d.request?.dropoff_address)} • Dispatched`,
             actor: d.driver?.user?.full_name || 'Driver',
             role: 'Driver',
             time: timeAgo(rawTime),
@@ -262,16 +282,38 @@ function OverviewPage() {
         }
       });
 
-      // 3. Driver Status
+      // 3. Driver Status (Only show on break if not assigned to an active delivery)
+      const activeDriverIds = new Set(
+        delData
+          .filter((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status))
+          .map((d) => Number(d.driver_id))
+      );
+
       drvData.forEach((dr) => {
-        if (dr.availability_status === 'busy' || dr.availability_status === 'offline') {
-          const rawTime = dr.updated_at || dr.created_at;
+        const rawTime = dr.updated_at || dr.created_at;
+        const isAssigned = activeDriverIds.has(Number(dr.driver_id));
+
+        if (dr.availability_status === 'offline') {
           dynamicActivities.push({
             id: `drv-${dr.driver_id}`,
             category: 'fleet',
-            icon: 'fas fa-user-circle',
-            color: '#4A90E2',
-            title: `Driver ${dr.user?.full_name || 'Driver'} (${driverCode(dr.driver_id)}) is ${dr.availability_status === 'busy' ? 'on break' : 'offline'}.`,
+            icon: 'fas fa-user-slash',
+            color: '#9CA3AF',
+            title: `Driver ${dr.user?.full_name || 'Driver'} (${driverCode(dr.driver_id)}) is offline.`,
+            sub: 'Driver availability status updated',
+            actor: dr.user?.full_name || 'Driver',
+            role: 'Driver',
+            time: timeAgo(rawTime),
+            timeMs: rawTime ? new Date(rawTime).getTime() : 0,
+            rawDate: rawTime,
+          });
+        } else if (dr.availability_status === 'busy' && !isAssigned) {
+          dynamicActivities.push({
+            id: `drv-${dr.driver_id}`,
+            category: 'fleet',
+            icon: 'fas fa-coffee',
+            color: '#F59E0B',
+            title: `Driver ${dr.user?.full_name || 'Driver'} (${driverCode(dr.driver_id)}) is on break.`,
             sub: 'Driver availability status updated',
             actor: dr.user?.full_name || 'Driver',
             role: 'Driver',

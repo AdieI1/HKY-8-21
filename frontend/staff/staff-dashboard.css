@@ -12,9 +12,15 @@
 /* ── Stat Cards ───────────────────────────────────── */
 .adm-stat-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 14px;
   margin-bottom: 18px;
+}
+
+@media (max-width: 1200px) {
+  .adm-stat-row {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
 }
 
 .adm-stat-card {
@@ -29,6 +35,7 @@
 }
 
 .adm-stat-card.pink   { border-left-color: #F87171; }
+.adm-stat-card.purple { border-left-color: #8B5CF6; }
 .adm-stat-card.orange { border-left-color: #FB923C; }
 .adm-stat-card.green  { border-left-color: #34D399; }
 .adm-stat-card.blue   { border-left-color: #60A5FA; }
@@ -45,6 +52,7 @@
 }
 
 .adm-stat-card.pink   .adm-stat-icon { background: #FEE2E2; color: #EF4444; }
+.adm-stat-card.purple .adm-stat-icon { background: #EDE9FE; color: #7C3AED; }
 .adm-stat-card.orange .adm-stat-icon { background: #FEF3C7; color: #F59E0B; }
 .adm-stat-card.green  .adm-stat-icon { background: #D1FAE5; color: #10B981; }
 .adm-stat-card.blue   .adm-stat-icon { background: #DBEAFE; color: #3B82F6; }
@@ -191,6 +199,7 @@
   z-index: 2;
 }
 
+.adm-fleet-cell.scheduled { background: #FEF3C7; color: #B45309; font-weight: 600; border-radius: 6px; border: 1px solid #FDE68A; }
 .adm-fleet-cell.delivery  { background: #FFF1F1; color: #C53030; font-weight: 600; border-radius: 6px; }
 .adm-fleet-cell.completed { background: #EFF6FF; color: #1D4ED8; font-weight: 600; border-radius: 6px; border: 1px solid #DBEAFE; }
 .adm-fleet-cell.available { background: #F0FDF4; color: #16A34A; font-weight: 600; border-radius: 6px; }
@@ -216,6 +225,7 @@
   margin-right: 4px;
 }
 
+.adm-legend-dot.scheduled   { background: #D97706; }
 .adm-legend-dot.delivery    { background: #EF4444; }
 .adm-legend-dot.completed   { background: #3B82F6; }
 .adm-legend-dot.available   { background: #22C55E; }

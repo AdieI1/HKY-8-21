@@ -3,6 +3,42 @@ import api from '../../api/api-client';
 import PinRouteMap, { geocode, isWithinMindanao } from './PinRouteMap';
 import { validatePhoneNumber, formatPhoneInput } from '../../utils/validation';
 
+const QUICK_TIMES = [
+  '08:00 AM',
+  '09:00 AM',
+  '10:00 AM',
+  '11:00 AM',
+  '01:00 PM',
+  '02:00 PM',
+  '03:00 PM',
+  '04:00 PM',
+  '05:00 PM',
+];
+
+const formatTo12h = (time24) => {
+  if (!time24) return '';
+  const parts = time24.split(':');
+  if (parts.length < 2) return time24;
+  let hours = parseInt(parts[0], 10);
+  const minutes = parts[1];
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+  return `${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
+};
+
+const formatTo24h = (time12) => {
+  if (!time12) return '09:00';
+  if (/^\d{2}:\d{2}$/.test(time12)) return time12;
+  const match = time12.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return '09:00';
+  let hours = parseInt(match[1], 10);
+  const minutes = match[2];
+  const meridiem = match[3] ? match[3].toUpperCase() : null;
+  if (meridiem === 'PM' && hours < 12) hours += 12;
+  if (meridiem === 'AM' && hours === 12) hours = 0;
+  return `${String(hours).padStart(2, '0')}:${minutes}`;
+};
+
 export default function CreateRequestModal({
   showCreateModal,
   setShowCreateModal,
@@ -203,6 +239,13 @@ export default function CreateRequestModal({
       if (!form.payment_receipt) newErrors.payment_receipt = 'Missing output';
     }
 
+    // Schedule validation if scheduled delivery
+    if (form.is_scheduled && !asDraft) {
+      if (!form.scheduled_date) {
+        newErrors.scheduled_date = 'Please select a delivery date';
+      }
+    }
+
     return newErrors;
   };
 
@@ -217,6 +260,8 @@ export default function CreateRequestModal({
         setFormError('Contact number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
       } else if (validationErrors.confirmPassword === 'Passwords do not match') {
         setFormError('Passwords do not match.');
+      } else if (validationErrors.scheduled_date) {
+        setFormError(validationErrors.scheduled_date);
       } else {
         setFormError('Please fill in all highlighted required fields (missing output).');
       }
@@ -252,6 +297,11 @@ export default function CreateRequestModal({
       if (form.account_name) formData.append('account_name', form.account_name);
       if (form.account_number) formData.append('account_number', form.account_number);
       if (form.payment_receipt) formData.append('payment_receipt', form.payment_receipt);
+      formData.append('is_scheduled', form.is_scheduled ? '1' : '0');
+      if (form.is_scheduled) {
+        if (form.scheduled_date) formData.append('scheduled_date', form.scheduled_date);
+        if (form.scheduled_time_slot) formData.append('scheduled_time_slot', form.scheduled_time_slot);
+      }
       formData.append('is_draft', asDraft ? '1' : '0');
 
       await api.post('/delivery-requests/create-with-customer', formData, {
@@ -559,6 +609,97 @@ export default function CreateRequestModal({
 
             {/* Pricing & Payment (Right Column) */}
             <div className="form-section half-width">
+              <h3 className="section-title-form">Delivery Schedule:</h3>
+              <div className="radio-group" style={{ marginBottom: 12 }}>
+                <label className="radio-label">
+                  <input
+                    type="radio"
+                    name="isScheduled"
+                    checked={!form.is_scheduled}
+                    onChange={() => {
+                      handleInputChange('is_scheduled', false);
+                      clearFieldError('scheduled_date');
+                    }}
+                  />
+                  <span className="radio-text">Deliver Now (Immediate)</span>
+                </label>
+                <label className="radio-label">
+                  <input
+                    type="radio"
+                    name="isScheduled"
+                    checked={!!form.is_scheduled}
+                    onChange={() => handleInputChange('is_scheduled', true)}
+                  />
+                  <span className="radio-text">Schedule Delivery</span>
+                </label>
+              </div>
+
+              {form.is_scheduled && (
+                <div style={{ marginBottom: 16, padding: '12px 14px', background: '#f9fafb', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+                  <div className="form-group" style={{ marginBottom: 10, position: 'relative' }}>
+                    <label>Scheduled Date<span className="required">*</span></label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="date"
+                        min={new Date().toISOString().split('T')[0]}
+                        className={`form-input ${errors.scheduled_date ? 'input-error' : ''}`}
+                        value={form.scheduled_date || ''}
+                        onChange={(e) => handleInputChange('scheduled_date', e.target.value)}
+                      />
+                      {errors.scheduled_date && <span className="input-missing-tag">Missing output</span>}
+                    </div>
+                    {errors.scheduled_date && (
+                      <div className="input-error-msg">
+                        <i className="fas fa-circle-exclamation"></i> {errors.scheduled_date}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>Preferred Pick-up Time<span className="required">*</span></label>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+                      <input
+                        type="time"
+                        className="form-input"
+                        style={{ flex: 1, height: 38 }}
+                        value={formatTo24h(form.scheduled_time_slot)}
+                        onChange={(e) => {
+                          const formatted = formatTo12h(e.target.value);
+                          handleInputChange('scheduled_time_slot', formatted);
+                        }}
+                      />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937', padding: '7px 12px', background: '#e5e7eb', borderRadius: 6, whiteSpace: 'nowrap' }}>
+                        <i className="far fa-clock" style={{ marginRight: 6 }}></i>
+                        {form.scheduled_time_slot || '09:00 AM'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {QUICK_TIMES.map((qt) => (
+                        <button
+                          key={qt}
+                          type="button"
+                          onClick={() => handleInputChange('scheduled_time_slot', qt)}
+                          style={{
+                            padding: '4px 8px',
+                            fontSize: 11,
+                            borderRadius: 4,
+                            border: '1px solid',
+                            borderColor: form.scheduled_time_slot === qt ? '#E53935' : '#d1d5db',
+                            background: form.scheduled_time_slot === qt ? '#fee2e2' : '#ffffff',
+                            color: form.scheduled_time_slot === qt ? '#b91c1c' : '#4b5563',
+                            cursor: 'pointer',
+                            fontWeight: form.scheduled_time_slot === qt ? '600' : 'normal',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          {qt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <h3 className="section-title-form">Pricing:</h3>
               <div className="form-group">
                 <label>Total Price (₱)</label>

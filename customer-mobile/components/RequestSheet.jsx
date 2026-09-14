@@ -37,6 +37,7 @@ export default function RequestSheet({
   const [payment, setPayment] = useState({});
   const [distanceKm, setDistanceKm] = useState(0);
   const [distanceLoading, setDistanceLoading] = useState(false);
+  const [schedule, setSchedule] = useState({ isScheduled: false, date: '', timeSlot: '' });
   const [reviewVisible, setReviewVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -91,6 +92,9 @@ export default function RequestSheet({
       payment_term: paymentTermMap[payment.paymentTerm] || null,
       payment_method: paymentMethodMap[payment.method] || null,
       payment_receipt: payment.receipt || null,
+      is_scheduled: schedule.isScheduled,
+      scheduled_date: schedule.isScheduled ? schedule.date : null,
+      scheduled_time_slot: schedule.isScheduled ? schedule.timeSlot : null,
       is_draft: isDraft,
     };
   };
@@ -215,6 +219,8 @@ export default function RequestSheet({
           pickup={pickup}
           dropoff={dropoff}
           onOpenMap={openMap}
+          schedule={schedule}
+          onScheduleChange={setSchedule}
         />
 
         <OverviewSection

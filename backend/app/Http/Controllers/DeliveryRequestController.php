@@ -15,9 +15,19 @@ use Illuminate\Support\Facades\Hash;
 
 class DeliveryRequestController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return DeliveryRequest::with('customer')->latest('request_id')->get();
+        $query = DeliveryRequest::with('customer')->latest('request_id');
+
+        if ($request->boolean('scheduled')) {
+            $query->where('is_scheduled', true);
+        }
+
+        if ($request->filled('start_date') && $request->filled('end_date')) {
+            $query->whereBetween('scheduled_date', [$request->start_date, $request->end_date]);
+        }
+
+        return $query->get();
     }
 
     public function store(Request $request)
@@ -34,10 +44,22 @@ class DeliveryRequestController extends Controller
             'total_price' => 'nullable|numeric',
             'payment_term' => 'nullable|in:downpayment,full',
             'payment_method' => 'nullable|in:bank_transfer,cash',
+            'is_scheduled' => 'nullable|boolean',
+            'scheduled_date' => 'nullable|date',
+            'scheduled_time_slot' => 'nullable|string|max:100',
             'status' => 'required|in:draft,pending,approved,rejected'
         ]);
 
-        return DeliveryRequest::create($request->all());
+        $data = $request->all();
+        if ($request->boolean('is_scheduled')) {
+            $data['is_scheduled'] = true;
+        } else {
+            $data['is_scheduled'] = false;
+            $data['scheduled_date'] = null;
+            $data['scheduled_time_slot'] = null;
+        }
+
+        return DeliveryRequest::create($data);
     }
 
     /**
@@ -73,6 +95,9 @@ class DeliveryRequestController extends Controller
             'account_name' => 'nullable|string|max:100',
             'account_number' => 'nullable|string|max:50',
             'payment_receipt' => 'nullable|file|image|max:10240',
+            'is_scheduled' => 'nullable|boolean',
+            'scheduled_date' => 'nullable|date',
+            'scheduled_time_slot' => 'nullable|string|max:100',
             'is_draft' => 'nullable|boolean',
         ]);
 
@@ -125,6 +150,9 @@ class DeliveryRequestController extends Controller
                 'bank_name' => $request->bank_name,
                 'account_name' => $request->account_name,
                 'account_number' => $request->account_number,
+                'is_scheduled' => $request->boolean('is_scheduled'),
+                'scheduled_date' => $request->boolean('is_scheduled') ? $request->scheduled_date : null,
+                'scheduled_time_slot' => $request->boolean('is_scheduled') ? $request->scheduled_time_slot : null,
                 'status' => $request->boolean('is_draft') ? 'draft' : 'pending',
             ]);
         });
@@ -160,6 +188,9 @@ class DeliveryRequestController extends Controller
             'payment_term' => "$fieldRule|in:downpayment,full",
             'payment_method' => "$fieldRule|in:bank_transfer,cash",
             'payment_receipt' => 'nullable|image|max:5120',
+            'is_scheduled' => 'nullable|boolean',
+            'scheduled_date' => 'nullable|date',
+            'scheduled_time_slot' => 'nullable|string|max:100',
             'is_draft' => 'nullable|boolean',
         ]);
 
@@ -188,6 +219,10 @@ class DeliveryRequestController extends Controller
             $validated['payment_receipt_path'] = $request->file('payment_receipt')
                 ->store('payment-receipts', 'public');
         }
+
+        $validated['is_scheduled'] = $request->boolean('is_scheduled');
+        $validated['scheduled_date'] = $request->boolean('is_scheduled') ? $request->scheduled_date : null;
+        $validated['scheduled_time_slot'] = $request->boolean('is_scheduled') ? $request->scheduled_time_slot : null;
 
         $deliveryRequest = DeliveryRequest::create(array_merge($validated, [
             'customer_id' => $user->user_id,

@@ -96,6 +96,14 @@ export default function DeliveryCard({ delivery, onReview }) {
             Date Requested: {delivery.date || "N/A"}
           </Text>
         </View>
+        {delivery.isScheduled && (
+          <View style={styles.dateRow}>
+            <Ionicons name="time-outline" size={13} color="#D97706" />
+            <Text style={[styles.dateText, { color: "#D97706", fontWeight: "600" }]}>
+              Scheduled: {delivery.scheduledDate || "Upcoming"} ({delivery.scheduledTimeSlot || "Standard"})
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.driverSection}>

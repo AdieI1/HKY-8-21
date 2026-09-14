@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
@@ -6,6 +6,7 @@ import NotificationBell from '../components/NotificationBell';
 import reverb from '../utils/reverb';
 
 function cellClass(type) {
+  if (type === 'scheduled') return 'adm-fleet-cell scheduled';
   if (type === 'delivery') return 'adm-fleet-cell delivery';
   if (type === 'completed') return 'adm-fleet-cell completed';
   if (type === 'available') return 'adm-fleet-cell available';
@@ -32,12 +33,12 @@ function timeAgo(dateString) {
   return `${diffDay} day${diffDay > 1 ? 's' : ''} ago`;
 }
 
-function getCurrentWeekDays() {
+function getCurrentWeekDays(offsetWeeks = 0) {
   const now = new Date();
   const currentDayOfWeek = now.getDay();
   const distanceToMonday = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
   const monday = new Date(now);
-  monday.setDate(now.getDate() + distanceToMonday);
+  monday.setDate(now.getDate() + distanceToMonday + (offsetWeeks * 7));
 
   const dayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
   const dayLabels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
@@ -50,8 +51,35 @@ function getCurrentWeekDays() {
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(dayNum).padStart(2, '0');
-    return { key, label: dayLabels[i], date: `${dayNum} ${monthStr}`, highlight: d.toDateString() === now.toDateString(), iso: `${yyyy}-${mm}-${dd}` };
+    return {
+      key,
+      label: dayLabels[i],
+      date: `${dayNum} ${monthStr}`,
+      highlight: d.toDateString() === now.toDateString(),
+      iso: `${yyyy}-${mm}-${dd}`,
+    };
   });
+}
+
+function getWeekOffsetForDate(dateStr) {
+  if (!dateStr) return 0;
+  const targetDate = new Date(dateStr);
+  const now = new Date();
+
+  const currentDayOfWeek = now.getDay();
+  const distanceToMonday = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
+  const currentMonday = new Date(now);
+  currentMonday.setDate(now.getDate() + distanceToMonday);
+  currentMonday.setHours(0, 0, 0, 0);
+
+  const targetDayOfWeek = targetDate.getDay();
+  const targetDistanceToMonday = targetDayOfWeek === 0 ? -6 : 1 - targetDayOfWeek;
+  const targetMonday = new Date(targetDate);
+  targetMonday.setDate(targetDate.getDate() + targetDistanceToMonday);
+  targetMonday.setHours(0, 0, 0, 0);
+
+  const diffDays = Math.round((targetMonday.getTime() - currentMonday.getTime()) / (1000 * 60 * 60 * 24));
+  return Math.round(diffDays / 7);
 }
 
 function formatTime12(timeStr) {
@@ -79,8 +107,12 @@ function shortCity(addr) {
 
 function StaffDashboardPage() {
   const [currentDate, setCurrentDate] = useState('');
-  const [weekDays, setWeekDays] = useState(() => getCurrentWeekDays());
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [weekDays, setWeekDays] = useState(() => getCurrentWeekDays(0));
   const [fleetList, setFleetList] = useState([]);
+  const [rawVehicles, setRawVehicles] = useState([]);
+  const [rawDeliveries, setRawDeliveries] = useState([]);
+  const [rawDrivers, setRawDrivers] = useState([]);
   const [priorityRequests, setPriorityRequests] = useState([]);
   const [activityFeed, setActivityFeed] = useState([]);
   const [showAllActivitiesModal, setShowAllActivitiesModal] = useState(false);
@@ -93,14 +125,141 @@ function StaffDashboardPage() {
     total: 0,
   });
   const [loadingCalendar, setLoadingCalendar] = useState(true);
-  const [stats, setStats] = useState({ activeDeliveries: 0, pendingRequests: 0, availableDrivers: 0, availableVehicles: 0 });
+  const [stats, setStats] = useState({
+    activeDeliveries: 0,
+    scheduledDeliveries: 0,
+    pendingRequests: 0,
+    availableDrivers: 0,
+    availableVehicles: 0,
+  });
   const [selectedCell, setSelectedCell] = useState(null);
+
+  const upcomingScheduledDeliveries = useMemo(() => {
+    const list = [];
+    rawDeliveries.forEach((d) => {
+      const sDate = d.request?.scheduled_date ? String(d.request.scheduled_date).slice(0, 10) : null;
+      if (sDate && !['completed', 'cancelled'].includes(d.status)) {
+        list.push({
+          id: `DLV${String(d.delivery_id).padStart(4, '0')}`,
+          deliveryId: d.delivery_id,
+          date: sDate,
+          time: d.request?.scheduled_time_slot || 'Standard',
+          driver: d.driver?.user?.full_name || 'Assigned Driver',
+          vehicle: d.vehicle ? `${d.vehicle.model || d.vehicle.brand || 'Vehicle'} (${d.vehicle.plate_number})` : 'Assigned Unit',
+          vehicleId: d.vehicle_id,
+          destination: shortCity(d.request?.dropoff_address),
+          item: d.request?.item_name || 'Cargo',
+        });
+      }
+    });
+    return list;
+  }, [rawDeliveries]);
 
   useEffect(() => {
     const update = () => setCurrentDate(new Date().toLocaleDateString('en-PH', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' }));
     update();
     const interval = setInterval(update, 60000);
     return () => clearInterval(interval);
+  }, []);
+
+  const buildFleetSchedule = useCallback((vehiclesList, deliveriesList, driversList, offset) => {
+    const days = getCurrentWeekDays(offset);
+    setWeekDays(days);
+
+    if (!vehiclesList || vehiclesList.length === 0) {
+      setFleetList([]);
+      return;
+    }
+
+    const mappedFleet = vehiclesList.map((v, idx) => {
+      const vehId = `VCL${String(v.vehicle_id || idx + 1).padStart(3, '0')}`;
+      const model = v.model || v.brand || 'Truck';
+      const plate = v.plate_number || 'XYZ 1213';
+
+      const vehicleDeliveries = (deliveriesList || []).filter((d) => Number(d.vehicle_id) === Number(v.vehicle_id));
+      const activeDelivery = vehicleDeliveries.find((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit'].includes(d.status))
+        || vehicleDeliveries[vehicleDeliveries.length - 1];
+
+      const driverObj = activeDelivery?.driver || (driversList || []).find((dr) => Number(dr.driver_id) === Number(activeDelivery?.driver_id));
+      const rawDriverName = driverObj?.user?.full_name || activeDelivery?.driver?.user?.full_name || 'Driver';
+      const nameParts = rawDriverName.split(' ').filter(Boolean);
+      const shortDriver = nameParts.length > 1 ? `${nameParts[0]} ${nameParts[nameParts.length - 1][0].toUpperCase()}.` : rawDriverName;
+
+      const schedule = days.map((day) => {
+        const dayDeliveries = vehicleDeliveries.filter((d) => {
+          // 1. If it's a scheduled delivery, match by request's scheduled_date!
+          const schedDate = d.request?.scheduled_date ? String(d.request.scheduled_date).slice(0, 10) : null;
+          if (schedDate) {
+            return schedDate === day.iso;
+          }
+
+          // 2. Otherwise regular trip_date or created_at:
+          const dateStr = d.trip_date || (d.created_at ? d.created_at.slice(0, 10) : '');
+          if (dateStr === day.iso) return true;
+
+          // 3. If delivery is active (assigned, in transit, etc.) and this day is today:
+          const isActive = ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status);
+          if (isActive && day.highlight) return true;
+          return false;
+        });
+
+        let cellType = 'available';
+        let cellLabel = 'Available';
+
+        if (dayDeliveries.length > 0) {
+          const activeDel = dayDeliveries.find((d) =>
+            ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status)
+          );
+
+          if (activeDel) {
+            const isScheduledTrip = activeDel.request?.is_scheduled || (activeDel.request?.scheduled_date && String(activeDel.request.scheduled_date).slice(0, 10) === day.iso);
+            cellType = isScheduledTrip ? 'scheduled' : 'delivery';
+            const from = shortCity(activeDel.request?.pickup_address);
+            const to = shortCity(activeDel.request?.dropoff_address);
+            const statusText = isScheduledTrip
+              ? 'Scheduled'
+              : activeDel.status === 'in_transit'
+                ? 'In Transit'
+                : activeDel.status === 'assigned'
+                  ? 'Assigned'
+                  : 'Delivery';
+            const rawSlot = activeDel.request?.scheduled_time_slot || '';
+            const timeSlot = isScheduledTrip && rawSlot
+              ? ` (${rawSlot.includes('(') ? rawSlot.split(' ')[0] : rawSlot})`
+              : '';
+            const moreText = dayDeliveries.length > 1 ? ` (+${dayDeliveries.length - 1} more)` : '';
+            cellLabel = `${statusText}${timeSlot}${moreText}\n${from} → ${to}`;
+          } else {
+            cellType = 'completed';
+            const firstDel = dayDeliveries[0];
+            const from = shortCity(firstDel.request?.pickup_address);
+            const to = shortCity(firstDel.request?.dropoff_address);
+            const countText = dayDeliveries.length > 1 ? `${dayDeliveries.length} Trips Done` : 'Trip Done';
+            cellLabel = `${countText}\n${from} → ${to}`;
+          }
+        } else if (v.status === 'maintenance' || v.status === 'broken') {
+          cellType = 'break';
+          cellLabel = 'Under Maintenance';
+        } else if (day.key === 'sat' || day.key === 'sun') {
+          cellType = 'empty';
+          cellLabel = '–';
+        } else {
+          cellType = 'available';
+          cellLabel = 'Available';
+        }
+
+        return {
+          day: day.key,
+          label: cellLabel,
+          type: cellType,
+          deliveries: dayDeliveries,
+        };
+      });
+
+      return { id: vehId, model, plate, driver: shortDriver, schedule, photo_url: v.photo_url, rawVehicle: v };
+    });
+
+    setFleetList(mappedFleet);
   }, []);
 
   const loadDashboardData = useCallback(async () => {
@@ -146,11 +305,22 @@ function StaffDashboardPage() {
       }
 
       const activeDel = deliveries.filter((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status)).length;
+      const scheduledDelCount = deliveries.filter(
+        (d) => (d.request?.is_scheduled || d.request?.scheduled_date) && !['completed', 'cancelled'].includes(d.status)
+      ).length + requests.filter(
+        (r) => (r.is_scheduled || r.scheduled_date) && ['pending', 'approved'].includes(r.status) && !deliveries.some((d) => Number(d.request_id) === Number(r.request_id))
+      ).length;
       const pendingReq = requests.filter((r) => r.status === 'pending').length;
       const availDrivers = drivers.filter((d) => (d.status === 'active' || d.status === 'available') && d.availability_status !== 'busy').length;
       const availVehicles = vehicles.filter((v) => (v.status === 'available' || v.status === 'active')).length;
 
-      setStats({ activeDeliveries: activeDel, pendingRequests: pendingReq, availableDrivers: availDrivers, availableVehicles: availVehicles });
+      setStats({
+        activeDeliveries: activeDel,
+        scheduledDeliveries: scheduledDelCount,
+        pendingRequests: pendingReq,
+        availableDrivers: availDrivers,
+        availableVehicles: availVehicles,
+      });
 
       // ── Connected Dynamic Priority Requests ──
       const pendingRequestsList = requests
@@ -224,7 +394,11 @@ function StaffDashboardPage() {
       deliveries.forEach((d) => {
         const rawTime = d.updated_at || d.created_at;
         const timeMs = rawTime ? new Date(rawTime).getTime() : 0;
-        if (['in_transit', 'out_for_delivery', 'assigned', 'accepted'].includes(d.status)) {
+        const isScheduled = d.request?.is_scheduled || !!d.request?.scheduled_date;
+        const schedTime = d.request?.scheduled_time_slot ? ` at ${d.request.scheduled_time_slot}` : '';
+        const schedDate = d.request?.scheduled_date ? ` (${d.request.scheduled_date}${schedTime})` : '';
+
+        if (d.status === 'in_transit' || d.status === 'out_for_delivery') {
           dynamicActivities.push({
             id: `del-${d.delivery_id}`,
             category: 'delivery',
@@ -232,6 +406,19 @@ function StaffDashboardPage() {
             color: '#C53030',
             title: `Driver ${d.driver?.user?.full_name || 'Driver'} is now In Transit.`,
             sub: `${shortCity(d.request?.pickup_address)} → ${shortCity(d.request?.dropoff_address)}`,
+            time: timeAgo(rawTime),
+            timeMs,
+          });
+        } else if (d.status === 'assigned' || d.status === 'accepted') {
+          dynamicActivities.push({
+            id: `del-assign-${d.delivery_id}`,
+            category: 'delivery',
+            icon: 'fas fa-clipboard-check',
+            color: '#3B82F6',
+            title: isScheduled
+              ? `Delivery DLV${String(d.delivery_id).padStart(4, '0')} scheduled & dispatched to Driver ${d.driver?.user?.full_name || 'Driver'}${schedDate}.`
+              : `Delivery DLV${String(d.delivery_id).padStart(4, '0')} dispatched to Driver ${d.driver?.user?.full_name || 'Driver'}.`,
+            sub: `${shortCity(d.request?.pickup_address)} → ${shortCity(d.request?.dropoff_address)} • Dispatched`,
             time: timeAgo(rawTime),
             timeMs,
           });
@@ -279,16 +466,35 @@ function StaffDashboardPage() {
         }
       });
 
-      // 3. Driver Availability
+      // 3. Driver Availability (Only show 'on break' if not on an active delivery)
+      const activeDriverIds = new Set(
+        deliveries
+          .filter((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status))
+          .map((d) => Number(d.driver_id))
+      );
+
       drivers.forEach((dr) => {
-        if (dr.availability_status === 'busy' || dr.availability_status === 'offline') {
-          const rawTime = dr.updated_at || dr.created_at;
+        const rawTime = dr.updated_at || dr.created_at;
+        const isAssigned = activeDriverIds.has(Number(dr.driver_id));
+
+        if (dr.availability_status === 'offline') {
           dynamicActivities.push({
             id: `drv-${dr.driver_id}`,
             category: 'fleet',
-            icon: 'fas fa-user-circle',
-            color: '#4A90E2',
-            title: `Driver ${dr.user?.full_name || 'Driver'} (${driverCode(dr.driver_id)}) is ${dr.availability_status === 'busy' ? 'on break' : 'offline'}.`,
+            icon: 'fas fa-user-slash',
+            color: '#9CA3AF',
+            title: `Driver ${dr.user?.full_name || 'Driver'} (${driverCode(dr.driver_id)}) is offline.`,
+            sub: 'Driver availability status updated',
+            time: timeAgo(rawTime),
+            timeMs: rawTime ? new Date(rawTime).getTime() : 0,
+          });
+        } else if (dr.availability_status === 'busy' && !isAssigned) {
+          dynamicActivities.push({
+            id: `drv-${dr.driver_id}`,
+            category: 'fleet',
+            icon: 'fas fa-coffee',
+            color: '#F59E0B',
+            title: `Driver ${dr.user?.full_name || 'Driver'} (${driverCode(dr.driver_id)}) is on break.`,
             sub: 'Driver availability status updated',
             time: timeAgo(rawTime),
             timeMs: rawTime ? new Date(rawTime).getTime() : 0,
@@ -354,87 +560,21 @@ function StaffDashboardPage() {
 
       setActivityFeed(dynamicActivities);
 
-      const currentDays = getCurrentWeekDays();
-      setWeekDays(currentDays);
+      setRawVehicles(vehicles);
+      setRawDeliveries(deliveries);
+      setRawDrivers(drivers);
 
-      if (vehicles.length > 0) {
-        const mappedFleet = vehicles.map((v, idx) => {
-          const vehId = `VCL${String(v.vehicle_id || idx + 1).padStart(3, '0')}`;
-          const model = v.model || v.brand || 'Truck';
-          const plate = v.plate_number || 'XYZ 1213';
-
-          const vehicleDeliveries = deliveries.filter((d) => Number(d.vehicle_id) === Number(v.vehicle_id));
-          const activeDelivery = vehicleDeliveries.find((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit'].includes(d.status))
-            || vehicleDeliveries[vehicleDeliveries.length - 1];
-
-          const driverObj = activeDelivery?.driver || drivers.find((dr) => Number(dr.driver_id) === Number(activeDelivery?.driver_id));
-          const rawDriverName = driverObj?.user?.full_name || activeDelivery?.driver?.user?.full_name || 'Driver';
-          const nameParts = rawDriverName.split(' ').filter(Boolean);
-          const shortDriver = nameParts.length > 1 ? `${nameParts[0]} ${nameParts[nameParts.length - 1][0].toUpperCase()}.` : rawDriverName;
-
-          const schedule = currentDays.map((day) => {
-            const dayDeliveries = vehicleDeliveries.filter((d) => {
-              const dateStr = d.trip_date || (d.created_at ? d.created_at.slice(0, 10) : '');
-              if (dateStr === day.iso) return true;
-              // If delivery is active (assigned, in transit, etc.) and this day is today:
-              const isActive = ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status);
-              if (isActive && day.highlight) return true;
-              return false;
-            });
-
-            let cellType = 'available';
-            let cellLabel = 'Available';
-
-            if (dayDeliveries.length > 0) {
-              const activeDel = dayDeliveries.find((d) =>
-                ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status)
-              );
-
-              if (activeDel) {
-                cellType = 'delivery';
-                const from = shortCity(activeDel.request?.pickup_address);
-                const to = shortCity(activeDel.request?.dropoff_address);
-                const statusText = activeDel.status === 'in_transit' ? 'In Transit' : activeDel.status === 'assigned' ? 'Assigned' : 'Delivery';
-                const moreText = dayDeliveries.length > 1 ? ` (+${dayDeliveries.length - 1} more)` : '';
-                cellLabel = `${statusText}${moreText}\n${from} → ${to}`;
-              } else {
-                cellType = 'completed';
-                const firstDel = dayDeliveries[0];
-                const from = shortCity(firstDel.request?.pickup_address);
-                const to = shortCity(firstDel.request?.dropoff_address);
-                const countText = dayDeliveries.length > 1 ? `${dayDeliveries.length} Trips Done` : 'Trip Done';
-                cellLabel = `${countText}\n${from} → ${to}`;
-              }
-            } else if (v.status === 'maintenance' || v.status === 'broken') {
-              cellType = 'break';
-              cellLabel = 'Under Maintenance';
-            } else if (day.key === 'sat' || day.key === 'sun') {
-              cellType = 'empty';
-              cellLabel = '–';
-            } else {
-              cellType = 'available';
-              cellLabel = 'Available';
-            }
-
-            return {
-              day: day.key,
-              label: cellLabel,
-              type: cellType,
-              deliveries: dayDeliveries,
-            };
-          });
-
-          return { id: vehId, model, plate, driver: shortDriver, schedule, photo_url: v.photo_url, rawVehicle: v };
-        });
-
-        setFleetList(mappedFleet);
-      } else {
-        setFleetList([]);
-      }
+      buildFleetSchedule(vehicles, deliveries, drivers, weekOffset);
     } finally {
       setLoadingCalendar(false);
     }
-  }, []);
+  }, [buildFleetSchedule, weekOffset]);
+
+  useEffect(() => {
+    if (rawVehicles.length > 0) {
+      buildFleetSchedule(rawVehicles, rawDeliveries, rawDrivers, weekOffset);
+    }
+  }, [weekOffset, rawVehicles, rawDeliveries, rawDrivers, buildFleetSchedule]);
 
   useEffect(() => {
     loadDashboardData();
@@ -483,6 +623,24 @@ function StaffDashboardPage() {
               <span className="adm-stat-label">Active Deliveries</span>
             </div>
           </div>
+          <div
+            className="adm-stat-card purple"
+            onClick={() => {
+              if (upcomingScheduledDeliveries.length > 0) {
+                const firstSched = upcomingScheduledDeliveries[0];
+                const offset = getWeekOffsetForDate(firstSched.date);
+                setWeekOffset(offset);
+              }
+            }}
+            style={{ cursor: upcomingScheduledDeliveries.length > 0 ? 'pointer' : 'default' }}
+            title={upcomingScheduledDeliveries.length > 0 ? 'Click to view scheduled deliveries in calendar' : ''}
+          >
+            <div className="adm-stat-icon"><i className="fas fa-calendar-alt"></i></div>
+            <div className="adm-stat-body">
+              <span className="adm-stat-num">{stats.scheduledDeliveries}</span>
+              <span className="adm-stat-label">Scheduled Deliveries</span>
+            </div>
+          </div>
           <div className="adm-stat-card orange">
             <div className="adm-stat-icon"><i className="fas fa-clipboard-list"></i></div>
             <div className="adm-stat-body">
@@ -509,8 +667,104 @@ function StaffDashboardPage() {
         {/* ── Middle row: Fleet + Activity ── */}
         <div className="adm-mid-row">
           <div className="adm-card adm-fleet-card">
-            <div className="adm-card-header">
-              <span className="adm-card-title">FLEET MONITORING</span>
+            <div className="adm-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="adm-card-title">FLEET MONITORING</span>
+                {weekOffset !== 0 && (
+                  <span style={{ fontSize: '11px', background: '#FEE2E2', color: '#B91C1C', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>
+                    {weekOffset > 0 ? `+${weekOffset} Wk` : `${weekOffset} Wk`}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: '#4B5563' }}>
+                  {weekDays[0]?.date} – {weekDays[6]?.date}
+                </span>
+
+                <div style={{ display: 'inline-flex', borderRadius: '6px', overflow: 'hidden', border: '1px solid #D1D5DB' }}>
+                  <button
+                    type="button"
+                    onClick={() => setWeekOffset((prev) => prev - 1)}
+                    style={{ padding: '4px 9px', background: '#fff', border: 'none', borderRight: '1px solid #E5E7EB', cursor: 'pointer', fontSize: '12px', color: '#374151' }}
+                    title="Previous Week"
+                  >
+                    <i className="fas fa-chevron-left"></i>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWeekOffset(0)}
+                    style={{
+                      padding: '4px 10px',
+                      background: weekOffset === 0 ? '#F3F4F6' : '#fff',
+                      border: 'none',
+                      borderRight: '1px solid #E5E7EB',
+                      cursor: 'pointer',
+                      fontSize: '11px',
+                      fontWeight: weekOffset === 0 ? '700' : '500',
+                      color: weekOffset === 0 ? '#111827' : '#6B7280',
+                    }}
+                  >
+                    This Week
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWeekOffset((prev) => prev + 1)}
+                    style={{ padding: '4px 9px', background: '#fff', border: 'none', cursor: 'pointer', fontSize: '12px', color: '#374151' }}
+                    title="Next Week"
+                  >
+                    <i className="fas fa-chevron-right"></i>
+                  </button>
+                </div>
+
+                <select
+                  value={weekOffset}
+                  onChange={(e) => setWeekOffset(Number(e.target.value))}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: '11px',
+                    borderRadius: '6px',
+                    border: '1px solid #D1D5DB',
+                    background: '#fff',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    fontWeight: 500,
+                  }}
+                >
+                  <option value={0}>This Week (Current)</option>
+                  <option value={1}>Next Week</option>
+                  {upcomingScheduledDeliveries.map((sd) => {
+                    const offset = getWeekOffsetForDate(sd.date);
+                    return (
+                      <option key={sd.id} value={offset}>
+                        📅 {sd.date} ({sd.item} • {sd.time})
+                      </option>
+                    );
+                  })}
+                </select>
+
+                {upcomingScheduledDeliveries.length > 0 && weekOffset !== getWeekOffsetForDate(upcomingScheduledDeliveries[0].date) && (
+                  <button
+                    type="button"
+                    onClick={() => setWeekOffset(getWeekOffsetForDate(upcomingScheduledDeliveries[0].date))}
+                    style={{
+                      padding: '4px 9px',
+                      fontSize: '11px',
+                      borderRadius: '6px',
+                      border: '1px solid #FCD34D',
+                      background: '#FFFBEB',
+                      color: '#B45309',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                    title="Jump to scheduled delivery in calendar"
+                  >
+                    <i className="fas fa-calendar-alt"></i> Jump to Sep 23
+                  </button>
+                )}
+              </div>
             </div>
             <div className="adm-fleet-table-wrap">
               <table className="adm-fleet-table">
@@ -580,6 +834,7 @@ function StaffDashboardPage() {
               </table>
             </div>
             <div className="adm-fleet-legend">
+              <span className="adm-legend-dot scheduled"></span> Scheduled Delivery
               <span className="adm-legend-dot delivery"></span> Delivery / In Transit
               <span className="adm-legend-dot completed"></span> Completed Trip
               <span className="adm-legend-dot available"></span> Available

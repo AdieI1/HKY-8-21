@@ -28,7 +28,15 @@ class DeliveryRequest extends Model
         'bank_name',
         'account_name',
         'account_number',
-        'status'
+        'status',
+        'is_scheduled',
+        'scheduled_date',
+        'scheduled_time_slot',
+    ];
+
+    protected $casts = [
+        'is_scheduled' => 'boolean',
+        'scheduled_date' => 'date:Y-m-d',
     ];
 
     protected $appends = [
