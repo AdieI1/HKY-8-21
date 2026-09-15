@@ -27,32 +27,31 @@ export function formatTripDuration(startTime, endTime) {
  * Calculates fuel consumption and fuel efficiency (km/L).
  */
 export function getFuelMetrics(delivery) {
-  const startFuel = delivery?.starting_fuel != null ? Number(delivery.starting_fuel) : 85.0;
+  const startFuel = delivery?.starting_fuel != null ? Number(delivery.starting_fuel) : null;
   let endFuel = delivery?.ending_fuel != null ? Number(delivery.ending_fuel) : null;
   if (endFuel !== null && endFuel < 0) endFuel = Math.max(0, endFuel);
 
   const distance = Number(delivery?.distance_travelled || delivery?.request?.distance_km || 0);
 
   let consumed = delivery?.fuel_consumed != null ? Number(delivery.fuel_consumed) : null;
-  if (consumed === null && endFuel !== null) {
+  if (consumed === null && startFuel !== null && endFuel !== null) {
     consumed = Math.max(0, Number((startFuel - endFuel).toFixed(1)));
-  } else if (consumed === null && distance > 0) {
-    consumed = Number((distance * 0.22).toFixed(1)); // ~4.5 km/L estimate
-    endFuel = Math.max(0, Number((startFuel - consumed).toFixed(1)));
   }
 
   let efficiency = null;
-  if (distance > 0 && consumed > 0) {
+  if (distance > 0 && consumed !== null && consumed > 0) {
     efficiency = (distance / consumed).toFixed(1);
   }
 
+  const unit = delivery?.fuel_unit || 'Liters';
+
   return {
-    startFuel: startFuel.toFixed(1),
-    endFuel: endFuel != null ? endFuel.toFixed(1) : '—',
-    consumed: consumed != null ? consumed.toFixed(1) : '—',
-    distance: distance > 0 ? distance.toFixed(1) : '—',
+    startFuel: startFuel !== null ? `${startFuel.toFixed(1)} ${unit}` : '—',
+    endFuel: endFuel !== null ? `${endFuel.toFixed(1)} ${unit}` : '—',
+    consumed: consumed !== null ? `${consumed.toFixed(1)} ${unit}` : '—',
+    distance: distance > 0 ? `${distance.toFixed(1)} km` : '—',
     efficiency: efficiency ? `${efficiency} km/L` : '—',
-    unit: delivery?.fuel_unit || 'Liters',
+    unit,
   };
 }
 
@@ -112,7 +111,7 @@ function PostDeliveryMetricsPanel({ delivery, speedMetrics, onViewRouteMap }) {
 
         <div className="post-metric-card fuel">
           <div className="metric-icon"><i className="fas fa-gas-pump"></i></div>
-          <div className="metric-value">{fuel.consumed} {fuel.unit}</div>
+          <div className="metric-value">{fuel.consumed}</div>
           <div className="metric-label">Fuel Consumed ({fuel.efficiency})</div>
         </div>
 
@@ -138,16 +137,16 @@ function PostDeliveryMetricsPanel({ delivery, speedMetrics, onViewRouteMap }) {
       </div>
       <div className="panel-detail">
         <span className="panel-detail-label">Starting Fuel:</span>
-        <span className="panel-detail-value">{fuel.startFuel} {fuel.unit}</span>
+        <span className="panel-detail-value">{fuel.startFuel}</span>
       </div>
       <div className="panel-detail">
         <span className="panel-detail-label">Ending Fuel:</span>
-        <span className="panel-detail-value">{fuel.endFuel} {fuel.unit}</span>
+        <span className="panel-detail-value">{fuel.endFuel}</span>
       </div>
       <div className="panel-detail">
         <span className="panel-detail-label">Fuel Economy:</span>
-        <span className="panel-detail-value" style={{ color: '#16a34a', fontWeight: 700 }}>
-          {fuel.efficiency !== '—' ? fuel.efficiency : 'Standard Range'}
+        <span className="panel-detail-value" style={{ color: fuel.efficiency !== '—' ? '#16a34a' : '#64748b', fontWeight: 700 }}>
+          {fuel.efficiency}
         </span>
       </div>
 

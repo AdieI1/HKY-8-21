@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
+import AnalyticsOverviewModal from '../components/analytics/AnalyticsOverviewModal';
+import CustomerRatingsModal from '../components/analytics/CustomerRatingsModal';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -48,6 +50,8 @@ function AnalyticsPage() {
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [overviewModalType, setOverviewModalType] = useState(null); // 'deliveries' | 'revenue' | null
+  const [showRatingsModal, setShowRatingsModal] = useState(false);
   const [importedPdfFile, setImportedPdfFile] = useState(null);
   const [importedPdfUrl, setImportedPdfUrl] = useState(null);
   const PAGE_SIZE = 8;
@@ -158,8 +162,29 @@ function AnalyticsPage() {
     return (reviewsPool.reduce((s, r) => s + Number(r.overall_rating || 0), 0) / reviewsPool.length).toFixed(1);
   }, [reviewsPool]);
 
-  const deliveriesTrendUp = thisMonthDeliveries.length >= lastMonthDeliveries.length;
-  const revenueTrendUp = thisMonthRevenue >= lastMonthRevenue;
+  const deliveriesTrend = useMemo(() => {
+    const prev = lastMonthDeliveries.length;
+    const curr = thisMonthDeliveries.length;
+    if (prev === 0 && curr === 0) return { pct: '0%', up: true };
+    if (prev === 0) return { pct: '+100%', up: true };
+    const diff = Math.round(((curr - prev) / prev) * 100);
+    return {
+      pct: `${diff >= 0 ? '+' : ''}${diff}%`,
+      up: diff >= 0,
+    };
+  }, [lastMonthDeliveries, thisMonthDeliveries]);
+
+  const revenueTrend = useMemo(() => {
+    const prev = lastMonthRevenue;
+    const curr = thisMonthRevenue;
+    if (prev === 0 && curr === 0) return { pct: '0%', up: true };
+    if (prev === 0) return { pct: '+100%', up: true };
+    const diff = Math.round(((curr - prev) / prev) * 100);
+    return {
+      pct: `${diff >= 0 ? '+' : ''}${diff}%`,
+      up: diff >= 0,
+    };
+  }, [lastMonthRevenue, thisMonthRevenue]);
 
   const chartMonths = useMemo(() => {
     const buildFor = (months) =>
@@ -429,7 +454,11 @@ function AnalyticsPage() {
 
           {/* 4 Modern KPI Stat Cards */}
           <section className="analytics-stats-grid">
-            <article className="analytics-stat-card">
+            <article
+              className="analytics-stat-card clickable-card"
+              onClick={() => setOverviewModalType('deliveries')}
+              title="Click to view Deliveries Overview breakdown"
+            >
               <div className="stat-icon-wrap blue">
                 <i className="fas fa-truck-fast"></i>
               </div>
@@ -437,16 +466,23 @@ function AnalyticsPage() {
                 <div className="stat-info-label">Total Deliveries</div>
                 <div className="stat-info-val-row">
                   <span className="stat-info-value">{statsPool.length}</span>
-                  <span className={`stat-trend-badge ${deliveriesTrendUp ? 'up' : 'down'}`}>
-                    <i className={`fas fa-arrow-trend-${deliveriesTrendUp ? 'up' : 'down'}`}></i>
-                    {deliveriesTrendUp ? '+12%' : '-4%'}
+                  <span className={`stat-trend-badge ${deliveriesTrend.up ? 'up' : 'down'}`}>
+                    <i className={`fas fa-arrow-trend-${deliveriesTrend.up ? 'up' : 'down'}`}></i>
+                    {deliveriesTrend.pct}
                   </span>
                 </div>
                 <div className="stat-info-sub">Trips in {periodLabel}</div>
+                <div className="stat-view-details">
+                  View Details <i className="fas fa-chevron-right" style={{ fontSize: 9 }}></i>
+                </div>
               </div>
             </article>
 
-            <article className="analytics-stat-card">
+            <article
+              className="analytics-stat-card clickable-card"
+              onClick={() => setOverviewModalType('revenue')}
+              title="Click to view Revenue Overview breakdown"
+            >
               <div className="stat-icon-wrap green">
                 <i className="fas fa-money-bill-wave"></i>
               </div>
@@ -454,25 +490,35 @@ function AnalyticsPage() {
                 <div className="stat-info-label">Total Revenue</div>
                 <div className="stat-info-val-row">
                   <span className="stat-info-value">{formatMoney(thisMonthRevenue)}</span>
-                  <span className={`stat-trend-badge ${revenueTrendUp ? 'up' : 'down'}`}>
-                    <i className={`fas fa-arrow-trend-${revenueTrendUp ? 'up' : 'down'}`}></i>
-                    {revenueTrendUp ? '+18%' : '-2%'}
+                  <span className={`stat-trend-badge ${revenueTrend.up ? 'up' : 'down'}`}>
+                    <i className={`fas fa-arrow-trend-${revenueTrend.up ? 'up' : 'down'}`}></i>
+                    {revenueTrend.pct}
                   </span>
                 </div>
                 <div className="stat-info-sub">Gross verified revenue</div>
+                <div className="stat-view-details">
+                  View Details <i className="fas fa-chevron-right" style={{ fontSize: 9 }}></i>
+                </div>
               </div>
             </article>
 
-            <article className="analytics-stat-card">
+            <article
+              className="analytics-stat-card clickable-card"
+              onClick={() => setShowRatingsModal(true)}
+              title="Click to view Customer Ratings and Reviews breakdown"
+            >
               <div className="stat-icon-wrap amber">
                 <i className="fas fa-star"></i>
               </div>
               <div className="stat-info-wrap">
                 <div className="stat-info-label">Customer Ratings</div>
                 <div className="stat-info-val-row">
-                  <span className="stat-info-value">{avgRating || '5.0'} ★</span>
+                  <span className="stat-info-value">{avgRating ? `${avgRating} ★` : '—'}</span>
                 </div>
                 <div className="stat-info-sub">Average client score</div>
+                <div className="stat-view-details">
+                  View Details <i className="fas fa-chevron-right" style={{ fontSize: 9 }}></i>
+                </div>
               </div>
             </article>
 
@@ -1265,6 +1311,21 @@ function AnalyticsPage() {
           </div>
         </div>
       )}
+
+      {/* Deliveries & Revenue Overview Modal (UI Design Frame) */}
+      <AnalyticsOverviewModal
+        isOpen={!!overviewModalType}
+        type={overviewModalType}
+        onClose={() => setOverviewModalType(null)}
+        deliveries={deliveries}
+      />
+
+      {/* Customer Ratings Overview & Feedback Modal (UI Design Frame) */}
+      <CustomerRatingsModal
+        isOpen={showRatingsModal}
+        onClose={() => setShowRatingsModal(false)}
+        reviews={reviews}
+      />
     </>
   );
 }

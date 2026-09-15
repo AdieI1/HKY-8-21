@@ -220,6 +220,11 @@ Route::middleware('auth:sanctum')->group(function () {
         DeliveryController::class
     );
 
+    Route::apiResource(
+        'reviews',
+        ReviewController::class
+    );
+
 
     /*
     |--------------------------------------------------------------------------
