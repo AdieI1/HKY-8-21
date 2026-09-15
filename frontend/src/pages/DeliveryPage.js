@@ -5,6 +5,8 @@ import ViewLocationMap from '../components/delivery/ViewLocationMap';
 import NotificationBell from '../components/NotificationBell';
 import reverb from '../utils/reverb';
 import { computeTripSpeedMetrics } from '../utils/speedTelemetry';
+import RescheduleProposalModal from '../components/delivery/RescheduleProposalModal';
+import PostDeliveryMetricsPanel, { formatTripDuration, getFuelMetrics } from '../components/delivery/PostDeliveryMetricsPanel';
 
 const STATUS_STEPS = [
   { key: 'pending', label: 'Pending Dispatch' },
@@ -19,12 +21,26 @@ const STATUS_STEPS = [
   { key: 'completed', label: 'Complete' },
 ];
 
-function statusLabel(status) {
-  const step = STATUS_STEPS.find((s) => s.key === status);
-  return step ? step.label : status === 'rejected' ? 'Rejected' : status === 'draft' ? 'Draft' : status;
+function statusLabel(d) {
+  if (!d) return '—';
+  if (!d.driver_id) {
+    if (d.request?.reschedule_status === 'proposed') {
+      const pDate = d.request?.reschedule_proposed_date ? new Date(d.request.reschedule_proposed_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) : 'Date';
+      return `Reschedule Proposed (${pDate})`;
+    }
+    return 'Awaiting Driver';
+  }
+  const step = STATUS_STEPS.find((s) => s.key === d.status);
+  return step ? step.label : d.status === 'rejected' ? 'Rejected' : d.status === 'draft' ? 'Draft' : (d.status || 'Pending');
 }
 
-function statusBadgeClass(status) {
+function statusBadgeClass(d) {
+  if (!d) return 'in-transit';
+  if (!d.driver_id) {
+    if (d.request?.reschedule_status === 'proposed') return 'reschedule-proposed';
+    return 'awaiting-driver';
+  }
+  const status = d.status;
   if (status === 'returning_to_hq') return 'returning';
   if (status === 'completed') return 'completed';
   if (status === 'assigned') return 'dispatched';
@@ -60,10 +76,48 @@ function DeliveryPage() {
   const [currentDate, setCurrentDate] = useState('');
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('recent');
+  const [viewTab, setViewTab] = useState('active'); // 'active' | 'completed'
+  const [activeFilter, setActiveFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 8;
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   const [showMapModal, setShowMapModal] = useState(false);
   const [eta, setEta] = useState(null);
   const [detectedHazards, setDetectedHazards] = useState([]);
+  const [forecast, setForecast] = useState(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState(null);
+  const [rescheduleDate, setRescheduleDate] = useState('');
+  const [rescheduleSlot, setRescheduleSlot] = useState('09:00 AM');
+  const [rescheduleSubmitting, setRescheduleSubmitting] = useState(false);
+  const [rescheduleSuccessMsg, setRescheduleSuccessMsg] = useState('');
+
+  const openRescheduleModal = (d) => {
+    setRescheduleTarget(d);
+    setRescheduleDate(d.request?.reschedule_proposed_date || forecast?.earliest_available_date || '');
+    setRescheduleSlot(d.request?.reschedule_proposed_time_slot || forecast?.earliest_available_slot || '09:00 AM');
+    setRescheduleSuccessMsg('');
+  };
+
+  const handleSendRescheduleProposal = async () => {
+    if (!rescheduleTarget || !rescheduleDate) return;
+    setRescheduleSubmitting(true);
+    try {
+      await api.post(`/deliveries/${rescheduleTarget.delivery_id}/propose-reschedule`, {
+        proposed_date: rescheduleDate,
+        proposed_time_slot: rescheduleSlot,
+      });
+      setRescheduleSuccessMsg(`Proposal sent to customer for ${rescheduleDate}!`);
+      setTimeout(() => {
+        setRescheduleTarget(null);
+        setRescheduleSuccessMsg('');
+      }, 1500);
+      await loadData();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to send reschedule proposal.');
+    } finally {
+      setRescheduleSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     const update = () => setCurrentDate(new Date().toLocaleDateString('en-PH', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' }));
@@ -76,8 +130,12 @@ function DeliveryPage() {
     setLoading(true);
     setLoadError('');
     try {
-      const res = await api.get('/deliveries');
+      const [res, forecastRes] = await Promise.all([
+        api.get('/deliveries'),
+        api.get('/fleet/availability-forecast').catch(() => ({ data: null })),
+      ]);
       setDeliveries(res.data);
+      if (forecastRes?.data) setForecast(forecastRes.data);
     } catch {
       setLoadError('Could not load deliveries. Is the backend running and are you logged in?');
     } finally {
@@ -156,19 +214,51 @@ function DeliveryPage() {
     return { active, inTransit, returning, dispatched, delayed, completed };
   }, [deliveries]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [viewTab, activeFilter, search, sortBy]);
+
   const filteredDeliveries = useMemo(() => {
     let list = [...deliveries];
+
+    // Primary viewTab filtering:
+    if (viewTab === 'completed') {
+      list = list.filter((d) => d.status === 'completed');
+    } else {
+      list = list.filter((d) => d.status !== 'completed');
+
+      // Optional granular sub-filter from clicking KPI cards:
+      if (activeFilter === 'inTransit') {
+        list = list.filter((d) => ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo'].includes(d.status));
+      } else if (activeFilter === 'returning') {
+        list = list.filter((d) => d.status === 'returning_to_hq');
+      } else if (activeFilter === 'dispatched') {
+        list = list.filter((d) => d.status === 'assigned');
+      } else if (activeFilter === 'delayed') {
+        list = list.filter((d) => d.status === 'assigned' && d.start_time && (Date.now() - new Date(d.start_time).getTime()) / 3600000 >= 3);
+      }
+    }
+
     if (search.trim()) {
       const term = search.toLowerCase();
       list = list.filter((d) => {
-        const haystack = `${d.request?.customer?.full_name || ''} ${d.driver?.user?.full_name || ''} ${d.vehicle?.model || ''} ${d.vehicle?.plate_number || ''}`.toLowerCase();
+        const idStr = deliveryCode(d.delivery_id).toLowerCase();
+        const haystack = `${idStr} ${d.request?.customer?.full_name || ''} ${d.driver?.user?.full_name || ''} ${d.vehicle?.model || ''} ${d.vehicle?.plate_number || ''}`.toLowerCase();
         return haystack.includes(term);
       });
     }
+
     if (sortBy === 'recent') list.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
     if (sortBy === 'oldest') list.sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at));
+
     return list;
-  }, [deliveries, search, sortBy]);
+  }, [deliveries, viewTab, activeFilter, search, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredDeliveries.length / PAGE_SIZE));
+  const paginatedDeliveries = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredDeliveries.slice(start, start + PAGE_SIZE);
+  }, [filteredDeliveries, currentPage, PAGE_SIZE]);
 
   const openDeliveryPanel = (delivery) => setSelectedDelivery(delivery);
   const closeDeliveryPanel = () => setSelectedDelivery(null);
@@ -245,21 +335,92 @@ function DeliveryPage() {
           {loadError && <div className="form-error" style={{ margin: '16px 0', color: '#d32f2f' }}>{loadError}</div>}
 
           <div className="monitoring-stats">
-            <div className="stat-card"><div className="stat-badge green">{stats.active}</div><span className="stat-label">Active Deliveries</span></div>
-            <div className="stat-card"><div className="stat-badge blue">{stats.inTransit}</div><span className="stat-label">In Transit</span></div>
-            <div className="stat-card"><div className="stat-badge orange">{stats.returning}</div><span className="stat-label">Returning to HQ</span></div>
-            <div className="stat-card"><div className="stat-badge purple">{stats.dispatched}</div><span className="stat-label">Dispatched</span></div>
-            <div className="stat-card"><div className="stat-badge red">{stats.delayed}</div><span className="stat-label">Delayed</span></div>
-            <div className="stat-card"><div className="stat-badge green-dark">{stats.completed}</div><span className="stat-label">Completed</span></div>
+            <div
+              className={`stat-card ${viewTab === 'active' && activeFilter === 'all' ? 'active-filter' : ''}`}
+              onClick={() => { setViewTab('active'); setActiveFilter('all'); }}
+              title="View All Active Deliveries"
+            >
+              <div className="stat-badge green">{stats.active}</div>
+              <span className="stat-label">Active Deliveries</span>
+            </div>
+
+            <div
+              className={`stat-card ${viewTab === 'active' && activeFilter === 'inTransit' ? 'active-filter' : ''}`}
+              onClick={() => { setViewTab('active'); setActiveFilter('inTransit'); }}
+              title="Filter by In Transit Deliveries"
+            >
+              <div className="stat-badge blue">{stats.inTransit}</div>
+              <span className="stat-label">In Transit</span>
+            </div>
+
+            <div
+              className={`stat-card ${viewTab === 'active' && activeFilter === 'returning' ? 'active-filter' : ''}`}
+              onClick={() => { setViewTab('active'); setActiveFilter('returning'); }}
+              title="Filter by Returning to HQ"
+            >
+              <div className="stat-badge orange">{stats.returning}</div>
+              <span className="stat-label">Returning to HQ</span>
+            </div>
+
+            <div
+              className={`stat-card ${viewTab === 'active' && activeFilter === 'dispatched' ? 'active-filter' : ''}`}
+              onClick={() => { setViewTab('active'); setActiveFilter('dispatched'); }}
+              title="Filter by Dispatched Deliveries"
+            >
+              <div className="stat-badge purple">{stats.dispatched}</div>
+              <span className="stat-label">Dispatched</span>
+            </div>
+
+            <div
+              className={`stat-card ${viewTab === 'active' && activeFilter === 'delayed' ? 'active-filter' : ''}`}
+              onClick={() => { setViewTab('active'); setActiveFilter('delayed'); }}
+              title="Filter by Delayed Deliveries"
+            >
+              <div className="stat-badge red">{stats.delayed}</div>
+              <span className="stat-label">Delayed</span>
+            </div>
+
+            <div
+              className={`stat-card ${viewTab === 'completed' ? 'active-filter' : ''}`}
+              onClick={() => { setViewTab('completed'); setActiveFilter('all'); }}
+              title="View Completed Deliveries (History)"
+            >
+              <div className="stat-badge green-dark">{stats.completed}</div>
+              <span className="stat-label">Completed</span>
+            </div>
           </div>
 
           <div className="content-section">
             <div className="section-header">
-              <h3 className="section-title">All Deliveries</h3>
+              <h3 className="section-title">
+                {viewTab === 'completed' ? 'Completed Deliveries' : 'All Deliveries'}
+              </h3>
               <div className="section-controls">
-                <div className="search-bar"><i className="fas fa-search"></i><input type="text" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+                <div className="search-bar">
+                  <i className="fas fa-search"></i>
+                  <input
+                    type="text"
+                    placeholder="Search"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  className={`btn-tab-toggle ${viewTab === 'completed' ? 'viewing-completed' : ''}`}
+                  onClick={() => {
+                    setViewTab(viewTab === 'completed' ? 'active' : 'completed');
+                    setActiveFilter('all');
+                  }}
+                  title={viewTab === 'completed' ? 'Switch to Active Deliveries' : 'Switch to Completed Deliveries'}
+                >
+                  <i className={`fas ${viewTab === 'completed' ? 'fa-truck' : 'fa-check-circle'}`}></i>
+                  {viewTab === 'completed' ? 'Active Deliveries' : 'Completed Deliveries'}
+                </button>
+
                 <div className="sort-dropdown">
-                  <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ border: 'none', background: 'transparent' }}>
+                  <span>Sort by</span>
+                  <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
                     <option value="recent">Most Recent</option>
                     <option value="oldest">Oldest</option>
                   </select>
@@ -269,48 +430,131 @@ function DeliveryPage() {
             <div className="section-content">
               <table className="data-table monitoring-table">
                 <thead>
-                  <tr><th>Delivery ID</th><th>Customer</th><th>Driver</th><th>Vehicle</th><th>Last Update</th><th>Status</th></tr>
+                  {viewTab === 'completed' ? (
+                    <tr>
+                      <th>Delivery ID</th>
+                      <th>Customer</th>
+                      <th>Driver</th>
+                      <th>Vehicle</th>
+                      <th>Trip Duration &amp; Distance</th>
+                      <th>Fuel Consumed</th>
+                      <th>Status</th>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <th>Delivery ID</th>
+                      <th>Customer</th>
+                      <th>Driver</th>
+                      <th>Vehicle</th>
+                      <th>Last Update</th>
+                      <th>Status</th>
+                    </tr>
+                  )}
                 </thead>
                 <tbody>
-                  {filteredDeliveries.map((d) => (
-                    <tr className="delivery-row" key={d.delivery_id} onClick={() => openDeliveryPanel(d)}>
-                      <td className="delivery-id">{deliveryCode(d.delivery_id)}</td>
-                      <td>{d.request?.customer?.full_name || '—'}</td>
-                      <td>{d.driver?.user?.full_name || 'Unassigned'}</td>
-                      <td>{d.vehicle ? `${d.vehicle.model} – ${d.vehicle.plate_number}` : 'Unassigned'}</td>
-                      <td>{formatRelativeTime(d.updated_at)}</td>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                          <span className={`status-badge-monitor ${statusBadgeClass(d.status)}`} onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}>
-                            {statusLabel(d.status)}
-                          </span>
-                          {(() => {
-                            const speedInfo = deliverySpeeds.get(d.delivery_id);
-                            if (!speedInfo || !speedInfo.totalPointsCount) return null;
-                            return (
-                              <span
-                                className={`table-speed-chip ${speedInfo.category.badgeClass}`}
-                                title={`Speed: ${speedInfo.currentSpeed} km/h • ${speedInfo.category.label} (Avg: ${speedInfo.avgSpeed} km/h, Peak: ${speedInfo.peakSpeed} km/h)`}
-                                style={{
-                                  background: speedInfo.category.bg,
-                                  color: speedInfo.category.color,
-                                  borderColor: speedInfo.category.border,
-                                }}
-                              >
-                                <i className={`fas ${speedInfo.category.icon}`} style={{ fontSize: '9px', marginRight: '3px' }}></i>
-                                {speedInfo.currentSpeed} km/h
+                  {paginatedDeliveries.map((d) => {
+                    if (viewTab === 'completed') {
+                      const tripDuration = formatTripDuration(d.start_time || d.created_at, d.end_time || d.updated_at);
+                      const fuelInfo = getFuelMetrics(d);
+                      const distLabel = fuelInfo.distance !== '—' ? `${fuelInfo.distance} km` : (d.request?.distance_km ? `${d.request.distance_km} km` : '—');
+
+                      return (
+                        <tr className="delivery-row" key={d.delivery_id} onClick={() => openDeliveryPanel(d)}>
+                          <td className="delivery-id">{deliveryCode(d.delivery_id)}</td>
+                          <td>{d.request?.customer?.full_name || '—'}</td>
+                          <td>{d.driver?.user?.full_name || 'Unassigned'}</td>
+                          <td>{d.vehicle ? `${d.vehicle.model} – ${d.vehicle.plate_number}` : 'Unassigned'}</td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <span style={{ fontWeight: 600, color: '#334155', fontSize: '13px' }}>
+                                <i className="far fa-clock" style={{ marginRight: '4px', color: '#6366f1' }}></i>
+                                {tripDuration}
                               </span>
-                            );
-                          })()}
-                        </div>
+                              <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                🛣️ {distLabel}
+                              </span>
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              <span style={{ fontWeight: 600, color: '#ea580c', fontSize: '13px' }}>
+                                ⛽ {fuelInfo.consumed} {fuelInfo.unit}
+                              </span>
+                              <span style={{ fontSize: '11px', color: '#16a34a' }}>
+                                {fuelInfo.efficiency !== '—' ? `${fuelInfo.efficiency}` : 'Standard'}
+                              </span>
+                            </div>
+                          </td>
+                          <td>
+                            <span className="status-badge-monitor completed" onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}>
+                              <i className="fas fa-check" style={{ marginRight: '4px', fontSize: '10px' }}></i>
+                              Completed
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return (
+                      <tr className="delivery-row" key={d.delivery_id} onClick={() => openDeliveryPanel(d)}>
+                        <td className="delivery-id">{deliveryCode(d.delivery_id)}</td>
+                        <td>{d.request?.customer?.full_name || '—'}</td>
+                        <td>{d.driver?.user?.full_name || 'Unassigned'}</td>
+                        <td>{d.vehicle ? `${d.vehicle.model} – ${d.vehicle.plate_number}` : 'Unassigned'}</td>
+                        <td>{formatRelativeTime(d.updated_at)}</td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <span className={`status-badge-monitor ${statusBadgeClass(d)}`} onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}>
+                              {statusLabel(d)}
+                            </span>
+                            {!d.driver_id && (
+                              <button
+                                className="btn-propose-resched"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openRescheduleModal(d);
+                                }}
+                                title="Propose Earliest Dispatch Date to Customer"
+                              >
+                                <i className="far fa-calendar-alt"></i> Propose Reschedule
+                              </button>
+                            )}
+                            {(() => {
+                              const speedInfo = deliverySpeeds.get(d.delivery_id);
+                              if (!speedInfo || !speedInfo.totalPointsCount) return null;
+                              return (
+                                <span
+                                  className={`table-speed-chip ${speedInfo.category.badgeClass}`}
+                                  title={`Speed: ${speedInfo.currentSpeed} km/h • ${speedInfo.category.label} (Avg: ${speedInfo.avgSpeed} km/h, Peak: ${speedInfo.peakSpeed} km/h)`}
+                                  style={{
+                                    background: speedInfo.category.bg,
+                                    color: speedInfo.category.color,
+                                    borderColor: speedInfo.category.border,
+                                  }}
+                                >
+                                  <i className={`fas ${speedInfo.category.icon}`} style={{ fontSize: '9px', marginRight: '3px' }}></i>
+                                  {speedInfo.currentSpeed} km/h
+                                </span>
+                              );
+                            })()}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!loading && paginatedDeliveries.length === 0 && (
+                    <tr>
+                      <td colSpan={viewTab === 'completed' ? '7' : '6'} style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>
+                        {viewTab === 'completed' ? 'No completed deliveries found.' : 'No active deliveries found.'}
                       </td>
                     </tr>
-                  ))}
-                  {!loading && filteredDeliveries.length === 0 && (
-                    <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24 }}>No deliveries found.</td></tr>
                   )}
                   {loading && (
-                    <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24 }}>Loading deliveries...</td></tr>
+                    <tr>
+                      <td colSpan={viewTab === 'completed' ? '7' : '6'} style={{ textAlign: 'center', padding: 24 }}>
+                        Loading deliveries...
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
@@ -318,7 +562,31 @@ function DeliveryPage() {
             <div className="delivery-footer">
               <div className="delivery-info">
                 <i className="fa-solid fa-circle-exclamation"></i>
-                <span>Select a Delivery Row to expand <strong>Delivery details</strong>.</span>
+                <span>
+                  Select a Delivery Row to expand{' '}
+                  <strong>{viewTab === 'completed' ? 'Post-Delivery Metrics & Audit' : 'Delivery details'}</strong>.
+                </span>
+              </div>
+
+              <div className="pagination-controls">
+                <span className="pagination-label">Page</span>
+                <button
+                  className="pagination-btn"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  title="Previous Page"
+                >
+                  <i className="fas fa-chevron-left"></i>
+                </button>
+                <span className="pagination-current">{currentPage}</span>
+                <button
+                  className="pagination-btn"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  title="Next Page"
+                >
+                  <i className="fas fa-chevron-right"></i>
+                </button>
               </div>
             </div>
           </div>
@@ -350,78 +618,105 @@ function DeliveryPage() {
               <div className="panel-detail"><span className="panel-detail-label">Pickup:</span><span className="panel-detail-value">{selectedDelivery.request?.pickup_address || '—'}</span></div>
               <div className="panel-detail"><span className="panel-detail-label">Drop-Off:</span><span className="panel-detail-value">{selectedDelivery.request?.dropoff_address || '—'}</span></div>
 
-              <div className="panel-divider"></div>
-
-              <div className="panel-timeline-title">TRIP TELEMETRY (ODOMETER &amp; FUEL)</div>
-              <div className="panel-detail"><span className="panel-detail-label">Starting Odometer:</span><span className="panel-detail-value">{selectedDelivery.starting_odometer !== null && selectedDelivery.starting_odometer !== undefined ? `${Number(selectedDelivery.starting_odometer).toLocaleString()} km` : '14,325 km'}</span></div>
-              <div className="panel-detail"><span className="panel-detail-label">Ending Odometer:</span><span className="panel-detail-value">{selectedDelivery.ending_odometer !== null && selectedDelivery.ending_odometer !== undefined ? `${Number(selectedDelivery.ending_odometer).toLocaleString()} km` : (selectedDelivery.status === 'completed' ? `${Number((selectedDelivery.starting_odometer || 14325) + (Number(selectedDelivery.request?.distance_km) || 28)).toLocaleString()} km` : 'In Progress')}</span></div>
-              <div className="panel-detail"><span className="panel-detail-label">Starting Fuel:</span><span className="panel-detail-value">{selectedDelivery.starting_fuel !== null && selectedDelivery.starting_fuel !== undefined ? `${selectedDelivery.starting_fuel} ${selectedDelivery.fuel_unit || 'Liters'}` : '85.0 Liters'}</span></div>
-              <div className="panel-detail"><span className="panel-detail-label">Ending Fuel:</span><span className="panel-detail-value">{selectedDelivery.ending_fuel !== null && selectedDelivery.ending_fuel !== undefined ? `${selectedDelivery.ending_fuel} ${selectedDelivery.fuel_unit || 'Liters'}` : (selectedDelivery.status === 'completed' ? '77.9 Liters' : 'In Progress')}</span></div>
-
-              <div className="panel-divider"></div>
-
-              <div className="panel-timeline-title">LIVE MOVEMENT &amp; SPEED TELEMETRY</div>
-              <div className="panel-detail">
-                <span className="panel-detail-label">Current Speed:</span>
-                <span className="panel-detail-value" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <span
-                    className={`speed-status-pill-small ${selectedDeliverySpeedMetrics.category.badgeClass}`}
-                    style={{
-                      background: selectedDeliverySpeedMetrics.category.bg,
-                      color: selectedDeliverySpeedMetrics.category.color,
-                      border: `1px solid ${selectedDeliverySpeedMetrics.category.border}`,
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <i className={`fas ${selectedDeliverySpeedMetrics.category.icon}`}></i>
-                    {selectedDeliverySpeedMetrics.currentSpeed} km/h • {selectedDeliverySpeedMetrics.category.shortLabel}
-                  </span>
-                </span>
-              </div>
-              <div className="panel-detail">
-                <span className="panel-detail-label">Trip Avg Speed:</span>
-                <span className="panel-detail-value">{selectedDeliverySpeedMetrics.avgSpeed} km/h</span>
-              </div>
-              <div className="panel-detail">
-                <span className="panel-detail-label">Peak Speed:</span>
-                <span className="panel-detail-value">{selectedDeliverySpeedMetrics.peakSpeed} km/h</span>
-              </div>
-              <div className="panel-detail">
-                <span className="panel-detail-label">Movement Status:</span>
-                <span className="panel-detail-value">{selectedDeliverySpeedMetrics.category.label}</span>
-              </div>
-
-              <div className="panel-divider"></div>
-
-              <div className="panel-timeline-title">DELIVERY TIMELINE</div>
-              <div className="panel-timeline-subtitle">Last Updated {formatTime(selectedDelivery.updated_at)}</div>
-              <div className="panel-timeline">
-                {STATUS_STEPS.map((step, i) => {
-                  const state = i < currentStepIndex ? 'completed' : i === currentStepIndex ? 'active' : '';
-                  const time = timeForStep(step.key);
-                  return (
-                    <div className={`timeline-item ${state}`} key={step.key}>
-                      <div className="timeline-marker">{state === 'completed' && <i className="fas fa-check"></i>}</div>
-                      <div className="timeline-text">{step.label}</div>
-                      {state === 'active' ? (
-                        <div className="timeline-meta"><span className="timeline-tag">Current</span><span className="timeline-time">{time}</span></div>
-                      ) : (
-                        <div className="timeline-time">{time}</div>
-                      )}
+              {selectedDelivery.status === 'completed' ? (
+                <PostDeliveryMetricsPanel
+                  delivery={selectedDelivery}
+                  speedMetrics={selectedDeliverySpeedMetrics}
+                  onViewRouteMap={openMapModal}
+                />
+              ) : (
+                <>
+                  {!selectedDelivery.driver_id && (
+                    <div className="panel-reschedule-box">
+                      <div className="resched-box-title">
+                        <i className="fas fa-exclamation-circle"></i> Awaiting Driver Availability
+                      </div>
+                      <p className="resched-box-desc">
+                        All drivers are currently on delivery trips. Earliest projected availability is <strong>{forecast?.earliest_available_label || '2 days'}</strong>.
+                      </p>
+                      <button
+                        className="btn-primary-resched"
+                        onClick={() => openRescheduleModal(selectedDelivery)}
+                      >
+                        <i className="far fa-calendar-plus"></i> Propose Earliest Slot to Customer
+                      </button>
                     </div>
-                  );
-                })}
-              </div>
+                  )}
 
-              <button className="btn-view-location" onClick={openMapModal}>
-                <i className="fas fa-map-marker-alt"></i> View Location
-              </button>
+                  <div className="panel-divider"></div>
+
+                  <div className="panel-timeline-title">TRIP TELEMETRY (ODOMETER &amp; FUEL)</div>
+                  <div className="panel-detail"><span className="panel-detail-label">Starting Odometer:</span><span className="panel-detail-value">{selectedDelivery.starting_odometer !== null && selectedDelivery.starting_odometer !== undefined ? `${Number(selectedDelivery.starting_odometer).toLocaleString()} km` : '14,325 km'}</span></div>
+                  <div className="panel-detail"><span className="panel-detail-label">Ending Odometer:</span><span className="panel-detail-value">{selectedDelivery.ending_odometer !== null && selectedDelivery.ending_odometer !== undefined ? `${Number(selectedDelivery.ending_odometer).toLocaleString()} km` : 'In Progress'}</span></div>
+                  <div className="panel-detail"><span className="panel-detail-label">Starting Fuel:</span><span className="panel-detail-value">{selectedDelivery.starting_fuel !== null && selectedDelivery.starting_fuel !== undefined ? `${selectedDelivery.starting_fuel} ${selectedDelivery.fuel_unit || 'Liters'}` : '85.0 Liters'}</span></div>
+                  <div className="panel-detail"><span className="panel-detail-label">Ending Fuel:</span><span className="panel-detail-value">{selectedDelivery.ending_fuel !== null && selectedDelivery.ending_fuel !== undefined ? `${selectedDelivery.ending_fuel} ${selectedDelivery.fuel_unit || 'Liters'}` : 'In Progress'}</span></div>
+
+                  <div className="panel-divider"></div>
+
+                  <div className="panel-timeline-title">LIVE MOVEMENT &amp; SPEED TELEMETRY</div>
+                  <div className="panel-detail">
+                    <span className="panel-detail-label">Current Speed:</span>
+                    <span className="panel-detail-value" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <span
+                        className={`speed-status-pill-small ${selectedDeliverySpeedMetrics.category.badgeClass}`}
+                        style={{
+                          background: selectedDeliverySpeedMetrics.category.bg,
+                          color: selectedDeliverySpeedMetrics.category.color,
+                          border: `1px solid ${selectedDeliverySpeedMetrics.category.border}`,
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <i className={`fas ${selectedDeliverySpeedMetrics.category.icon}`}></i>
+                        {selectedDeliverySpeedMetrics.currentSpeed} km/h • {selectedDeliverySpeedMetrics.category.shortLabel}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="panel-detail">
+                    <span className="panel-detail-label">Trip Avg Speed:</span>
+                    <span className="panel-detail-value">{selectedDeliverySpeedMetrics.avgSpeed} km/h</span>
+                  </div>
+                  <div className="panel-detail">
+                    <span className="panel-detail-label">Peak Speed:</span>
+                    <span className="panel-detail-value">{selectedDeliverySpeedMetrics.peakSpeed} km/h</span>
+                  </div>
+                  <div className="panel-detail">
+                    <span className="panel-detail-label">Movement Status:</span>
+                    <span className="panel-detail-value">{selectedDeliverySpeedMetrics.category.label}</span>
+                  </div>
+
+                  <div className="panel-divider"></div>
+
+                  <div className="panel-timeline-title">DELIVERY TIMELINE</div>
+                  <div className="panel-timeline-subtitle">Last Updated {formatTime(selectedDelivery.updated_at)}</div>
+                  <div className="panel-timeline">
+                    {STATUS_STEPS.map((step, i) => {
+                      const state = i < currentStepIndex ? 'completed' : i === currentStepIndex ? 'active' : '';
+                      const time = timeForStep(step.key);
+                      return (
+                        <div className={`timeline-item ${state}`} key={step.key}>
+                          <div className="timeline-marker">{state === 'completed' && <i className="fas fa-check"></i>}</div>
+                          <div className="timeline-text">{step.label}</div>
+                          {state === 'active' ? (
+                            <div className="timeline-meta"><span className="timeline-tag">Current</span><span className="timeline-time">{time}</span></div>
+                          ) : (
+                            <div className="timeline-time">{time}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <button className="btn-view-location" onClick={openMapModal}>
+                    <i className="fas fa-map-marker-alt"></i> View Location
+                  </button>
+                </>
+              )}
             </div>
           </>
         )}
@@ -552,6 +847,19 @@ function DeliveryPage() {
           </div>
         </>
       )}
+
+      <RescheduleProposalModal
+        target={rescheduleTarget}
+        forecast={forecast}
+        rescheduleDate={rescheduleDate}
+        setRescheduleDate={setRescheduleDate}
+        rescheduleSlot={rescheduleSlot}
+        setRescheduleSlot={setRescheduleSlot}
+        submitting={rescheduleSubmitting}
+        successMsg={rescheduleSuccessMsg}
+        onClose={() => setRescheduleTarget(null)}
+        onSubmit={handleSendRescheduleProposal}
+      />
     </>
   );
 }

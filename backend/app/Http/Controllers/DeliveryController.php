@@ -923,6 +923,80 @@ class DeliveryController extends Controller
 
     /*
     |--------------------------------------------------------------------------
+    | PROPOSE RESCHEDULE FOR UNASSIGNED DELIVERY
+    |--------------------------------------------------------------------------
+    */
+    public function proposeReschedule(Request $request, Delivery $delivery)
+    {
+        $validated = $request->validate([
+            'proposed_date' => 'required|date',
+            'proposed_time_slot' => 'nullable|string|max:100',
+            'note' => 'nullable|string|max:500',
+        ]);
+
+        $deliveryRequest = $delivery->request;
+        if (!$deliveryRequest) {
+            return response()->json(['message' => 'Associated delivery request not found.'], 404);
+        }
+
+        $deliveryRequest->update([
+            'reschedule_proposed_date' => $validated['proposed_date'],
+            'reschedule_proposed_time_slot' => $validated['proposed_time_slot'] ?? '09:00 AM',
+            'reschedule_status' => 'proposed',
+        ]);
+
+        if ($deliveryRequest->customer_id) {
+            AppNotification::create([
+                'user_id' => $deliveryRequest->customer_id,
+                'title' => 'Reschedule Proposed for Delivery DLV' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT),
+                'message' => 'HJY Trucking proposed dispatch on ' . date('M d, Y', strtotime($validated['proposed_date'])) . ' at ' . ($validated['proposed_time_slot'] ?? '09:00 AM') . ' based on driver availability. Tap to confirm.',
+                'type' => 'delivery_reschedule',
+                'data' => [
+                    'delivery_id' => $delivery->delivery_id,
+                    'request_id' => $deliveryRequest->request_id,
+                    'proposed_date' => $validated['proposed_date'],
+                    'proposed_time_slot' => $validated['proposed_time_slot'] ?? '09:00 AM',
+                ],
+                'is_read' => false,
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Reschedule proposal sent to customer successfully.',
+            'delivery' => $delivery->fresh()->load(['request.customer', 'driver.user', 'vehicle']),
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ACCEPT PROPOSED RESCHEDULE (CUSTOMER OR DISPATCHER)
+    |--------------------------------------------------------------------------
+    */
+    public function acceptReschedule(Request $request, Delivery $delivery)
+    {
+        $deliveryRequest = $delivery->request;
+        if (!$deliveryRequest) {
+            return response()->json(['message' => 'Associated delivery request not found.'], 404);
+        }
+
+        $selectedDate = $request->input('selected_date') ?: $deliveryRequest->reschedule_proposed_date;
+        $selectedSlot = $request->input('selected_time_slot') ?: $deliveryRequest->reschedule_proposed_time_slot ?: '09:00 AM';
+
+        $deliveryRequest->update([
+            'is_scheduled' => true,
+            'scheduled_date' => $selectedDate,
+            'scheduled_time_slot' => $selectedSlot,
+            'reschedule_status' => 'accepted',
+        ]);
+
+        return response()->json([
+            'message' => 'Delivery schedule confirmed successfully.',
+            'delivery' => $delivery->fresh()->load(['request.customer', 'driver.user', 'vehicle']),
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | DELETE DELIVERY
     |--------------------------------------------------------------------------
     */

@@ -62,10 +62,26 @@ function getProgressInfo(statusKey) {
   }
 }
 
-export default function DeliveryCard({ delivery, onReview }) {
+export default function DeliveryCard({ delivery, onReview, onAcceptReschedule }) {
   const status = STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending;
   const assigned = !["pending", "approved", "rejected"].includes(delivery.status);
   const progressInfo = getProgressInfo(delivery.backendStatus || delivery.status);
+
+  const isAwaiting = delivery.isAwaitingDriver;
+  const isRescheduleProposed = delivery.rescheduleStatus === "proposed";
+
+  let statusBadgeColor = status.color;
+  let statusBadgeLabel = status.label;
+
+  if (isAwaiting) {
+    if (isRescheduleProposed) {
+      statusBadgeColor = "#7C3AED";
+      statusBadgeLabel = "Reschedule Offered";
+    } else {
+      statusBadgeColor = "#D97706";
+      statusBadgeLabel = "Awaiting Driver";
+    }
+  }
 
   return (
     <View style={styles.card}>
@@ -78,8 +94,8 @@ export default function DeliveryCard({ delivery, onReview }) {
             {delivery.cargoName || delivery.cargo || "Cargo"}
           </Text>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: status.color }]}>
-          <Text style={styles.statusText}>{status.label}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: statusBadgeColor }]}>
+          <Text style={styles.statusText}>{statusBadgeLabel}</Text>
         </View>
       </View>
 
@@ -101,6 +117,36 @@ export default function DeliveryCard({ delivery, onReview }) {
             <Ionicons name="time-outline" size={13} color="#D97706" />
             <Text style={[styles.dateText, { color: "#D97706", fontWeight: "600" }]}>
               Scheduled: {delivery.scheduledDate || "Upcoming"} ({delivery.scheduledTimeSlot || "Standard"})
+            </Text>
+          </View>
+        )}
+
+        {isRescheduleProposed && (
+          <View style={styles.rescheduleBanner}>
+            <View style={styles.rescheduleHeader}>
+              <Ionicons name="calendar" size={15} color="#B45309" />
+              <Text style={styles.rescheduleTitle}>Recommended Dispatch Date</Text>
+            </View>
+            <Text style={styles.rescheduleText}>
+              All fleet drivers are on multi-day routes. Proposed slot:{" "}
+              <Text style={{ fontWeight: "700", color: "#92400E" }}>{delivery.rescheduleProposedDate}</Text> at{" "}
+              <Text style={{ fontWeight: "700", color: "#92400E" }}>{delivery.rescheduleProposedTimeSlot || "09:00 AM"}</Text>.
+            </Text>
+            <TouchableOpacity
+              style={styles.acceptBtn}
+              onPress={() => onAcceptReschedule?.(delivery)}
+            >
+              <Ionicons name="checkmark-circle" size={15} color="#fff" />
+              <Text style={styles.acceptBtnText}>Confirm &amp; Lock In Slot</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {isAwaiting && !isRescheduleProposed && (
+          <View style={styles.queueBanner}>
+            <Ionicons name="hourglass-outline" size={13} color="#B45309" />
+            <Text style={styles.queueText}>
+              In Queue: All fleet drivers currently dispatched on long-haul routes. Next driver expected soon.
             </Text>
           </View>
         )}
@@ -468,5 +514,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     marginRight: 4,
+  },
+  rescheduleBanner: {
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+  },
+  rescheduleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 4,
+  },
+  rescheduleTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#92400E",
+  },
+  rescheduleText: {
+    fontSize: 11.5,
+    color: "#78350F",
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  acceptBtn: {
+    backgroundColor: "#EA580C",
+    borderRadius: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  acceptBtnText: {
+    color: "#fff",
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  queueBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FEF3C7",
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginTop: 6,
+  },
+  queueText: {
+    fontSize: 11,
+    color: "#92400E",
+    flex: 1,
+    lineHeight: 15,
   },
 });

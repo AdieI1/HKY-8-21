@@ -32,11 +32,15 @@ class DeliveryRequest extends Model
         'is_scheduled',
         'scheduled_date',
         'scheduled_time_slot',
+        'reschedule_proposed_date',
+        'reschedule_proposed_time_slot',
+        'reschedule_status',
     ];
 
     protected $casts = [
         'is_scheduled' => 'boolean',
         'scheduled_date' => 'date:Y-m-d',
+        'reschedule_proposed_date' => 'date:Y-m-d',
     ];
 
     protected $appends = [

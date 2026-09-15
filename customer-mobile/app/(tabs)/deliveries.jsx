@@ -14,7 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import AppHeader from "../../components/AppHeader";
 import DeliveryCard from "../../components/DeliveryCard";
 import ReviewModal from "../../components/ReviewModal";
-import { getMyDeliveryRequests, getToken, logout } from "../../services/api";
+import { acceptDeliveryReschedule, getMyDeliveryRequests, getToken, logout } from "../../services/api";
 import { formatDeliveryRequest, isActiveDelivery } from "../../services/deliveries";
 
 const { width, height } = Dimensions.get("window");
@@ -48,6 +48,26 @@ export default function Deliveries() {
           .map(formatDeliveryRequest)
       );
     } catch (error) {
+      console.log("Failed to load customer deliveries:", error);
+    }
+  }, []);
+
+  const handleAcceptReschedule = async (delivery) => {
+    if (!delivery.deliveryId) return;
+    try {
+      await acceptDeliveryReschedule(delivery.deliveryId, {
+        selected_date: delivery.rescheduleProposedDate,
+        selected_time_slot: delivery.rescheduleProposedTimeSlot,
+      });
+      Alert.alert(
+        "Schedule Confirmed",
+        `Your delivery has been confirmed for ${delivery.rescheduleProposedDate} at ${delivery.rescheduleProposedTimeSlot || "09:00 AM"}!`
+      );
+      loadDeliveries();
+    } catch (error) {
+      Alert.alert("Error", error.message || "Failed to confirm reschedule.");
+    }
+  };
       if (error.message?.toLowerCase().includes("unauthenticated")) {
         await logout();
         router.replace("/login-page");
@@ -204,6 +224,7 @@ export default function Deliveries() {
                 key={delivery.id}
                 delivery={delivery}
                 onReview={handleOpenReview}
+                onAcceptReschedule={handleAcceptReschedule}
               />
             ))
           ) : (

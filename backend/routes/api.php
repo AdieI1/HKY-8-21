@@ -26,6 +26,7 @@ use App\Http\Controllers\SystemSettingController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DangerZoneController;
 use App\Http\Controllers\RouteElevationController;
+use App\Http\Controllers\FleetAvailabilityController;
 
 
 /*
@@ -47,6 +48,11 @@ Route::post('/route/elevation', [
 Route::post('/route/steepness', [
     RouteElevationController::class,
     'getSteepness'
+]);
+
+Route::get('/fleet/availability-forecast', [
+    FleetAvailabilityController::class,
+    'forecast'
 ]);
 
 Route::post('/login', [
@@ -265,6 +271,22 @@ Route::middleware('auth:sanctum')->group(function () {
         [
             DeliveryController::class,
             'updateLocation'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/propose-reschedule',
+        [
+            DeliveryController::class,
+            'proposeReschedule'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/accept-reschedule',
+        [
+            DeliveryController::class,
+            'acceptReschedule'
         ]
     );
 

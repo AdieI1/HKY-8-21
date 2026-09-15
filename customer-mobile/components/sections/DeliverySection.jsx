@@ -1,15 +1,29 @@
+import { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Dimensions, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, Dimensions, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { getFleetAvailabilityForecast } from "../../services/api";
 
 const { width, height } = Dimensions.get("window");
 
 export default function DeliverySection({ pickup, dropoff, onOpenMap, schedule, onScheduleChange }) {
+  const [forecast, setForecast] = useState(null);
+
+  useEffect(() => {
+    getFleetAvailabilityForecast()
+      .then((data) => setForecast(data))
+      .catch(() => {});
+  }, []);
 
   const handleOpenMap = (type) => {
     if (onOpenMap) onOpenMap(type);
   };
 
   const isScheduled = !!schedule?.isScheduled;
+
+  const getTodayDate = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
 
   const getFutureDate = (daysAhead) => {
     const d = new Date();
@@ -23,11 +37,20 @@ export default function DeliverySection({ pickup, dropoff, onOpenMap, schedule, 
     return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   };
 
-  const dateOptions = [
-    { label: `Tomorrow (${getFutureLabel(1)})`, value: getFutureDate(1) },
-    { label: getFutureLabel(2), value: getFutureDate(2) },
-    { label: getFutureLabel(3), value: getFutureDate(3) },
-  ];
+  const blockedDates = forecast?.blocked_dates || [];
+  const earliestDate = forecast?.earliest_available_date;
+  const earliestLabel = forecast?.earliest_available_label;
+
+  const dateOptions = [1, 2, 3, 4].map((dAhead) => {
+    const val = getFutureDate(dAhead);
+    const isBlocked = blockedDates.includes(val);
+    const baseLabel = dAhead === 1 ? `Tomorrow (${getFutureLabel(1)})` : getFutureLabel(dAhead);
+    return {
+      label: isBlocked ? `${baseLabel} (Full)` : baseLabel,
+      value: val,
+      isBlocked,
+    };
+  });
 
   const properTimes = [
     "08:00 AM",
@@ -77,6 +100,19 @@ export default function DeliverySection({ pickup, dropoff, onOpenMap, schedule, 
       <Text style={[styles.title, { marginTop: 8 }]}>Delivery Timing</Text>
       <View style={styles.divider} />
 
+      {!isScheduled && (forecast?.available_drivers_now === 0 || blockedDates.includes(getTodayDate())) && (
+        <View style={styles.demandAlert}>
+          <Ionicons name="warning-outline" size={16} color="#B45309" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.demandAlertTitle}>High Fleet Demand Today</Text>
+            <Text style={styles.demandAlertText}>
+              All fleet drivers are currently on delivery trips. Scheduling for{" "}
+              <Text style={{ fontWeight: "700" }}>{earliestLabel || "a future date"}</Text> locks in a confirmed slot.
+            </Text>
+          </View>
+        </View>
+      )}
+
       <View style={styles.toggleRow}>
         <TouchableOpacity
           style={[styles.toggleBtn, !isScheduled && styles.toggleBtnActive]}
@@ -92,7 +128,7 @@ export default function DeliverySection({ pickup, dropoff, onOpenMap, schedule, 
           style={[styles.toggleBtn, isScheduled && styles.toggleBtnActive]}
           onPress={() => onScheduleChange?.({
             isScheduled: true,
-            date: schedule?.date || getFutureDate(1),
+            date: schedule?.date || earliestDate || getFutureDate(1),
             timeSlot: schedule?.timeSlot || "09:00 AM",
           })}
         >
@@ -112,10 +148,29 @@ export default function DeliverySection({ pickup, dropoff, onOpenMap, schedule, 
               return (
                 <TouchableOpacity
                   key={opt.value}
-                  style={[styles.slotChip, selected && styles.slotChipActive]}
-                  onPress={() => onScheduleChange?.({ ...schedule, date: opt.value })}
+                  style={[
+                    styles.slotChip,
+                    selected && styles.slotChipActive,
+                    opt.isBlocked && styles.slotChipBlocked,
+                  ]}
+                  onPress={() => {
+                    if (opt.isBlocked) {
+                      Alert.alert(
+                        "Date Fully Booked",
+                        `All drivers are currently on long-haul routes on this date. Please select ${earliestLabel || "an available date"}.`
+                      );
+                      return;
+                    }
+                    onScheduleChange?.({ ...schedule, date: opt.value });
+                  }}
                 >
-                  <Text style={[styles.slotChipText, selected && styles.slotChipTextActive]}>
+                  <Text
+                    style={[
+                      styles.slotChipText,
+                      selected && styles.slotChipTextActive,
+                      opt.isBlocked && styles.slotChipTextBlocked,
+                    ]}
+                  >
                     {opt.label}
                   </Text>
                 </TouchableOpacity>
@@ -341,5 +396,41 @@ const styles = StyleSheet.create({
     fontSize: width * 0.03,
     color: "#222",
     padding: 0,
+  },
+
+  demandAlert: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    borderRadius: 8,
+    padding: 10,
+    gap: 8,
+    marginBottom: 8,
+  },
+
+  demandAlertTitle: {
+    fontSize: width * 0.03,
+    fontWeight: "700",
+    color: "#92400E",
+    marginBottom: 2,
+  },
+
+  demandAlertText: {
+    fontSize: width * 0.026,
+    color: "#78350F",
+    lineHeight: 16,
+  },
+
+  slotChipBlocked: {
+    backgroundColor: "#F3F4F6",
+    borderColor: "#E5E7EB",
+    opacity: 0.65,
+  },
+
+  slotChipTextBlocked: {
+    color: "#9CA3AF",
+    textDecorationLine: "line-through",
   },
 });

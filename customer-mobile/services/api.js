@@ -286,4 +286,18 @@ export const submitReview = async (payload) => {
 
 export const getCurrentCustomer = () => authUser;
 
+export const getFleetAvailabilityForecast = async () => {
+  return request("/fleet/availability-forecast");
+};
+
+export const acceptDeliveryReschedule = async (deliveryId, payload = {}) => {
+  return request(`/deliveries/${deliveryId}/accept-reschedule`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+};
+
 
