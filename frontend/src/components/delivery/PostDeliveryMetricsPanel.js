@@ -55,7 +55,7 @@ export function getFuelMetrics(delivery) {
   };
 }
 
-function PostDeliveryMetricsPanel({ delivery, speedMetrics, onViewRouteMap }) {
+function PostDeliveryMetricsPanel({ delivery, speedMetrics, onViewRouteMap, hideBanner = false }) {
   if (!delivery) return null;
 
   const duration = formatTripDuration(delivery.start_time || delivery.created_at, delivery.end_time || delivery.updated_at);
@@ -79,17 +79,19 @@ function PostDeliveryMetricsPanel({ delivery, speedMetrics, onViewRouteMap }) {
   return (
     <div className="post-delivery-container">
       {/* Success Completion Header */}
-      <div className="post-delivery-banner">
-        <div className="banner-icon">
-          <i className="fas fa-check-circle"></i>
-        </div>
-        <div className="banner-info">
-          <div className="banner-title">Delivery Completed &amp; Verified</div>
-          <div className="banner-subtitle">
-            Delivered on <strong>{formattedCompletedDate}</strong>
+      {!hideBanner && (
+        <div className="post-delivery-banner">
+          <div className="banner-icon">
+            <i className="fas fa-check-circle"></i>
+          </div>
+          <div className="banner-info">
+            <div className="banner-title">Delivery Completed &amp; Verified</div>
+            <div className="banner-subtitle">
+              Delivered on <strong>{formattedCompletedDate}</strong>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="post-delivery-section-title">
         <i className="fas fa-chart-line"></i> POST-DELIVERY PERFORMANCE METRICS

@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
+  Alert,
   Dimensions,
   ScrollView,
   StyleSheet,
@@ -48,9 +49,14 @@ export default function Deliveries() {
           .map(formatDeliveryRequest)
       );
     } catch (error) {
+      if (error.message?.toLowerCase().includes("unauthenticated")) {
+        await logout();
+        router.replace("/login-page");
+        return;
+      }
       console.log("Failed to load customer deliveries:", error);
     }
-  }, []);
+  }, [router]);
 
   const handleAcceptReschedule = async (delivery) => {
     if (!delivery.deliveryId) return;
@@ -68,14 +74,6 @@ export default function Deliveries() {
       Alert.alert("Error", error.message || "Failed to confirm reschedule.");
     }
   };
-      if (error.message?.toLowerCase().includes("unauthenticated")) {
-        await logout();
-        router.replace("/login-page");
-        return;
-      }
-      console.log("CUSTOMER DELIVERY SYNC ERROR:", error.message);
-    }
-  }, [router]);
 
   useFocusEffect(
     useCallback(() => {
@@ -249,6 +247,7 @@ export default function Deliveries() {
     </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   safeArea: {

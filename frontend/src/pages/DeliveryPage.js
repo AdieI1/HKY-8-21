@@ -6,6 +6,7 @@ import NotificationBell from '../components/NotificationBell';
 import reverb from '../utils/reverb';
 import { computeTripSpeedMetrics } from '../utils/speedTelemetry';
 import RescheduleProposalModal from '../components/delivery/RescheduleProposalModal';
+import ReassignDriverModal from '../components/delivery/ReassignDriverModal';
 import PostDeliveryMetricsPanel, { formatTripDuration, getFuelMetrics } from '../components/delivery/PostDeliveryMetricsPanel';
 
 const STATUS_STEPS = [
@@ -21,8 +22,51 @@ const STATUS_STEPS = [
   { key: 'completed', label: 'Complete' },
 ];
 
+export function isDeliveryDelayed(d) {
+  if (!d || typeof d !== 'object') return false;
+  // If delivery is assigned/dispatched and has not transitioned to accepted/in-transit for >= 3 hours
+  if (d.status === 'assigned' && d.start_time) {
+    return (Date.now() - new Date(d.start_time).getTime()) / 3600000 >= 3;
+  }
+  return false;
+}
+
+export function getDelayDetails(d) {
+  if (!isDeliveryDelayed(d) || !d.start_time) return null;
+  const startMs = new Date(d.start_time).getTime();
+  const diffMs = Math.max(0, Date.now() - startMs);
+  const totalHours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(totalHours / 24);
+
+  let durationText = '';
+  if (days >= 1) {
+    durationText = `${days} day${days > 1 ? 's' : ''} overdue`;
+  } else if (totalHours >= 1) {
+    durationText = `${totalHours} hr${totalHours > 1 ? 's' : ''} overdue`;
+  } else {
+    durationText = `${Math.floor(diffMs / 60000)} mins overdue`;
+  }
+
+  const dateObj = new Date(d.start_time);
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+  const dispatchedDateStr = `${monthNames[dateObj.getMonth()]} ${dateObj.getDate()}, ${dateObj.getFullYear()}`;
+
+  return {
+    durationText,
+    dispatchedDateStr,
+    fullLabel: `${durationText} (Dispatched ${dispatchedDateStr})`,
+  };
+}
+
 function statusLabel(d) {
   if (!d) return '—';
+  if (typeof d === 'string') {
+    const step = STATUS_STEPS.find((s) => s.key === d);
+    return step ? step.label : d === 'rejected' ? 'Rejected' : d === 'draft' ? 'Draft' : d;
+  }
+  if (isDeliveryDelayed(d)) {
+    return 'Delayed';
+  }
   if (!d.driver_id) {
     if (d.request?.reschedule_status === 'proposed') {
       const pDate = d.request?.reschedule_proposed_date ? new Date(d.request.reschedule_proposed_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) : 'Date';
@@ -36,6 +80,17 @@ function statusLabel(d) {
 
 function statusBadgeClass(d) {
   if (!d) return 'in-transit';
+  if (typeof d === 'string') {
+    if (d === 'returning_to_hq') return 'returning';
+    if (d === 'completed') return 'completed';
+    if (d === 'assigned') return 'dispatched';
+    if (d === 'pending' || d === 'draft') return 'pending';
+    if (d === 'rejected') return 'rejected';
+    return 'in-transit';
+  }
+  if (isDeliveryDelayed(d)) {
+    return 'delayed';
+  }
   if (!d.driver_id) {
     if (d.request?.reschedule_status === 'proposed') return 'reschedule-proposed';
     return 'awaiting-driver';
@@ -45,7 +100,7 @@ function statusBadgeClass(d) {
   if (status === 'completed') return 'completed';
   if (status === 'assigned') return 'dispatched';
   if (status === 'pending' || status === 'draft') return 'pending';
-  if (status === 'rejected') return 'delayed';
+  if (status === 'rejected') return 'rejected';
   return 'in-transit';
 }
 
@@ -91,6 +146,63 @@ function DeliveryPage() {
   const [rescheduleSubmitting, setRescheduleSubmitting] = useState(false);
   const [rescheduleSuccessMsg, setRescheduleSuccessMsg] = useState('');
 
+  const [drivers, setDrivers] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+  const [reassignTarget, setReassignTarget] = useState(null);
+  const [reassignDriverId, setReassignDriverId] = useState('');
+  const [reassignVehicleId, setReassignVehicleId] = useState('');
+  const [reassignRemarks, setReassignRemarks] = useState('');
+  const [reassignSubmitting, setReassignSubmitting] = useState(false);
+  const [reassignError, setReassignError] = useState('');
+  const [reassignSuccessMsg, setReassignSuccessMsg] = useState('');
+
+  const availableDrivers = useMemo(
+    () => drivers.filter((d) => d.status === 'active' && d.availability_status === 'available'),
+    [drivers]
+  );
+  const availableVehicles = useMemo(
+    () => vehicles.filter((v) => v.status === 'available'),
+    [vehicles]
+  );
+  const hasAvailableDrivers = availableDrivers.length > 0;
+  const hasAvailableVehicles = availableVehicles.length > 0;
+  const canReassign = hasAvailableDrivers && hasAvailableVehicles;
+
+  const openReassignModal = (d) => {
+    setReassignTarget(d);
+    setReassignDriverId(availableDrivers[0]?.driver_id || '');
+    setReassignVehicleId(availableVehicles[0]?.vehicle_id || '');
+    setReassignRemarks('Re-assigned due to dispatch delay');
+    setReassignError('');
+    setReassignSuccessMsg('');
+  };
+
+  const handleConfirmReassign = async () => {
+    if (!reassignTarget || !reassignDriverId || !reassignVehicleId) {
+      setReassignError('Please select both an available driver and vehicle.');
+      return;
+    }
+    setReassignSubmitting(true);
+    setReassignError('');
+    try {
+      await api.post(`/deliveries/${reassignTarget.delivery_id}/dispatch`, {
+        driver_id: reassignDriverId,
+        vehicle_id: reassignVehicleId,
+        remarks: reassignRemarks.trim() || undefined,
+      });
+      setReassignSuccessMsg('Driver and vehicle successfully re-assigned!');
+      setTimeout(async () => {
+        setReassignTarget(null);
+        setReassignSuccessMsg('');
+        await loadData();
+      }, 1400);
+    } catch (err) {
+      setReassignError(err.response?.data?.message || 'Failed to re-assign driver.');
+    } finally {
+      setReassignSubmitting(false);
+    }
+  };
+
   const openRescheduleModal = (d) => {
     setRescheduleTarget(d);
     setRescheduleDate(d.request?.reschedule_proposed_date || forecast?.earliest_available_date || '');
@@ -130,12 +242,16 @@ function DeliveryPage() {
     setLoading(true);
     setLoadError('');
     try {
-      const [res, forecastRes] = await Promise.all([
+      const [res, forecastRes, driversRes, vehiclesRes] = await Promise.all([
         api.get('/deliveries'),
         api.get('/fleet/availability-forecast').catch(() => ({ data: null })),
+        api.get('/drivers').catch(() => ({ data: [] })),
+        api.get('/vehicles').catch(() => ({ data: [] })),
       ]);
-      setDeliveries(res.data);
+      setDeliveries(res.data || []);
       if (forecastRes?.data) setForecast(forecastRes.data);
+      if (driversRes?.data) setDrivers(driversRes.data || []);
+      if (vehiclesRes?.data) setVehicles(vehiclesRes.data || []);
     } catch {
       setLoadError('Could not load deliveries. Is the backend running and are you logged in?');
     } finally {
@@ -206,10 +322,7 @@ function DeliveryPage() {
     const inTransit = deliveries.filter((d) => ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo'].includes(d.status)).length;
     const returning = deliveries.filter((d) => d.status === 'returning_to_hq').length;
     const dispatched = deliveries.filter((d) => d.status === 'assigned').length;
-    const delayed = deliveries.filter((d) => {
-      if (d.status !== 'assigned' || !d.start_time) return false;
-      return (Date.now() - new Date(d.start_time).getTime()) / 3600000 >= 3;
-    }).length;
+    const delayed = deliveries.filter(isDeliveryDelayed).length;
     const completed = deliveries.filter((d) => d.status === 'completed').length;
     return { active, inTransit, returning, dispatched, delayed, completed };
   }, [deliveries]);
@@ -235,7 +348,7 @@ function DeliveryPage() {
       } else if (activeFilter === 'dispatched') {
         list = list.filter((d) => d.status === 'assigned');
       } else if (activeFilter === 'delayed') {
-        list = list.filter((d) => d.status === 'assigned' && d.start_time && (Date.now() - new Date(d.start_time).getTime()) / 3600000 >= 3);
+        list = list.filter(isDeliveryDelayed);
       }
     }
 
@@ -248,8 +361,40 @@ function DeliveryPage() {
       });
     }
 
-    if (sortBy === 'recent') list.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-    if (sortBy === 'oldest') list.sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at));
+    const getTimestamp = (d) => {
+      const timeStr = d.created_at || d.start_time || d.updated_at;
+      if (!timeStr) return 0;
+      const t = new Date(typeof timeStr === 'string' ? timeStr.replace(' ', 'T') : timeStr).getTime();
+      return isNaN(t) ? 0 : t;
+    };
+
+    if (sortBy === 'recent') {
+      list.sort((a, b) => {
+        const diff = getTimestamp(b) - getTimestamp(a);
+        return diff !== 0 ? diff : (Number(b.delivery_id) || 0) - (Number(a.delivery_id) || 0);
+      });
+    } else if (sortBy === 'oldest') {
+      list.sort((a, b) => {
+        const diff = getTimestamp(a) - getTimestamp(b);
+        return diff !== 0 ? diff : (Number(a.delivery_id) || 0) - (Number(b.delivery_id) || 0);
+      });
+    } else if (sortBy === 'id_asc') {
+      list.sort((a, b) => (Number(a.delivery_id) || 0) - (Number(b.delivery_id) || 0));
+    } else if (sortBy === 'id_desc') {
+      list.sort((a, b) => (Number(b.delivery_id) || 0) - (Number(a.delivery_id) || 0));
+    } else if (sortBy === 'name_asc') {
+      list.sort((a, b) => {
+        const nameA = a.request?.customer?.full_name || '';
+        const nameB = b.request?.customer?.full_name || '';
+        return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+      });
+    } else if (sortBy === 'name_desc') {
+      list.sort((a, b) => {
+        const nameA = a.request?.customer?.full_name || '';
+        const nameB = b.request?.customer?.full_name || '';
+        return nameB.localeCompare(nameA, undefined, { sensitivity: 'base' });
+      });
+    }
 
     return list;
   }, [deliveries, viewTab, activeFilter, search, sortBy]);
@@ -423,6 +568,10 @@ function DeliveryPage() {
                   <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
                     <option value="recent">Most Recent</option>
                     <option value="oldest">Oldest</option>
+                    <option value="id_asc">ID (DLV001 →)</option>
+                    <option value="id_desc">ID (DLV999 →)</option>
+                    <option value="name_asc">Customer (A – Z)</option>
+                    <option value="name_desc">Customer (Z – A)</option>
                   </select>
                 </div>
               </div>
@@ -495,8 +644,10 @@ function DeliveryPage() {
                       );
                     }
 
+                    const delayed = isDeliveryDelayed(d);
+                    const delayInfo = delayed ? getDelayDetails(d) : null;
                     return (
-                      <tr className="delivery-row" key={d.delivery_id} onClick={() => openDeliveryPanel(d)}>
+                      <tr className={`delivery-row ${delayed ? 'delayed-row' : ''}`} key={d.delivery_id} onClick={() => openDeliveryPanel(d)}>
                         <td className="delivery-id">{deliveryCode(d.delivery_id)}</td>
                         <td>{d.request?.customer?.full_name || '—'}</td>
                         <td>{d.driver?.user?.full_name || 'Unassigned'}</td>
@@ -504,20 +655,23 @@ function DeliveryPage() {
                         <td>{formatRelativeTime(d.updated_at)}</td>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                            <span className={`status-badge-monitor ${statusBadgeClass(d)}`} onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}>
+                            <span
+                              className={`status-badge-monitor ${statusBadgeClass(d)}`}
+                              onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}
+                              title={delayed && delayInfo ? `Delayed: ${delayInfo.fullLabel}` : undefined}
+                            >
+                              {delayed && <i className="fas fa-exclamation-triangle" style={{ marginRight: '5px', fontSize: '11px' }}></i>}
                               {statusLabel(d)}
                             </span>
-                            {!d.driver_id && (
-                              <button
-                                className="btn-propose-resched"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openRescheduleModal(d);
-                                }}
-                                title="Propose Earliest Dispatch Date to Customer"
+                            {delayed && delayInfo && (
+                              <span
+                                className="delayed-duration-chip"
+                                title={delayInfo.fullLabel}
+                                onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}
                               >
-                                <i className="far fa-calendar-alt"></i> Propose Reschedule
-                              </button>
+                                <i className="far fa-clock" style={{ marginRight: '4px', fontSize: '10px' }}></i>
+                                {delayInfo.durationText}
+                              </span>
                             )}
                             {(() => {
                               const speedInfo = deliverySpeeds.get(d.delivery_id);
@@ -607,8 +761,47 @@ function DeliveryPage() {
               <div className="panel-distance">Distance: {selectedDelivery.request?.distance_km ? `${selectedDelivery.request.distance_km} Kilometers` : '—'}</div>
               <div className="panel-status-row">
                 <span className="panel-status-label">Status:</span>
-                <span className={`panel-status-badge ${statusBadgeClass(selectedDelivery.status)}`}>{statusLabel(selectedDelivery.status)}</span>
+                <span className={`panel-status-badge ${statusBadgeClass(selectedDelivery)}`}>
+                  {isDeliveryDelayed(selectedDelivery) && <i className="fas fa-exclamation-triangle" style={{ marginRight: '5px', fontSize: '11px' }}></i>}
+                  {statusLabel(selectedDelivery)}
+                </span>
               </div>
+              {isDeliveryDelayed(selectedDelivery) && (() => {
+                const delayInfo = getDelayDetails(selectedDelivery);
+                return (
+                  <div className="panel-delayed-alert-box">
+                    <div className="panel-delayed-alert-title">
+                      <i className="fas fa-exclamation-triangle"></i> Delayed Delivery Notice
+                    </div>
+                    <div className="panel-delayed-alert-desc">
+                      {delayInfo?.fullLabel || 'Delayed delivery'} • Awaiting driver transit
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {selectedDelivery.status === 'completed' && (() => {
+                const completedTime = selectedDelivery.end_time || selectedDelivery.updated_at;
+                const formattedCompletedDate = completedTime
+                  ? new Date(completedTime).toLocaleDateString('en-PH', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })
+                  : 'Completed';
+                return (
+                  <div className="panel-completed-alert-box">
+                    <div className="panel-completed-alert-title">
+                      <i className="fas fa-check-circle"></i> Delivery Completed &amp; Verified
+                    </div>
+                    <div className="panel-completed-alert-desc">
+                      Delivered on <strong>{formattedCompletedDate}</strong>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="panel-divider"></div>
 
@@ -623,25 +816,10 @@ function DeliveryPage() {
                   delivery={selectedDelivery}
                   speedMetrics={selectedDeliverySpeedMetrics}
                   onViewRouteMap={openMapModal}
+                  hideBanner={true}
                 />
               ) : (
                 <>
-                  {!selectedDelivery.driver_id && (
-                    <div className="panel-reschedule-box">
-                      <div className="resched-box-title">
-                        <i className="fas fa-exclamation-circle"></i> Awaiting Driver Availability
-                      </div>
-                      <p className="resched-box-desc">
-                        All drivers are currently on delivery trips. Earliest projected availability is <strong>{forecast?.earliest_available_label || '2 days'}</strong>.
-                      </p>
-                      <button
-                        className="btn-primary-resched"
-                        onClick={() => openRescheduleModal(selectedDelivery)}
-                      >
-                        <i className="far fa-calendar-plus"></i> Propose Earliest Slot to Customer
-                      </button>
-                    </div>
-                  )}
 
                   <div className="panel-divider"></div>
 
@@ -712,9 +890,67 @@ function DeliveryPage() {
                     })}
                   </div>
 
-                  <button className="btn-view-location" onClick={openMapModal}>
-                    <i className="fas fa-map-marker-alt"></i> View Location
-                  </button>
+                  {(() => {
+                    const isInTransitNavigating = ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo', 'returning_to_hq'].includes(selectedDelivery.status);
+
+                    if (isInTransitNavigating) {
+                      return (
+                        <button className="btn-view-location" onClick={openMapModal}>
+                          <i className="fas fa-map-marker-alt"></i> View Live Location
+                        </button>
+                      );
+                    }
+
+                    return (
+                      <div className="panel-transit-status-box">
+                        <div className="transit-status-header">
+                          <span className="transit-status-dot"></span>
+                          <span className="transit-status-title">Waiting for driver to be in transit</span>
+                        </div>
+                        <div className="transit-status-subtitle">
+                          Live location tracking will pop up once the driver is in transit navigating to the pickup point.
+                        </div>
+
+                        <div className="transit-actions-wrap">
+                          {canReassign ? (
+                            <>
+                              <button
+                                type="button"
+                                className="btn-reassign-panel-primary"
+                                onClick={() => openReassignModal(selectedDelivery)}
+                              >
+                                <i className="fas fa-user-edit"></i> Re-assign Driver &amp; Vehicle
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-link-resched"
+                                onClick={() => openRescheduleModal(selectedDelivery)}
+                              >
+                                <i className="far fa-calendar-alt"></i> Propose Reschedule Instead
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className="btn-resched-panel-primary"
+                                onClick={() => openRescheduleModal(selectedDelivery)}
+                              >
+                                <i className="far fa-calendar-alt"></i> Propose Reschedule to Customer
+                              </button>
+                              <div className="transit-fleet-note">
+                                <i className="fas fa-info-circle"></i> {!hasAvailableDrivers && !hasAvailableVehicles
+                                  ? 'No drivers or vehicles currently available for reassignment.'
+                                  : !hasAvailableDrivers
+                                  ? 'No drivers currently available for reassignment.'
+                                  : 'No vehicles currently available for reassignment.'}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </>
               )}
             </div>
@@ -739,7 +975,26 @@ function DeliveryPage() {
               <div className="map-info-card">
                 <div className="map-section">
                   <div className="map-section-title"><i className="fas fa-truck"></i> Delivery Details</div>
-                  <div className="map-detail-row"><span className="map-detail-label">Status:</span><span className={`map-status-badge ${statusBadgeClass(selectedDelivery.status)}`}>{statusLabel(selectedDelivery.status)}</span></div>
+                  <div className="map-detail-row">
+                    <span className="map-detail-label">Status:</span>
+                    <span className={`map-status-badge ${statusBadgeClass(selectedDelivery)}`}>
+                      {isDeliveryDelayed(selectedDelivery) && <i className="fas fa-exclamation-triangle" style={{ marginRight: '5px', fontSize: '11px' }}></i>}
+                      {statusLabel(selectedDelivery)}
+                    </span>
+                  </div>
+                  {isDeliveryDelayed(selectedDelivery) && (() => {
+                    const delayInfo = getDelayDetails(selectedDelivery);
+                    if (!delayInfo) return null;
+                    return (
+                      <div className="map-detail-row">
+                        <span className="map-detail-label">Duration:</span>
+                        <span className="map-detail-value" style={{ color: '#EF4444', fontWeight: 600 }}>
+                          <i className="far fa-clock" style={{ marginRight: '4px' }}></i>
+                          {delayInfo.fullLabel}
+                        </span>
+                      </div>
+                    );
+                  })()}
                   <div className="map-detail-row"><span className="map-detail-label">Vehicle:</span><span className="map-detail-value">{selectedDelivery.vehicle ? `${selectedDelivery.vehicle.model} – ${selectedDelivery.vehicle.plate_number}` : 'Unassigned'}</span></div>
                   <div className="map-detail-row"><span className="map-detail-label">Distance:</span><span className="map-detail-value">{selectedDelivery.request?.distance_km ? `${selectedDelivery.request.distance_km} kilometers` : '—'}</span></div>
                   <div className="map-detail-row"><span className="map-detail-label">ETA:</span><span className="map-detail-value">{eta || 'Calculating...'}</span></div>
@@ -859,6 +1114,23 @@ function DeliveryPage() {
         successMsg={rescheduleSuccessMsg}
         onClose={() => setRescheduleTarget(null)}
         onSubmit={handleSendRescheduleProposal}
+      />
+
+      <ReassignDriverModal
+        target={reassignTarget}
+        availableDrivers={availableDrivers}
+        availableVehicles={availableVehicles}
+        selectedDriverId={reassignDriverId}
+        setSelectedDriverId={setReassignDriverId}
+        selectedVehicleId={reassignVehicleId}
+        setSelectedVehicleId={setReassignVehicleId}
+        remarks={reassignRemarks}
+        setRemarks={setReassignRemarks}
+        submitting={reassignSubmitting}
+        errorMsg={reassignError}
+        successMsg={reassignSuccessMsg}
+        onClose={() => setReassignTarget(null)}
+        onSubmit={handleConfirmReassign}
       />
     </>
   );
