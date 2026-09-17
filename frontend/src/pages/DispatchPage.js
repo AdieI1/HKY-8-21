@@ -105,6 +105,9 @@ function DispatchPage() {
   const [loadError, setLoadError] = useState('');
   const [currentDate, setCurrentDate] = useState('');
   const [sortBy, setSortBy] = useState('date-desc');
+  const [activeFilter, setActiveFilter] = useState('all'); // 'all' | 'pending' | 'overdue' | 'awaiting' | 'dispatched'
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   const [chosenDriverId, setChosenDriverId] = useState('');
@@ -185,12 +188,92 @@ function DispatchPage() {
   }, [loadData]);
 
 
-  const unassigned = useMemo(() => {
-    let list = deliveries.filter((d) => !d.driver_id);
-    if (sortBy === 'date-desc') list = [...list].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    if (sortBy === 'date-asc') list = [...list].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const isOverdue = useCallback((d) => {
+    if (d.status === 'assigned' && d.start_time) {
+      return (Date.now() - new Date(d.start_time).getTime()) / 3600000 >= 3;
+    }
+    if (!d.driver_id && d.created_at) {
+      return (Date.now() - new Date(d.created_at).getTime()) / 3600000 >= 24;
+    }
+    return false;
+  }, []);
+
+  const getDeliveryStatus = useCallback((d) => {
+    if (isOverdue(d)) return { label: 'Overdue', key: 'overdue' };
+    if (!d.driver_id || d.status === 'pending') return { label: 'Pending', key: 'pending' };
+    if (d.status === 'assigned') return { label: 'Awaiting Dispatch', key: 'awaiting' };
+    if (['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit'].includes(d.status)) {
+      return { label: 'Dispatched', key: 'dispatched' };
+    }
+    return { label: 'Pending', key: 'pending' };
+  }, [isOverdue]);
+
+  const kpiCounts = useMemo(() => {
+    let pending = 0;
+    let overdue = 0;
+    let awaiting = 0;
+    let dispatched = 0;
+
+    deliveries.forEach((d) => {
+      if (d.status === 'completed') return;
+
+      if (isOverdue(d)) overdue++;
+
+      if (!d.driver_id || d.status === 'pending') {
+        pending++;
+      } else if (d.status === 'assigned') {
+        awaiting++;
+      } else if (['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit'].includes(d.status)) {
+        dispatched++;
+      }
+    });
+
+    return { pending, overdue, awaiting, dispatched };
+  }, [deliveries, isOverdue]);
+
+  const sortedDeliveries = useMemo(() => {
+    let list = [];
+    if (activeFilter === 'overdue') {
+      list = deliveries.filter(isOverdue);
+    } else if (activeFilter === 'awaiting') {
+      list = deliveries.filter((d) => d.status === 'assigned' && !isOverdue(d));
+    } else if (activeFilter === 'dispatched') {
+      list = deliveries.filter((d) => ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'assigned'].includes(d.status));
+    } else if (activeFilter === 'pending') {
+      list = deliveries.filter((d) => !d.driver_id || d.status === 'pending');
+    } else {
+      // Default: approved requests ready for dispatch (unassigned / pending)
+      list = deliveries.filter((d) => !d.driver_id || d.status === 'pending');
+    }
+
+    if (sortBy === 'date-desc') {
+      list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    } else if (sortBy === 'date-asc') {
+      list.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    } else if (sortBy === 'id-asc') {
+      list.sort((a, b) => (Number(a.request?.request_id || a.delivery_id) || 0) - (Number(b.request?.request_id || b.delivery_id) || 0));
+    } else if (sortBy === 'id-desc') {
+      list.sort((a, b) => (Number(b.request?.request_id || b.delivery_id) || 0) - (Number(a.request?.request_id || a.delivery_id) || 0));
+    } else if (sortBy === 'customer-asc') {
+      list.sort((a, b) => (a.request?.customer?.full_name || '').localeCompare(b.request?.customer?.full_name || '', undefined, { sensitivity: 'base' }));
+    } else if (sortBy === 'customer-desc') {
+      list.sort((a, b) => (b.request?.customer?.full_name || '').localeCompare(a.request?.customer?.full_name || '', undefined, { sensitivity: 'base' }));
+    } else if (sortBy === 'route-asc') {
+      list.sort((a, b) => (a.request?.pickup_address || '').localeCompare(b.request?.pickup_address || '', undefined, { sensitivity: 'base' }));
+    }
+
     return list;
-  }, [deliveries, sortBy]);
+  }, [deliveries, activeFilter, sortBy, isOverdue]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeFilter, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedDeliveries.length / PAGE_SIZE));
+  const paginatedDeliveries = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return sortedDeliveries.slice(start, start + PAGE_SIZE);
+  }, [sortedDeliveries, currentPage, PAGE_SIZE]);
 
   const availableDrivers = useMemo(
     () => drivers.filter((d) => d.status === 'active' && d.availability_status === 'available'),
@@ -343,47 +426,127 @@ function DispatchPage() {
 
           {loadError && <div className="form-error" style={{ margin: '16px 0', color: '#d32f2f' }}>{loadError}</div>}
 
+          {/* Dispatch KPI Cards - Figma Design */}
+          <div className="dispatch-stats">
+            <div
+              className={`dispatch-stat-card${activeFilter === 'pending' ? ' active active-pending' : ''}`}
+              onClick={() => setActiveFilter((prev) => (prev === 'pending' ? 'all' : 'pending'))}
+              title="Click to filter Pending requests"
+            >
+              <div className="dispatch-stat-number pending">{kpiCounts.pending}</div>
+              <span className="dispatch-stat-label">Pending</span>
+            </div>
+
+            <div
+              className={`dispatch-stat-card${activeFilter === 'overdue' ? ' active active-overdue' : ''}`}
+              onClick={() => setActiveFilter((prev) => (prev === 'overdue' ? 'all' : 'overdue'))}
+              title="Click to filter Overdue requests"
+            >
+              <div className="dispatch-stat-number overdue">{kpiCounts.overdue}</div>
+              <span className="dispatch-stat-label">Overdue</span>
+            </div>
+
+            <div
+              className={`dispatch-stat-card${activeFilter === 'awaiting' ? ' active active-awaiting' : ''}`}
+              onClick={() => setActiveFilter((prev) => (prev === 'awaiting' ? 'all' : 'awaiting'))}
+              title="Click to filter Awaiting Dispatch requests"
+            >
+              <div className="dispatch-stat-number awaiting">{kpiCounts.awaiting}</div>
+              <span className="dispatch-stat-label">Awaiting Dispatch</span>
+            </div>
+
+            <div
+              className={`dispatch-stat-card${activeFilter === 'dispatched' ? ' active active-dispatched' : ''}`}
+              onClick={() => setActiveFilter((prev) => (prev === 'dispatched' ? 'all' : 'dispatched'))}
+              title="Click to filter Dispatched requests"
+            >
+              <div className="dispatch-stat-number dispatched">{kpiCounts.dispatched}</div>
+              <span className="dispatch-stat-label">Dispatched</span>
+            </div>
+          </div>
+
           <div className="content-section">
-            <div className="section-header">
+            <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
               <h3 className="section-title">Approved Delivery Requests</h3>
-              <div className="sort-dropdown">
-                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ border: 'none', background: 'transparent' }}>
+              <div className="sort-wrapper">
+                <span className="sort-label">Sort by</span>
+                <select className="sort-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
                   <option value="date-desc">Newest First</option>
                   <option value="date-asc">Oldest First</option>
+                  <option value="id-asc">Request ID (REQ0001 →)</option>
+                  <option value="id-desc">Request ID (REQ9999 →)</option>
+                  <option value="customer-asc">Customer (A – Z)</option>
+                  <option value="customer-desc">Customer (Z – A)</option>
+                  <option value="route-asc">Route (A – Z)</option>
                 </select>
               </div>
             </div>
             <div className="section-content">
               <table className="data-table">
                 <thead>
-                  <tr><th>Request ID</th><th>Customer</th><th>Route</th><th>Date Approved</th><th>Action</th></tr>
+                  <tr>
+                    <th>Request ID</th>
+                    <th>Customer</th>
+                    <th>Route</th>
+                    <th>Status</th>
+                    <th>Date Approved</th>
+                    <th>Action</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {unassigned.map((d) => (
-                    <tr key={d.delivery_id}>
-                      <td className="request-id">{requestCode(d.request?.request_id)}</td>
-                      <td>{d.request?.customer?.full_name || '—'}</td>
-                      <td className="route">
-                        {(d.request?.pickup_address || '—').split(',')[0]} - {(d.request?.dropoff_address || '—').split(',')[0]}
-                      </td>
-                      <td>{new Date(d.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}</td>
-                      <td><button className="btn-assign" onClick={() => openAssignPanel(d)}>Assign</button></td>
-                    </tr>
-                  ))}
+                  {paginatedDeliveries.map((d) => {
+                    const st = getDeliveryStatus(d);
+                    return (
+                      <tr key={d.delivery_id}>
+                        <td className="request-id">{requestCode(d.request?.request_id || d.delivery_id)}</td>
+                        <td style={{ fontWeight: 600 }}>{d.request?.customer?.full_name || '—'}</td>
+                        <td className="route">
+                          {(d.request?.pickup_address || '—').split(',')[0]} ~ {(d.request?.dropoff_address || '—').split(',')[0]}
+                        </td>
+                        <td>
+                          <span className={`dispatch-status-val ${st.key}`}>
+                            {st.label}
+                          </span>
+                        </td>
+                        <td>{new Date(d.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}</td>
+                        <td><button className="btn-assign" onClick={() => openAssignPanel(d)}>Assign</button></td>
+                      </tr>
+                    );
+                  })}
                   {loading && (
-                    <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading dispatch...</td></tr>
+                    <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading dispatch...</td></tr>
                   )}
-                  {!loading && unassigned.length === 0 && (
-                    <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24 }}>No approved requests waiting for dispatch.</td></tr>
+                  {!loading && paginatedDeliveries.length === 0 && (
+                    <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>No delivery requests found.</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
             <div className="dispatch-footer">
-              <div className="dispatch-info">
-                <i className="fa-solid fa-circle-exclamation"></i>
-                <span>Click assign button to assign driver and vehicle.</span>
+              <div className="dispatch-info" style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#DC2626', fontSize: 14, fontWeight: 500 }}>
+                <i className="fas fa-info-circle" style={{ color: '#DC2626', fontSize: 16, flexShrink: 0 }}></i>
+                <span>Click assign button to assign driver and delivery.</span>
               </div>
+              {totalPages > 1 && (
+                <div className="dispatch-pagination">
+                  <span className="page-label">Page</span>
+                  <button
+                    className="btn-page"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  >
+                    <i className="fas fa-chevron-left"></i>
+                  </button>
+                  <span className="page-number active">{currentPage}</span>
+                  <button
+                    className="btn-page"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    <i className="fas fa-chevron-right"></i>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

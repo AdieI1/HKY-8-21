@@ -6,25 +6,59 @@
 .driver-stats {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
+    gap: 16px;
     margin-bottom: 20px;
 }
 
 .stat-card {
-    background: white;
-    border-radius: 14px;
-    padding: 16px 18px;
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 16px 20px;
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 14px;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
-    border: 1px solid #E5E7EB;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+    border: 1.5px solid #F3F4F6;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+    border-color: #E5E7EB;
+}
+
+.stat-card.active {
+    background: #F8FAFC;
+}
+
+.stat-card.active.active-available {
+    border-color: #16A34A;
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+}
+
+.stat-card.active.active-busy {
+    border-color: #3B82F6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.stat-card.active.active-inactive {
+    border-color: #EF4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
+.stat-card.active.active-resigned {
+    border-color: #F97316;
+    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
 }
 
 .stat-badge {
-    width: 44px;
-    height: 44px;
+    min-width: 46px;
+    height: 38px;
+    padding: 0 14px;
     border-radius: 8px;
     display: flex;
     align-items: center;
@@ -32,11 +66,10 @@
     color: white;
     font-size: 22px;
     font-weight: 800;
-    flex-shrink: 0;
 }
 
 .stat-badge.green {
-    background: #22C55E;
+    background: #16A34A;
 }
 
 .stat-badge.blue {
@@ -52,10 +85,10 @@
 }
 
 .stat-label {
-    font-size: 16px;
-    color: #1F2937;
+    font-size: 15px;
+    color: #4B5563;
     text-align: left;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 /* Drivers Toolbar */
@@ -116,30 +149,32 @@
 .sort-wrapper {
     display: flex;
     align-items: center;
-    gap: 10px;
-    cursor: pointer;
+    gap: 8px;
 }
 
 .sort-label {
-    color: #C53030;
-    font-size: 15px;
+    color: #B91C1C;
+    font-size: 14.5px;
     font-weight: 700;
+    white-space: nowrap;
 }
 
-.sort-select-box {
+.sort-select {
     border: 1px solid #D1D5DB;
-    background: white;
-    padding: 8px 20px;
+    background: #FFFFFF;
+    color: #1F2937;
+    padding: 8px 14px;
     border-radius: 8px;
-    display: flex;
-    align-items: center;
-    min-width: 130px;
+    font-size: 13.5px;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
 }
 
-.sort-select-box span {
-    font-size: 16px;
-    font-weight: 600;
-    color: #1F2937;
+.sort-select:focus {
+    border-color: #B91C1C;
+    box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.15);
 }
 
 /* Action Buttons - Figma Colors */
@@ -192,8 +227,8 @@
 
 /* Drivers Table - Figma styling */
 .drivers-table thead th {
-    color: #6B7280;
-    font-size: 17px;
+    color: #6B7280 !important;
+    font-size: 15px;
     font-weight: 600;
     border-bottom: 1px solid #E5E7EB;
     padding: 14px 12px;

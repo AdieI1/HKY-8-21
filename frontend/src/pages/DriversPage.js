@@ -82,6 +82,8 @@ function DriversPage() {
 
   const [view, setView] = useState('drivers'); // 'drivers' | 'archives' | 'incidents'
   const [search, setSearch] = useState('');
+  const [activeStatusFilter, setActiveStatusFilter] = useState('all'); // 'all' | 'available' | 'busy' | 'inactive' | 'resigned'
+  const [sortBy, setSortBy] = useState('id_asc'); // 'name_asc' | 'name_desc' | 'id_asc' | 'id_desc' | 'status_hierarchy' | 'contract_soonest' | 'contract_longest'
 
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingDriver, setEditingDriver] = useState(null);
@@ -141,16 +143,96 @@ function DriversPage() {
   const activeDrivers = useMemo(() => drivers.filter((d) => d.status === 'active'), [drivers]);
   const archivedDrivers = useMemo(() => drivers.filter((d) => d.status === 'inactive'), [drivers]);
 
-  const filteredDrivers = useMemo(() => {
-    const term = search.toLowerCase();
-    return activeDrivers.filter((d) => {
-      const name = d.user?.full_name || '';
-      const license = d.license_number || '';
-      const phone = d.user?.phone || '';
-      const email = d.user?.email || '';
-      return `${name} ${license} ${phone} ${email}`.toLowerCase().includes(term);
+  const kpiCounts = useMemo(() => {
+    let available = 0;
+    let onDelivery = 0;
+    let inactive = 0;
+    let resigned = archivedDrivers.length;
+
+    activeDrivers.forEach((d) => {
+      const lbl = availabilityLabel(d);
+      if (lbl === 'Available') available++;
+      else if (lbl === 'On Delivery') onDelivery++;
+      else inactive++;
     });
-  }, [activeDrivers, search]);
+
+    return { available, onDelivery, inactive, resigned };
+  }, [activeDrivers, archivedDrivers]);
+
+  const handleKpiClick = (statusKey) => {
+    if (statusKey === 'resigned') {
+      if (view === 'archives') {
+        setView('drivers');
+        setActiveStatusFilter('all');
+      } else {
+        setView('archives');
+        setActiveStatusFilter('resigned');
+      }
+      return;
+    }
+
+    if (view !== 'drivers') {
+      setView('drivers');
+    }
+    setActiveStatusFilter((prev) => (prev === statusKey ? 'all' : statusKey));
+  };
+
+  const filteredDrivers = useMemo(() => {
+    let list = [...activeDrivers];
+
+    if (activeStatusFilter === 'available') {
+      list = list.filter((d) => availabilityLabel(d) === 'Available');
+    } else if (activeStatusFilter === 'busy') {
+      list = list.filter((d) => availabilityLabel(d) === 'On Delivery');
+    } else if (activeStatusFilter === 'inactive') {
+      list = list.filter((d) => availabilityLabel(d) === 'Inactive');
+    }
+
+    if (search.trim()) {
+      const term = search.toLowerCase();
+      list = list.filter((d) => {
+        const name = d.user?.full_name || '';
+        const idStr = driverCode(d.driver_id).toLowerCase();
+        const license = d.license_number || '';
+        const phone = d.user?.phone || '';
+        const email = d.user?.email || '';
+        return `${name} ${idStr} ${license} ${phone} ${email}`.toLowerCase().includes(term);
+      });
+    }
+
+    if (sortBy === 'name_asc') {
+      list.sort((a, b) => (a.user?.full_name || '').localeCompare(b.user?.full_name || '', undefined, { sensitivity: 'base' }));
+    } else if (sortBy === 'name_desc') {
+      list.sort((a, b) => (b.user?.full_name || '').localeCompare(a.user?.full_name || '', undefined, { sensitivity: 'base' }));
+    } else if (sortBy === 'id_asc') {
+      list.sort((a, b) => (Number(a.driver_id) || 0) - (Number(b.driver_id) || 0));
+    } else if (sortBy === 'id_desc') {
+      list.sort((a, b) => (Number(b.driver_id) || 0) - (Number(a.driver_id) || 0));
+    } else if (sortBy === 'status_hierarchy') {
+      const rank = (d) => {
+        const lbl = availabilityLabel(d);
+        if (lbl === 'Available') return 1;
+        if (lbl === 'On Delivery') return 2;
+        if (lbl === 'Inactive') return 3;
+        return 4;
+      };
+      list.sort((a, b) => rank(a) - rank(b));
+    } else if (sortBy === 'contract_soonest') {
+      list.sort((a, b) => {
+        const timeA = a.contract_end ? new Date(a.contract_end).getTime() : Infinity;
+        const timeB = b.contract_end ? new Date(b.contract_end).getTime() : Infinity;
+        return timeA - timeB;
+      });
+    } else if (sortBy === 'contract_longest') {
+      list.sort((a, b) => {
+        const timeA = a.contract_end ? new Date(a.contract_end).getTime() : -Infinity;
+        const timeB = b.contract_end ? new Date(b.contract_end).getTime() : -Infinity;
+        return timeB - timeA;
+      });
+    }
+
+    return list;
+  }, [activeDrivers, activeStatusFilter, search, sortBy]);
 
   const filteredIncidents = useMemo(() => {
     const term = incidentSearch.toLowerCase();
@@ -176,10 +258,9 @@ function DriversPage() {
   const [archivePage, setArchivePage] = useState(1);
   const [incidentPage, setIncidentPage] = useState(1);
 
-  // Reset page numbers on filter changes
   useEffect(() => {
     setDriverPage(1);
-  }, [search]);
+  }, [search, activeStatusFilter, sortBy]);
 
   useEffect(() => {
     setIncidentPage(1);
@@ -411,7 +492,7 @@ function DriversPage() {
           <header className="header">
             <div className="page-info">
               <span className="breadcrumb">Page/Drivers</span>
-              <h1 className="page-title">DRIVERS</h1>
+              <h1 className="page-title">DRIVER MANAGEMENT</h1>
             </div>
             <div className="header-actions">
               <div className="date-picker">
@@ -428,6 +509,45 @@ function DriversPage() {
             </div>
           )}
 
+          {/* KPI Cards Row (Figma Design) */}
+          <div className="driver-stats">
+            <div
+              className={`stat-card${activeStatusFilter === 'available' ? ' active active-available' : ''}`}
+              onClick={() => handleKpiClick('available')}
+              title="Click to filter Available drivers"
+            >
+              <div className="stat-badge green">{kpiCounts.available}</div>
+              <span className="stat-label">Available</span>
+            </div>
+
+            <div
+              className={`stat-card${activeStatusFilter === 'busy' ? ' active active-busy' : ''}`}
+              onClick={() => handleKpiClick('busy')}
+              title="Click to filter On Delivery drivers"
+            >
+              <div className="stat-badge blue">{kpiCounts.onDelivery}</div>
+              <span className="stat-label">On Delivery</span>
+            </div>
+
+            <div
+              className={`stat-card${activeStatusFilter === 'inactive' ? ' active active-inactive' : ''}`}
+              onClick={() => handleKpiClick('inactive')}
+              title="Click to filter Inactive drivers"
+            >
+              <div className="stat-badge red">{kpiCounts.inactive}</div>
+              <span className="stat-label">Inactive</span>
+            </div>
+
+            <div
+              className={`stat-card${view === 'archives' || activeStatusFilter === 'resigned' ? ' active active-resigned' : ''}`}
+              onClick={() => handleKpiClick('resigned')}
+              title="Click to view Resigned / Archived drivers"
+            >
+              <div className="stat-badge orange">{kpiCounts.resigned}</div>
+              <span className="stat-label">Resigned</span>
+            </div>
+          </div>
+
           {/* ---------------- Drivers list ---------------- */}
           {view === 'drivers' && (
             <div className="content-section">
@@ -435,51 +555,71 @@ function DriversPage() {
                 <div className="toolbar-left">
                   <div className="search-bar">
                     <i className="fas fa-search"></i>
-                    <input type="text" placeholder="Search drivers..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    <input type="text" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
+                  </div>
+                  <div className="sort-wrapper">
+                    <span className="sort-label">Sort by</span>
+                    <select className="sort-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                      <option value="name_asc">A – Z (Driver Name)</option>
+                      <option value="name_desc">Z – A (Driver Name)</option>
+                      <option value="id_asc">ID (DR001 →)</option>
+                      <option value="id_desc">ID (DR999 →)</option>
+                      <option value="status_hierarchy">Status (Available → On Delivery → Inactive)</option>
+                      <option value="contract_soonest">Contract (Expiring Soonest)</option>
+                      <option value="contract_longest">Contract (Longest Remaining)</option>
+                    </select>
                   </div>
                 </div>
                 <div className="toolbar-right">
                   <button className="btn-incidents" onClick={() => setView('incidents')}>Incidents</button>
-                  <button className="btn-archives" onClick={() => setView('archives')}>Archives</button>
+                  <button className="btn-archives" onClick={() => { setView('archives'); setActiveStatusFilter('resigned'); }}>Archives</button>
                   <button className="btn-add-driver" onClick={openAddModal}><i className="fas fa-plus"></i> Add Driver</button>
                 </div>
               </div>
               <div className="section-content">
                 <table className="data-table drivers-table">
                   <thead>
-                    <tr><th>Driver</th><th>Driver ID</th><th>Status</th><th>Contract Status</th><th>Contact</th><th>Health Status</th><th>Action</th></tr>
+                    <tr>
+                      <th>Driver ID</th>
+                      <th>Driver Name</th>
+                      <th>Status</th>
+                      <th>Contract Status</th>
+                      <th>Contact Num</th>
+                      <th>Action</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {loading ? (
-                      <TableSkeleton rows={5} columns={7} hasAvatar={true} />
+                      <TableSkeleton rows={5} columns={6} hasAvatar={true} />
                     ) : paginatedDrivers.length === 0 ? (
-                      <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24 }}>No drivers found.</td></tr>
+                      <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24 }}>No drivers found.</td></tr>
                     ) : (
                       paginatedDrivers.map((driver) => (
                         <tr key={driver.driver_id} className="driver-row" onClick={() => openDetails(driver)}>
-                          <td style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <img
-                              src={driver.user?.profile_photo_url || '/images/brucednegrow.png'}
-                              alt={driver.user?.full_name || 'Driver'}
-                              style={{
-                                width: '38px',
-                                height: '38px',
-                                borderRadius: '50%',
-                                objectFit: 'cover',
-                                border: '1px solid #e2e8f0',
-                              }}
-                              onError={(e) => { e.currentTarget.src = '/images/brucednegrow.png'; }}
-                            />
-                            <span style={{ fontWeight: 600 }}>{driver.user?.full_name || '—'}</span>
-                          </td>
                           <td className="driver-id">{driverCode(driver.driver_id)}</td>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <img
+                                src={driver.user?.profile_photo_url || '/images/brucednegrow.png'}
+                                alt={driver.user?.full_name || 'Driver'}
+                                style={{
+                                  width: '36px',
+                                  height: '36px',
+                                  borderRadius: '50%',
+                                  objectFit: 'cover',
+                                  border: '1px solid #e2e8f0',
+                                }}
+                                onError={(e) => { e.currentTarget.src = '/images/brucednegrow.png'; }}
+                              />
+                              <span style={{ fontWeight: 600 }}>{driver.user?.full_name || '—'}</span>
+                            </div>
+                          </td>
                           <td><span className={`driver-status ${availabilityClass(driver)}`}><i className="fas fa-circle"></i> {availabilityLabel(driver)}</span></td>
                           <td>{driver.contract_end ? `Valid until ${formatDate(driver.contract_end)}` : 'Not set'}</td>
                           <td>{driver.user?.phone || '—'}</td>
-                          <td><span className="health-status">{driver.health_condition || '—'}</span></td>
                           <td className="action-cell">
-                            <button className="btn-edit-info" onClick={(e) => { e.stopPropagation(); openEditModal(driver); }}>Edit Info</button>
-                            <button className="btn-archive" onClick={(e) => { e.stopPropagation(); openArchiveModal(driver); }}>Archive</button>
+                            <button className="btn-edit-info" onClick={(e) => { e.stopPropagation(); openEditModal(driver); }}>Edit</button>
+                            <button className="btn-archive" onClick={(e) => { e.stopPropagation(); openArchiveModal(driver); }}>ARCHIVE</button>
                           </td>
                         </tr>
                       ))
@@ -502,7 +642,7 @@ function DriversPage() {
             <div className="content-section" id="archivesSection">
               <div className="drivers-toolbar">
                 <h3 className="section-title">Archived Drivers</h3>
-                <button className="btn-return" onClick={() => setView('drivers')}><span>Return</span><i className="fa fa-reply"></i></button>
+                <button className="btn-return" onClick={() => { setView('drivers'); setActiveStatusFilter('all'); }}><span>Return</span><i className="fa fa-reply"></i></button>
               </div>
               <div className="section-content">
                 <table className="data-table drivers-table">

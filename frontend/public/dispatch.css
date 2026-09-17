@@ -1,34 +1,171 @@
 
-.sort-dropdown {
-    color: #C53030;
+/* Dispatch Stats KPI Cards - Figma Design */
+.dispatch-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
 }
 
-.sort-dropdown i {
-    font-size: 12px;
+.dispatch-stat-card {
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+    border: 1.5px solid #F3F4F6;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
 }
 
-/* Content shift when assignment panel opens */
-.main-content {
-    transition: margin-right 0.3s ease;
+.dispatch-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+    border-color: #E5E7EB;
 }
 
-body.panel-open .main-content {
-    margin-right: 400px;
+.dispatch-stat-number {
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1.1;
 }
 
-.sidebar {
-    position: relative;
-    z-index: 160;
+.dispatch-stat-number.pending {
+    color: #EA580C;
 }
 
-/* Table specific styles */
+.dispatch-stat-number.overdue {
+    color: #DC2626;
+}
+
+.dispatch-stat-number.awaiting {
+    color: #D97706;
+}
+
+.dispatch-stat-number.dispatched {
+    color: #2563EB;
+}
+
+.dispatch-stat-label {
+    font-size: 15px;
+    color: #4B5563;
+    font-weight: 600;
+}
+
+/* Active Filter Highlight States */
+.dispatch-stat-card.active {
+    background: #F8FAFC;
+}
+
+.dispatch-stat-card.active.active-pending {
+    border-color: #EA580C;
+    box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.15);
+}
+
+.dispatch-stat-card.active.active-overdue {
+    border-color: #DC2626;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
+}
+
+.dispatch-stat-card.active.active-awaiting {
+    border-color: #D97706;
+    box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.15);
+}
+
+.dispatch-stat-card.active.active-dispatched {
+    border-color: #2563EB;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+/* Sort dropdown in card header */
+.sort-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sort-label {
+    color: #B91C1C;
+    font-size: 14px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.sort-select {
+    border: 1px solid #D1D5DB;
+    background: #FFFFFF;
+    color: #374151;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.sort-select:focus {
+    border-color: #B91C1C;
+    box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.15);
+}
+
+/* Table Specific Styles */
+.content-section .data-table thead th {
+    color: #6B7280 !important;
+    font-size: 15px;
+    font-weight: 600;
+}
+
 .request-id {
-    color: #C53030;
-    font-weight: 500;
+    color: #1F2937;
+    font-weight: 600;
 }
 
 .route {
-    color: #C53030;
+    color: #4B5563;
+}
+
+.dispatch-status-val {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.dispatch-status-val.pending {
+    color: #EA580C;
+}
+
+.dispatch-status-val.overdue {
+    color: #DC2626;
+}
+
+.dispatch-status-val.awaiting {
+    color: #D97706;
+}
+
+.dispatch-status-val.dispatched {
+    color: #2563EB;
+}
+
+/* Assign Button (Figma Blue Style) */
+.btn-assign {
+    background: #3B82F6;
+    color: white;
+    border: none;
+    padding: 6px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.15s ease;
+}
+
+.btn-assign:hover {
+    background: #2563EB;
+    transform: translateY(-1px);
 }
 
 /* Dispatch Footer */
@@ -36,77 +173,76 @@ body.panel-open .main-content {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-top: 15px;
-    padding-top: 15px;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid #F3F4F6;
+    flex-wrap: wrap;
+    gap: 12px;
 }
 
 .dispatch-info {
     display: flex;
     align-items: center;
-    gap: 8px;
-    color: #C53030;
-    font-size: 15px;
+    gap: 10px;
+    color: #DC2626;
+    font-size: 14px;
+    font-weight: 500;
 }
 
 .dispatch-info i {
-    margin-right: 5px;
-    width: 12px;
-    height: 12px;
+    color: #DC2626;
+    font-size: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
 }
 
 .dispatch-pagination {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
-    color: #666;
+    font-size: 13.5px;
+    color: #6B7280;
 }
 
 .dispatch-pagination .page-label {
-    color: #666;
-    font-size: 13px;
+    color: #6B7280;
+    font-size: 13.5px;
+    font-weight: 500;
     margin-right: 4px;
 }
 
 .dispatch-pagination .btn-page {
     width: 28px;
     height: 28px;
-    border: 1px solid #ddd;
-    background: white;
-    border-radius: 4px;
+    border: 1px solid #E5E7EB;
+    background: #FFFFFF;
+    border-radius: 6px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #666;
-    transition: background 0.2s ease;
+    color: #4B5563;
+    font-size: 11px;
+    transition: all 0.15s ease;
 }
 
-.dispatch-pagination .btn-page:hover {
-    background: #f5f5f5;
+.dispatch-pagination .btn-page:hover:not(:disabled) {
+    background: #F3F4F6;
+    border-color: #D1D5DB;
+}
+
+.dispatch-pagination .btn-page:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .dispatch-pagination .page-number.active {
-    color: #C53030;
-    font-weight: 600;
-    font-size: 15px;
-}
-
-/* Assign Button (unique to dispatch page) */
-.btn-assign {
-    background: #EF4444;
-    color: white;
-    border: none;
-    padding: 6px 16px;
-    border-radius: 6px;
-    font-size: 12px;
-    cursor: pointer;
-    font-weight: 500;
-    transition: background 0.3s ease;
-}
-
-.btn-assign:hover {
-    background: #DC2626;
+    color: #DC2626;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 0 4px;
 }
 
 /* ── Trip Ticket / Dispatch Side Panel Overlay ─────────── */
