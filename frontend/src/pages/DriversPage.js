@@ -4,6 +4,7 @@ import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
 import TableSkeleton from '../components/TableSkeleton';
+import PrintableIncidentModal from '../components/driver/PrintableIncidentModal';
 import {
   validatePhoneNumber,
   formatPhoneInput,
@@ -107,6 +108,7 @@ function DriversPage() {
   const [incidentType, setIncidentType] = useState('All');
   const [incidentDriverFilter, setIncidentDriverFilter] = useState('All Drivers');
   const [incidentStatusFilter, setIncidentStatusFilter] = useState('All Status');
+  const [selectedPrintIncident, setSelectedPrintIncident] = useState(null);
 
   useEffect(() => {
     const update = () => {
@@ -235,12 +237,35 @@ function DriversPage() {
   }, [activeDrivers, activeStatusFilter, search, sortBy]);
 
   const filteredIncidents = useMemo(() => {
-    const term = incidentSearch.toLowerCase();
+    const term = incidentSearch.toLowerCase().trim();
     return incidents.filter((inc) => {
       const driverName = inc.delivery?.driver?.user?.full_name || 'Unassigned';
-      const haystack = `${driverName} ${inc.description || ''} ${inc.incident_type}`.toLowerCase();
+      const customerName = inc.delivery?.request?.customer?.full_name || '';
+      const reqCode = inc.delivery?.request?.request_id ? `REQ${String(inc.delivery.request.request_id).padStart(4, '0')}` : '';
+      const haystack = `${driverName} ${customerName} ${reqCode} ${inc.description || ''} ${inc.location_address || ''} ${inc.incident_type}`.toLowerCase();
       const inSearch = !term || haystack.includes(term);
-      const inType = incidentType === 'All' || inc.incident_type === incidentType;
+
+      let inType = true;
+      if (incidentType !== 'All') {
+        const iType = (inc.incident_type || '').toLowerCase();
+        const fType = incidentType.toLowerCase();
+        if (fType === 'lost item') {
+          inType = iType === 'lost_item' || iType === 'lost item';
+        } else if (fType === 'damage') {
+          inType = iType === 'damage' || iType === 'cargo_damage';
+        } else if (fType === 'delay') {
+          inType = iType === 'delay' || iType === 'road_issue';
+        } else if (fType === 'breakdown') {
+          inType =
+            iType === 'vehicle_breakdown' ||
+            iType === 'breakdown' ||
+            iType === 'vehicle_problem' ||
+            iType === 'flat_tire';
+        } else {
+          inType = iType === fType || iType.replace(/_/g, ' ') === fType;
+        }
+      }
+
       const inDriver = incidentDriverFilter === 'All Drivers' || driverName === incidentDriverFilter;
       const inStatus = incidentStatusFilter === 'All Status' || inc.status === incidentStatusFilter;
       return inSearch && inType && inDriver && inStatus;
@@ -689,56 +714,139 @@ function DriversPage() {
           {view === 'incidents' && (
             <div className="content-section" id="incidentsSection">
               <div className="drivers-toolbar">
-                <h3 className="section-title">Incidents</h3>
-                <button className="btn-return" onClick={() => setView('drivers')}><span>Return</span><i className="fa fa-reply"></i></button>
+                <h3 className="section-title">Incident Reports & Investigation</h3>
+                <button className="btn-return" onClick={() => setView('drivers')}>
+                  <span>Return</span>
+                  <i className="fa fa-reply"></i>
+                </button>
               </div>
-              <div className="incidents-controls" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', margin: '12px 0' }}>
+
+              <div className="incidents-controls" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', margin: '14px 0', alignItems: 'center' }}>
                 <div className="search-bar">
                   <i className="fas fa-search"></i>
-                  <input type="text" placeholder="Search" value={incidentSearch} onChange={(e) => setIncidentSearch(e.target.value)} />
+                  <input
+                    type="text"
+                    placeholder="Search incident, driver, customer..."
+                    value={incidentSearch}
+                    onChange={(e) => setIncidentSearch(e.target.value)}
+                  />
                 </div>
+
+                {/* Pill filters matching user image */}
                 <div className="incident-tabs">
-                  {['All', 'accident', 'delay', 'damage', 'lost_item', 'other'].map((t) => (
+                  {['All', 'accident', 'delay', 'damage', 'lost item', 'other'].map((t) => (
                     <button
                       key={t}
                       className={`incident-tab${incidentType === t ? ' active' : ''}`}
                       onClick={() => setIncidentType(t)}
                     >
-                      {t === 'All' ? 'All' : t.replace('_', ' ')}
+                      {t}
                     </button>
                   ))}
                 </div>
-                <select value={incidentDriverFilter} onChange={(e) => setIncidentDriverFilter(e.target.value)}>
-                  <option>All Drivers</option>
-                  {incidentDriverNames.map((name) => <option key={name}>{name}</option>)}
-                </select>
-                <select value={incidentStatusFilter} onChange={(e) => setIncidentStatusFilter(e.target.value)}>
-                  <option>All Status</option>
-                  <option value="pending">Pending</option>
-                  <option value="investigating">Investigating</option>
-                  <option value="resolved">Resolved</option>
-                </select>
+
+                <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
+                  <select
+                    className="sort-select"
+                    value={incidentDriverFilter}
+                    onChange={(e) => setIncidentDriverFilter(e.target.value)}
+                  >
+                    <option>All Drivers</option>
+                    {incidentDriverNames.map((name) => (
+                      <option key={name}>{name}</option>
+                    ))}
+                  </select>
+                  <select
+                    className="sort-select"
+                    value={incidentStatusFilter}
+                    onChange={(e) => setIncidentStatusFilter(e.target.value)}
+                  >
+                    <option>All Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="investigating">Investigating</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                </div>
               </div>
-              <p className="incident-count">Showing {filteredIncidents.length} of {incidents.length}.</p>
+
+              <p className="incident-count">Showing {filteredIncidents.length} of {incidents.length} reports.</p>
+
               <div className="section-content">
                 <table className="data-table">
-                  <thead><tr><th>Date</th><th>Driver</th><th>Type</th><th>Severity</th><th>Description</th><th>Status</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Driver</th>
+                      <th>Request / Route</th>
+                      <th>Type</th>
+                      <th>Severity</th>
+                      <th>Location & Details</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {loading ? (
-                      <TableSkeleton rows={5} columns={6} />
+                      <TableSkeleton rows={5} columns={8} />
                     ) : paginatedIncidents.length === 0 ? (
-                      <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24 }}>No incidents match these filters.</td></tr>
+                      <tr>
+                        <td colSpan="8" style={{ textAlign: 'center', padding: 28, color: '#6B7280' }}>
+                          No incidents match these filters.
+                        </td>
+                      </tr>
                     ) : (
-                      paginatedIncidents.map((inc) => (
-                        <tr key={inc.incident_id}>
-                          <td>{formatDate(inc.reported_at)}</td>
-                          <td>{inc.delivery?.driver?.user?.full_name || 'Unassigned'}</td>
-                          <td style={{ textTransform: 'capitalize' }}>{inc.incident_type.replace('_', ' ')}</td>
-                          <td style={{ textTransform: 'capitalize' }}>{inc.severity}</td>
-                          <td>{inc.description || '—'}</td>
-                          <td style={{ textTransform: 'capitalize' }}>{inc.status}</td>
-                        </tr>
-                      ))
+                      paginatedIncidents.map((inc) => {
+                        const req = inc.delivery?.request;
+                        const reqId = req?.request_id ? `REQ${String(req.request_id).padStart(4, '0')}` : '—';
+                        return (
+                          <tr key={inc.incident_id}>
+                            <td>{formatDate(inc.reported_at)}</td>
+                            <td>
+                              <strong>{inc.delivery?.driver?.user?.full_name || 'Unassigned'}</strong>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <span style={{ fontWeight: 600, color: '#1F2937' }}>{reqId}</span>
+                                <span style={{ fontSize: 12, color: '#6B7280' }}>{req?.customer?.full_name || '—'}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <span style={{ textTransform: 'capitalize', fontWeight: 600, color: '#DC2626' }}>
+                                {(inc.incident_type || 'Other').replace(/_/g, ' ')}
+                              </span>
+                            </td>
+                            <td>
+                              <span className={`cell-badge severity-${inc.severity || 'medium'}`}>
+                                {(inc.severity || 'medium').toUpperCase()}
+                              </span>
+                            </td>
+                            <td style={{ maxWidth: 220 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 600, color: '#1F2937' }}>
+                                {inc.location_address || 'Along route'}
+                              </div>
+                              <div style={{ fontSize: 11.5, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {inc.description || '—'}
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`cell-badge status-${inc.status || 'pending'}`}>
+                                {(inc.status || 'pending').toUpperCase()}
+                              </span>
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="btn-print-incident"
+                                onClick={() => setSelectedPrintIncident(inc)}
+                                title="Open Printable PDF Investigation Form"
+                              >
+                                <i className="fas fa-print"></i>
+                                <span>Print Form</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -1381,6 +1489,13 @@ function DriversPage() {
             </div>
           </div>
         </div>
+      )}
+      {/* Printable Incident Report Modal */}
+      {selectedPrintIncident && (
+        <PrintableIncidentModal
+          incident={selectedPrintIncident}
+          onClose={() => setSelectedPrintIncident(null)}
+        />
       )}
     </>
   );

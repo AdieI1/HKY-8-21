@@ -9,6 +9,7 @@ import { router } from "expo-router";
 
 export default function NavigationHeader({
   navigationState,
+  deliveryId,
 }) {
   const getTitle = () => {
     if (navigationState === "preview") {
@@ -63,7 +64,22 @@ export default function NavigationHeader({
         {getTitle()}
       </Text>
 
-      <View style={styles.placeholder} />
+      {deliveryId ? (
+        <TouchableOpacity
+          style={styles.reportButton}
+          onPress={() =>
+            router.push({
+              pathname: "/reportissue",
+              params: { deliveryId: String(deliveryId) },
+            })
+          }
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="warning-outline" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.placeholder} />
+      )}
     </View>
   );
 }
@@ -95,5 +111,12 @@ const styles = StyleSheet.create({
 
   placeholder: {
     width: 42,
+  },
+
+  reportButton: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

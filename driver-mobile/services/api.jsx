@@ -211,6 +211,29 @@ export const updateDeliveryLocation = async (deliveryId, latitude, longitude) =>
     return postToDelivery(deliveryId, "location", { latitude, longitude });
 };
 
+export const submitIncidentReport = async (incidentData) => {
+    const token = await getToken();
+    const headers = {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+    };
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_URL}/incident-reports`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(incidentData),
+    });
+
+    const data = await safeJson(response);
+    if (!response.ok) {
+        throw new Error(data?.message || "Failed to submit incident report.");
+    }
+    return data;
+};
+
 /* =========================================================
    ACTIVE DELIVERY PERSISTENCE
 ========================================================= */

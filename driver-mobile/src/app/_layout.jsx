@@ -11,6 +11,7 @@ export default function RootLayout() {
         <Stack.Screen name="pretripcheck" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="navigation" />
+        <Stack.Screen name="reportissue" />
       </Stack>
     </ThemeProvider>
   );

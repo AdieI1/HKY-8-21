@@ -114,8 +114,8 @@ function DispatchPage() {
   const [chosenVehicleId, setChosenVehicleId] = useState('');
   const [routeDistanceKm, setRouteDistanceKm] = useState(null);
 
-  // Trip ticket fields
   const [tripDate, setTripDate] = useState(todayIso());
+  const [estimatedDurationDays, setEstimatedDurationDays] = useState('2');
   const [odometerReading, setOdometerReading] = useState('');
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceiptNo, setFuelReceiptNo] = useState('');
@@ -320,6 +320,7 @@ function DispatchPage() {
     setChosenVehicleId(initialVehicleId);
     setRouteDistanceKm(null);
     setTripDate(todayIso());
+    setEstimatedDurationDays(delivery.estimated_duration_days ? String(delivery.estimated_duration_days) : '2');
     const initialOdometer = initialVehicleId ? getVehicleLastEndingOdometer(initialVehicleId, vehicles, deliveries) : '';
     setOdometerReading(initialOdometer || '');
     setFuelLiters('');
@@ -349,6 +350,7 @@ function DispatchPage() {
         driver_id: chosenDriverId,
         vehicle_id: chosenVehicleId,
         trip_date: tripDate,
+        estimated_duration_days: parseInt(estimatedDurationDays, 10) || 2,
         fuel_issued: fuelLiters || null,
         fuel_receipt_no: fuelReceiptNo || null,
         remarks: remarks.trim() || null,
@@ -718,6 +720,21 @@ function DispatchPage() {
               </div>
               <div className="tt-two-col" style={{ marginTop: '10px' }}>
                 <div className="tt-field">
+                  <label className="tt-label">Expected Duration / ETA</label>
+                  <div className="tt-input-unit">
+                    <input
+                      className="tt-input"
+                      type="number"
+                      min="1"
+                      max="30"
+                      value={estimatedDurationDays}
+                      onChange={(e) => setEstimatedDurationDays(e.target.value)}
+                      placeholder="2"
+                    />
+                    <span className="tt-unit">Days</span>
+                  </div>
+                </div>
+                <div className="tt-field">
                   <label className="tt-label">Fuel Receipt No.</label>
                   <input
                     className="tt-input"
@@ -727,16 +744,16 @@ function DispatchPage() {
                     onChange={(e) => setFuelReceiptNo(e.target.value)}
                   />
                 </div>
-                <div className="tt-field">
-                  <label className="tt-label">Remarks (Optional)</label>
-                  <input
-                    className="tt-input"
-                    type="text"
-                    placeholder="Enter remarks..."
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                  />
-                </div>
+              </div>
+              <div className="tt-field tt-full" style={{ marginTop: '10px' }}>
+                <label className="tt-label">Remarks (Optional)</label>
+                <input
+                  className="tt-input"
+                  type="text"
+                  placeholder="Enter remarks..."
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                />
               </div>
 
               {/* Send Button */}

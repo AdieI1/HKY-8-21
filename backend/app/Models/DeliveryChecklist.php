@@ -12,6 +12,8 @@ class DeliveryChecklist extends Model
         'delivery_id',
         'type',
         'items',
+        'inspected_by',
+        'inspector_name',
         'starting_odometer',
         'ending_odometer',
         'starting_fuel',
@@ -31,5 +33,10 @@ class DeliveryChecklist extends Model
     public function delivery()
     {
         return $this->belongsTo(Delivery::class, 'delivery_id', 'delivery_id');
+    }
+
+    public function inspector()
+    {
+        return $this->belongsTo(User::class, 'inspected_by', 'user_id');
     }
 }

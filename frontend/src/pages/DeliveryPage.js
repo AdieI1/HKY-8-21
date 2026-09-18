@@ -9,6 +9,8 @@ import RescheduleProposalModal from '../components/delivery/RescheduleProposalMo
 import ReassignDriverModal from '../components/delivery/ReassignDriverModal';
 import PostDeliveryMetricsPanel, { formatTripDuration, getFuelMetrics } from '../components/delivery/PostDeliveryMetricsPanel';
 
+import DelayActionModal from '../components/delivery/DelayActionModal';
+
 const STATUS_STEPS = [
   { key: 'pending', label: 'Pending Dispatch' },
   { key: 'assigned', label: 'Dispatched' },
@@ -22,19 +24,57 @@ const STATUS_STEPS = [
   { key: 'completed', label: 'Complete' },
 ];
 
+export function getTargetEtaMs(d) {
+  if (!d || typeof d !== 'object') return null;
+  if (d.estimated_delivery_date) {
+    const ms = new Date(d.estimated_delivery_date).getTime();
+    if (!isNaN(ms)) return ms;
+  }
+  const baseTimeStr = d.start_time || d.trip_date || d.created_at;
+  if (!baseTimeStr) return null;
+  const baseMs = new Date(baseTimeStr).getTime();
+  if (isNaN(baseMs)) return null;
+
+  const durationDays = Number(d.estimated_duration_days) || 2;
+  return baseMs + durationDays * 86400000;
+}
+
 export function isDeliveryDelayed(d) {
   if (!d || typeof d !== 'object') return false;
-  // If delivery is assigned/dispatched and has not transitioned to accepted/in-transit for >= 3 hours
+  if (d.status === 'completed' || d.status === 'rejected') return false;
+
+  // 1. Stalled dispatch check: assigned for >= 3 hours without moving
   if (d.status === 'assigned' && d.start_time) {
-    return (Date.now() - new Date(d.start_time).getTime()) / 3600000 >= 3;
+    const diffHours = (Date.now() - new Date(d.start_time).getTime()) / 3600000;
+    if (diffHours >= 3) return true;
   }
-  return false;
+
+  // 2. Ongoing transit exceeding estimated ETA (e.g. 2 days ETA, ongoing in 3 days)
+  const targetEtaMs = getTargetEtaMs(d);
+  if (targetEtaMs && Date.now() > targetEtaMs) {
+    return true;
+  }
+
+  return d.is_delayed === true;
 }
 
 export function getDelayDetails(d) {
-  if (!isDeliveryDelayed(d) || !d.start_time) return null;
-  const startMs = new Date(d.start_time).getTime();
-  const diffMs = Math.max(0, Date.now() - startMs);
+  if (!isDeliveryDelayed(d)) return null;
+
+  const targetEtaMs = getTargetEtaMs(d);
+  let diffMs = 0;
+  let isDispatchStalled = false;
+
+  if (d.status === 'assigned' && (!targetEtaMs || Date.now() <= targetEtaMs)) {
+    isDispatchStalled = true;
+    const startMs = new Date(d.start_time).getTime();
+    diffMs = Math.max(0, Date.now() - startMs);
+  } else if (targetEtaMs) {
+    diffMs = Math.max(0, Date.now() - targetEtaMs);
+  } else if (d.start_time) {
+    diffMs = Math.max(0, Date.now() - new Date(d.start_time).getTime());
+  }
+
   const totalHours = Math.floor(diffMs / 3600000);
   const days = Math.floor(totalHours / 24);
 
@@ -44,17 +84,37 @@ export function getDelayDetails(d) {
   } else if (totalHours >= 1) {
     durationText = `${totalHours} hr${totalHours > 1 ? 's' : ''} overdue`;
   } else {
-    durationText = `${Math.floor(diffMs / 60000)} mins overdue`;
+    durationText = `${Math.max(1, Math.floor(diffMs / 60000))} mins overdue`;
   }
 
-  const dateObj = new Date(d.start_time);
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
-  const dispatchedDateStr = `${monthNames[dateObj.getMonth()]} ${dateObj.getDate()}, ${dateObj.getFullYear()}`;
+  const baseTimeStr = d.start_time || d.trip_date || d.created_at;
+  const elapsedDays = baseTimeStr ? Math.max(1, Math.ceil((Date.now() - new Date(baseTimeStr).getTime()) / 86400000)) : 1;
+  const etaDays = Number(d.estimated_duration_days) || 2;
+
+  let targetEtaDateStr = '—';
+  if (targetEtaMs) {
+    const targetObj = new Date(targetEtaMs);
+    targetEtaDateStr = targetObj.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  let dispatchedDateStr = '—';
+  if (d.start_time) {
+    const dateObj = new Date(d.start_time);
+    dispatchedDateStr = dateObj.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
 
   return {
     durationText,
     dispatchedDateStr,
-    fullLabel: `${durationText} (Dispatched ${dispatchedDateStr})`,
+    targetEtaDateStr,
+    etaDays,
+    elapsedDays,
+    isDispatchStalled,
+    delayReason: d.delay_reason || null,
+    delayNotifiedAt: d.delay_notified_at || null,
+    fullLabel: isDispatchStalled
+      ? `${durationText} (Dispatched ${dispatchedDateStr})`
+      : `${durationText} (ETA: ${etaDays}d, Elapsed: ${elapsedDays}d)`,
   };
 }
 
@@ -145,6 +205,34 @@ function DeliveryPage() {
   const [rescheduleSlot, setRescheduleSlot] = useState('09:00 AM');
   const [rescheduleSubmitting, setRescheduleSubmitting] = useState(false);
   const [rescheduleSuccessMsg, setRescheduleSuccessMsg] = useState('');
+
+  const [delayActionModalOpen, setDelayActionModalOpen] = useState(false);
+  const [delayActionMode, setDelayActionMode] = useState('notify_customer'); // 'notify_customer' | 'ping_driver'
+  const [delayActionTarget, setDelayActionTarget] = useState(null);
+
+  const openNotifyCustomerModal = (d) => {
+    setDelayActionTarget(d);
+    setDelayActionMode('notify_customer');
+    setDelayActionModalOpen(true);
+  };
+
+  const openPingDriverModal = (d) => {
+    setDelayActionTarget(d);
+    setDelayActionMode('ping_driver');
+    setDelayActionModalOpen(true);
+  };
+
+  const handleDelayActionSuccess = (updatedDelivery) => {
+    if (updatedDelivery) {
+      setDeliveries((prev) =>
+        prev.map((d) => (d.delivery_id === updatedDelivery.delivery_id ? updatedDelivery : d))
+      );
+      if (selectedDelivery && selectedDelivery.delivery_id === updatedDelivery.delivery_id) {
+        setSelectedDelivery(updatedDelivery);
+      }
+    }
+    loadData();
+  };
 
   const [drivers, setDrivers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
@@ -769,12 +857,125 @@ function DeliveryPage() {
               {isDeliveryDelayed(selectedDelivery) && (() => {
                 const delayInfo = getDelayDetails(selectedDelivery);
                 return (
-                  <div className="panel-delayed-alert-box">
-                    <div className="panel-delayed-alert-title">
-                      <i className="fas fa-exclamation-triangle"></i> Delayed Delivery Notice
+                  <div className="panel-delayed-alert-box" style={{ background: '#FFF1F2', border: '1px solid #FECDD3', borderRadius: 10, padding: 14, marginBottom: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <div className="panel-delayed-alert-title" style={{ color: '#BE123C', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <i className="fas fa-exclamation-triangle"></i> Delayed Delivery Alert
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, background: '#F43F5E', color: '#fff', padding: '2px 8px', borderRadius: 10 }}>
+                        {delayInfo?.durationText || 'Overdue'}
+                      </span>
                     </div>
-                    <div className="panel-delayed-alert-desc">
-                      {delayInfo?.fullLabel || 'Delayed delivery'} • Awaiting driver transit
+
+                    <div style={{ fontSize: 12, color: '#4B5563', lineHeight: 1.5, marginBottom: 10 }}>
+                      <div>Estimated ETA: <strong>{delayInfo?.etaDays || 2} day target</strong> ({delayInfo?.targetEtaDateStr})</div>
+                      <div>Ongoing duration: <strong style={{ color: '#E11D48' }}>{delayInfo?.elapsedDays || 3} days active</strong></div>
+                      {selectedDelivery.delay_reason && (
+                        <div style={{ marginTop: 6, color: '#9F1239', fontSize: 11, background: '#FFE4E6', padding: '5px 8px', borderRadius: 6 }}>
+                          <i className="fas fa-tag" style={{ marginRight: 4 }}></i><strong>Reason:</strong> {selectedDelivery.delay_reason}
+                        </div>
+                      )}
+                      {selectedDelivery.delay_notified_at && (
+                        <div style={{ marginTop: 4, color: '#059669', fontSize: 11, fontWeight: 600 }}>
+                          <i className="fas fa-check-circle" style={{ marginRight: 4 }}></i> Customer notified of delay
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Smart Proposed Actions */}
+                    <div style={{ borderTop: '1px solid #FFE4E6', paddingTop: 10, marginTop: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#9F1239', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <i className="fas fa-lightbulb" style={{ color: '#F59E0B' }}></i> Recommended Actions:
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => openNotifyCustomerModal(selectedDelivery)}
+                          style={{
+                            background: '#BE123C',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: 6,
+                            padding: '8px 12px',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                          }}
+                        >
+                          <i className="fas fa-bullhorn"></i> Notify Customer of Delay &amp; Revised ETA
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openPingDriverModal(selectedDelivery)}
+                          style={{
+                            background: '#2563EB',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: 6,
+                            padding: '8px 12px',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                          }}
+                        >
+                          <i className="fas fa-satellite-dish"></i> Ping Driver for Delay Reason
+                        </button>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                          <button
+                            type="button"
+                            onClick={() => openRescheduleModal(selectedDelivery)}
+                            style={{
+                              background: '#FFFFFF',
+                              color: '#334155',
+                              border: '1px solid #CBD5E1',
+                              borderRadius: 6,
+                              padding: '6px 8px',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <i className="far fa-calendar-alt"></i> Propose Reschedule
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openReassignModal(selectedDelivery)}
+                            style={{
+                              background: '#FFFFFF',
+                              color: '#334155',
+                              border: '1px solid #CBD5E1',
+                              borderRadius: 6,
+                              padding: '6px 8px',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <i className="fas fa-user-edit"></i> Re-assign Relief
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1131,6 +1332,18 @@ function DeliveryPage() {
         successMsg={reassignSuccessMsg}
         onClose={() => setReassignTarget(null)}
         onSubmit={handleConfirmReassign}
+      />
+
+      <DelayActionModal
+        isOpen={delayActionModalOpen}
+        mode={delayActionMode}
+        delivery={delayActionTarget}
+        onClose={() => {
+          setDelayActionModalOpen(false);
+          setDelayActionTarget(null);
+        }}
+        onSubmitSuccess={handleDelayActionSuccess}
+        api={api}
       />
     </>
   );

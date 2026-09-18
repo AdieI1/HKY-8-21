@@ -16,6 +16,10 @@ class Delivery extends Model
         'permit_id',
         'status',
         'trip_date',
+        'estimated_duration_days',
+        'estimated_delivery_date',
+        'delay_reason',
+        'delay_notified_at',
         'trip_cost',
         'starting_odometer',
         'ending_odometer',
@@ -31,7 +35,57 @@ class Delivery extends Model
         'end_time'
     ];
 
-    protected $appends = ['distance_travelled', 'fuel_consumed'];
+    protected $casts = [
+        'estimated_duration_days' => 'integer',
+        'estimated_delivery_date' => 'datetime',
+        'delay_notified_at' => 'datetime',
+        'start_time' => 'datetime',
+        'end_time' => 'datetime',
+        'trip_date' => 'date:Y-m-d',
+    ];
+
+    protected $appends = ['distance_travelled', 'fuel_consumed', 'is_delayed', 'target_eta'];
+
+    public function getTargetEtaAttribute()
+    {
+        if ($this->estimated_delivery_date) {
+            return $this->estimated_delivery_date->toIso8601String();
+        }
+        if ($this->start_time) {
+            $days = $this->estimated_duration_days ?: 2;
+            return $this->start_time->copy()->addDays($days)->toIso8601String();
+        }
+        return null;
+    }
+
+    public function getIsDelayedAttribute()
+    {
+        if ($this->status === 'completed' || $this->status === 'rejected') {
+            return false;
+        }
+
+        // Stalled dispatch check
+        if ($this->status === 'assigned' && $this->start_time) {
+            if (now()->diffInHours($this->start_time) >= 3) {
+                return true;
+            }
+        }
+
+        // Ongoing transit beyond ETA
+        $targetEta = null;
+        if ($this->estimated_delivery_date) {
+            $targetEta = $this->estimated_delivery_date;
+        } elseif ($this->start_time) {
+            $days = $this->estimated_duration_days ?: 2;
+            $targetEta = $this->start_time->copy()->addDays($days);
+        }
+
+        if ($targetEta && now()->gt($targetEta)) {
+            return true;
+        }
+
+        return false;
+    }
 
     public function getDistanceTravelledAttribute()
     {
@@ -160,6 +214,15 @@ class Delivery extends Model
             IncidentReport::class,
             'delivery_id',
             'delivery_id'
+        );
+    }
+
+    public function assignedByUser()
+    {
+        return $this->belongsTo(
+            User::class,
+            'assigned_by',
+            'user_id'
         );
     }
 

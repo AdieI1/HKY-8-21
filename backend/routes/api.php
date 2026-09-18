@@ -295,6 +295,30 @@ Route::middleware('auth:sanctum')->group(function () {
         ]
     );
 
+    Route::post(
+        'deliveries/{delivery}/notify-delay',
+        [
+            DeliveryController::class,
+            'notifyDelay'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/ping-driver',
+        [
+            DeliveryController::class,
+            'pingDriver'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/delay-reason',
+        [
+            DeliveryController::class,
+            'recordDelayReason'
+        ]
+    );
+
 
     /*
     |--------------------------------------------------------------------------

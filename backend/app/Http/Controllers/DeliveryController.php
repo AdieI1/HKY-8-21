@@ -298,6 +298,8 @@ class DeliveryController extends Controller
             'driver_id' => 'required|exists:drivers,driver_id',
             'vehicle_id' => 'required|exists:vehicles,vehicle_id',
             'trip_date' => 'nullable|date',
+            'estimated_duration_days' => 'nullable|integer|min:1|max:30',
+            'estimated_delivery_date' => 'nullable|date',
             'fuel_issued' => 'nullable|numeric|min:0',
             'fuel_receipt_no' => 'nullable|string|max:100',
             'remarks' => 'nullable|string|max:1000',
@@ -362,6 +364,12 @@ class DeliveryController extends Controller
                 ?? $request->odometer_reading
                 ?? null;
 
+            $durationDays = isset($validated['estimated_duration_days']) ? (int) $validated['estimated_duration_days'] : ($delivery->estimated_duration_days ?: 2);
+            $estDeliveryDate = $validated['estimated_delivery_date'] ?? null;
+            if (!$estDeliveryDate) {
+                $estDeliveryDate = now()->addDays($durationDays);
+            }
+
             $delivery->update([
                 'driver_id' => $request->driver_id,
                 'vehicle_id' => $request->vehicle_id,
@@ -369,6 +377,8 @@ class DeliveryController extends Controller
                 'start_time' => now(),
                 'status' => 'assigned',
                 'trip_date' => $validated['trip_date'] ?? now()->toDateString(),
+                'estimated_duration_days' => $durationDays,
+                'estimated_delivery_date' => $estDeliveryDate,
                 'fuel_issued' => $validated['fuel_issued'] ?? null,
                 'fuel_receipt_no' => $validated['fuel_receipt_no'] ?? null,
                 'remarks' => $validated['remarks'] ?? null,
@@ -991,6 +1001,165 @@ class DeliveryController extends Controller
 
         return response()->json([
             'message' => 'Delivery schedule confirmed successfully.',
+            'delivery' => $delivery->fresh()->load(['request.customer', 'driver.user', 'vehicle']),
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | NOTIFY CUSTOMER OF DELIVERY DELAY
+    |--------------------------------------------------------------------------
+    */
+    public function notifyDelay(Request $request, Delivery $delivery)
+    {
+        $validated = $request->validate([
+            'revised_eta' => 'nullable|string|max:100',
+            'delay_reason' => 'nullable|string|max:255',
+            'custom_message' => 'nullable|string|max:1000',
+        ]);
+
+        $deliveryRequest = $delivery->request;
+        $delCode = 'DLV' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+
+        $reason = $validated['delay_reason'] ?? $delivery->delay_reason ?? 'Transit or weather delay';
+        $revisedEta = $validated['revised_eta'] ?? null;
+
+        // Build notification message
+        if (!empty($validated['custom_message'])) {
+            $msg = $validated['custom_message'];
+        } else {
+            $msg = "Shipment #{$delCode} is experiencing a delay due to {$reason}.";
+            if ($revisedEta) {
+                $msg .= " Revised estimated arrival: {$revisedEta}.";
+            }
+            $msg .= " We appreciate your patience as our fleet navigates safely.";
+        }
+
+        $updateData = [
+            'delay_notified_at' => now(),
+            'delay_reason' => $reason,
+        ];
+
+        // If a parsed date is supplied in revised_eta
+        if ($revisedEta && strtotime($revisedEta)) {
+            $updateData['estimated_delivery_date'] = date('Y-m-d H:i:s', strtotime($revisedEta));
+        }
+
+        $delivery->update($updateData);
+
+        if ($deliveryRequest && $deliveryRequest->customer_id) {
+            AppNotification::notify(
+                'delivery_delay',
+                "Delivery Delay Notice (#{$delCode})",
+                $msg,
+                '/customer/tracking',
+                $deliveryRequest->customer_id
+            );
+        }
+
+        // Also notify dispatch team
+        AppNotification::notify(
+            'delivery_delay',
+            "Delay Notice Sent (#{$delCode})",
+            "Customer notified of delay for #{$delCode}. Reason: {$reason}.",
+            '/delivery'
+        );
+
+        DeliveryTracking::create([
+            'delivery_id' => $delivery->delivery_id,
+            'status_update' => 'delay_notified',
+        ]);
+
+        try {
+            \App\Events\DeliveryUpdated::dispatch($delivery);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Reverb broadcast error: " . $e->getMessage());
+        }
+
+        return response()->json([
+            'message' => 'Delay notification sent to customer successfully.',
+            'delivery' => $delivery->fresh()->load(['request.customer', 'driver.user', 'vehicle']),
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | PING DRIVER FOR STATUS / DELAY REASON
+    |--------------------------------------------------------------------------
+    */
+    public function pingDriver(Request $request, Delivery $delivery)
+    {
+        $validated = $request->validate([
+            'inquiry_type' => 'required|string|max:100',
+            'note' => 'nullable|string|max:500',
+        ]);
+
+        $delCode = 'DLV' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+        $typeLabels = [
+            'traffic' => 'Heavy traffic check',
+            'weather' => 'Adverse weather check',
+            'mechanical' => 'Vehicle mechanical status inquiry',
+            'rest_stop' => 'Mandatory rest stop inquiry',
+            'general' => 'Status and progress check',
+        ];
+        $label = $typeLabels[$validated['inquiry_type']] ?? 'Status inquiry';
+        $note = !empty($validated['note']) ? " Note: {$validated['note']}" : '';
+
+        $driver = $delivery->driver;
+        if ($driver && $driver->user_id) {
+            AppNotification::notify(
+                'driver_inquiry',
+                "Urgent Dispatch Inquiry (#{$delCode})",
+                "Dispatch requested a {$label} for shipment #{$delCode}.{$note} Please confirm your current status.",
+                '/driver/tasks',
+                $driver->user_id
+            );
+        }
+
+        DeliveryTracking::create([
+            'delivery_id' => $delivery->delivery_id,
+            'status_update' => 'driver_pinged',
+        ]);
+
+        try {
+            \App\Events\DeliveryUpdated::dispatch($delivery);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Reverb broadcast error: " . $e->getMessage());
+        }
+
+        return response()->json([
+            'message' => 'Status check alert sent to driver device.',
+            'delivery' => $delivery->fresh()->load(['request.customer', 'driver.user', 'vehicle']),
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | RECORD DELAY REASON & REVISED ETA
+    |--------------------------------------------------------------------------
+    */
+    public function recordDelayReason(Request $request, Delivery $delivery)
+    {
+        $validated = $request->validate([
+            'delay_reason' => 'required|string|max:255',
+            'revised_eta' => 'nullable|date',
+            'remarks' => 'nullable|string|max:500',
+        ]);
+
+        $delivery->update([
+            'delay_reason' => $validated['delay_reason'],
+            'estimated_delivery_date' => $validated['revised_eta'] ?? $delivery->estimated_delivery_date,
+            'remarks' => $validated['remarks'] ?? $delivery->remarks,
+        ]);
+
+        try {
+            \App\Events\DeliveryUpdated::dispatch($delivery);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Reverb broadcast error: " . $e->getMessage());
+        }
+
+        return response()->json([
+            'message' => 'Delay details saved.',
             'delivery' => $delivery->fresh()->load(['request.customer', 'driver.user', 'vehicle']),
         ]);
     }

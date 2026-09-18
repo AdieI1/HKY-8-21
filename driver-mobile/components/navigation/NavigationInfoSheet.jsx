@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useRef, useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { router } from "expo-router";
 import NavigationActions from "./NavigationActions";
 import TripTicket from "../TripTicket";
 import { formatShortAddress } from "../../utils/address";
@@ -191,14 +192,30 @@ export default function NavigationInfoSheet({
             </View>
           </View>
 
-          <TouchableOpacity
-            style={styles.ticketButton}
-            onPress={() => setTicketVisible(true)}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
-            <Text style={styles.ticketButtonText}>View Trip Ticket</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+            <TouchableOpacity
+              style={[styles.ticketButton, { flex: 1, marginTop: 0 }]}
+              onPress={() => setTicketVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.ticketButtonText}>Trip Ticket</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.ticketButton, { flex: 1, marginTop: 0, backgroundColor: "#DC2626" }]}
+              onPress={() =>
+                router.push({
+                  pathname: "/reportissue",
+                  params: { deliveryId: String(delivery.id || delivery.delivery_id) },
+                })
+              }
+              activeOpacity={0.8}
+            >
+              <Ionicons name="warning-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.ticketButtonText}>Report Issue</Text>
+            </TouchableOpacity>
+          </View>
 
           <NavigationActions
             navigationState={navigationState}

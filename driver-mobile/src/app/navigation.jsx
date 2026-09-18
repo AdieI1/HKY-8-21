@@ -183,7 +183,10 @@ export default function Navigation() {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.container}>
-        <NavigationHeader navigationState={navigationState} />
+        <NavigationHeader
+          navigationState={navigationState}
+          deliveryId={deliveryId}
+        />
 
         <View style={styles.mapContainer}>
           <NavigationMap
