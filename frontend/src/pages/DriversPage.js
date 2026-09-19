@@ -838,10 +838,10 @@ function DriversPage() {
                                 type="button"
                                 className="btn-print-incident"
                                 onClick={() => setSelectedPrintIncident(inc)}
-                                title="Open Printable PDF Investigation Form"
+                                title="View Incident Details & Operational Actions"
                               >
-                                <i className="fas fa-print"></i>
-                                <span>Print Form</span>
+                                <i className="fas fa-eye"></i>
+                                <span>View Details</span>
                               </button>
                             </td>
                           </tr>

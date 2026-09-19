@@ -124,18 +124,24 @@ function statusLabel(d) {
     const step = STATUS_STEPS.find((s) => s.key === d);
     return step ? step.label : d === 'rejected' ? 'Rejected' : d === 'draft' ? 'Draft' : d;
   }
-  if (isDeliveryDelayed(d)) {
-    return 'Delayed';
-  }
+
+  let baseLabel = 'Pending';
   if (!d.driver_id) {
     if (d.request?.reschedule_status === 'proposed') {
       const pDate = d.request?.reschedule_proposed_date ? new Date(d.request.reschedule_proposed_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) : 'Date';
-      return `Reschedule Proposed (${pDate})`;
+      baseLabel = `Reschedule Proposed (${pDate})`;
+    } else {
+      baseLabel = 'Awaiting Driver';
     }
-    return 'Awaiting Driver';
+  } else {
+    const step = STATUS_STEPS.find((s) => s.key === d.status);
+    baseLabel = step ? step.label : d.status === 'rejected' ? 'Rejected' : d.status === 'draft' ? 'Draft' : (d.status || 'Pending');
   }
-  const step = STATUS_STEPS.find((s) => s.key === d.status);
-  return step ? step.label : d.status === 'rejected' ? 'Rejected' : d.status === 'draft' ? 'Draft' : (d.status || 'Pending');
+
+  if (isDeliveryDelayed(d)) {
+    return `${baseLabel} – Delayed`;
+  }
+  return baseLabel;
 }
 
 function statusBadgeClass(d) {
@@ -675,7 +681,7 @@ function DeliveryPage() {
                       <th>Vehicle</th>
                       <th>Trip Duration &amp; Distance</th>
                       <th>Fuel Consumed</th>
-                      <th>Status</th>
+                      <th style={{ textAlign: 'center' }}>Status</th>
                     </tr>
                   ) : (
                     <tr>
@@ -684,7 +690,7 @@ function DeliveryPage() {
                       <th>Driver</th>
                       <th>Vehicle</th>
                       <th>Last Update</th>
-                      <th>Status</th>
+                      <th style={{ textAlign: 'center' }}>Status</th>
                     </tr>
                   )}
                 </thead>
@@ -722,11 +728,13 @@ function DeliveryPage() {
                               </span>
                             </div>
                           </td>
-                          <td>
-                            <span className="status-badge-monitor completed" onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}>
-                              <i className="fas fa-check" style={{ marginRight: '4px', fontSize: '10px' }}></i>
-                              Completed
-                            </span>
+                          <td style={{ textAlign: 'center' }}>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <span className="status-badge-monitor completed" onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}>
+                                <i className="fas fa-check" style={{ marginRight: '4px', fontSize: '10px' }}></i>
+                                Completed
+                              </span>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -741,8 +749,8 @@ function DeliveryPage() {
                         <td>{d.driver?.user?.full_name || 'Unassigned'}</td>
                         <td>{d.vehicle ? `${d.vehicle.model} – ${d.vehicle.plate_number}` : 'Unassigned'}</td>
                         <td>{formatRelativeTime(d.updated_at)}</td>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <td style={{ textAlign: 'center' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flexWrap: 'wrap' }}>
                             <span
                               className={`status-badge-monitor ${statusBadgeClass(d)}`}
                               onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}

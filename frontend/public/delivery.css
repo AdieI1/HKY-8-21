@@ -215,9 +215,14 @@
     border-bottom-left-radius: 8px;
 }
 
+.monitoring-table thead th:last-child {
+    text-align: center;
+}
+
 .monitoring-table tbody tr td:last-child {
     border-top-right-radius: 8px;
     border-bottom-right-radius: 8px;
+    text-align: center;
 }
 
 .monitoring-table .delivery-id {

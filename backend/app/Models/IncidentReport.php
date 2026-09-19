@@ -14,7 +14,11 @@ class IncidentReport extends Model
         'delivery_id',
         'reported_by',
         'incident_type',
+        'incident_types',
         'severity',
+        'recommended_action',
+        'recommendation_title',
+        'recommendation_notes',
         'description',
         'location_address',
         'latitude',
@@ -22,11 +26,14 @@ class IncidentReport extends Model
         'photo_proof',
         'photos',
         'status',
+        'resolution_action',
+        'resolution_notes',
         'reported_at',
         'resolved_at'
     ];
 
     protected $casts = [
+        'incident_types' => 'array',
         'photos' => 'array',
         'latitude' => 'float',
         'longitude' => 'float',

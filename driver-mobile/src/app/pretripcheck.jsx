@@ -12,7 +12,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState, useRef, useCallback } from "react";
-import { getDelivery } from "../../services/api";
+import { getDelivery, clearActiveAcceptedDeliveryId } from "../../services/api";
 
 export default function PreTripCheck() {
   const { deliveryId } = useLocalSearchParams();
@@ -149,7 +149,10 @@ export default function PreTripCheck() {
         </View>
 
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => {
+            clearActiveAcceptedDeliveryId().catch(() => {});
+            router.replace("/(tabs)/home");
+          }}
           style={styles.backButton}
           activeOpacity={0.7}
         >

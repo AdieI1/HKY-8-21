@@ -1,4 +1,5 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
+import api from '../../api/api-client';
 
 function formatDate(dateStr) {
   if (!dateStr) return '—';
@@ -27,6 +28,9 @@ function formatDateTime(dateStr) {
 
 export default function PrintableIncidentModal({ incident, onClose }) {
   const printContentRef = useRef(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [currentStatus, setCurrentStatus] = useState(incident?.status || 'pending');
+  const [currentResolution, setCurrentResolution] = useState(incident?.resolution_action || null);
 
   if (!incident) return null;
 
@@ -51,13 +55,86 @@ export default function PrintableIncidentModal({ incident, onClose }) {
   const requestCode = request.request_id ? `REQ${String(request.request_id).padStart(4, '0')}` : '—';
   const driverCode = driver.driver_id ? `DR${String(driver.driver_id).padStart(3, '0')}` : '—';
 
+  const incidentTypes = Array.isArray(incident.incident_types) && incident.incident_types.length > 0
+    ? incident.incident_types
+    : typeof incident.incident_types === 'string'
+      ? (() => {
+          try {
+            const parsed = JSON.parse(incident.incident_types);
+            return Array.isArray(parsed) && parsed.length > 0 ? parsed : [incident.incident_type || 'other'];
+          } catch (e) {
+            return [incident.incident_type || 'other'];
+          }
+        })()
+      : [incident.incident_type || 'other'];
+
+  const formatTypeName = (type) =>
+    (type || 'Other')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (l) => l.toUpperCase());
+
   const handlePrint = () => {
     window.print();
   };
 
-  const incidentTypeFormatted = (incident.incident_type || 'Other')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (l) => l.toUpperCase());
+  const handleDispatchRelief = async () => {
+    if (incidentTypes.includes('cargo_damage')) {
+      const confirmDispatch = window.confirm(
+        '⚠️ Warning: Cargo damage was reported on this delivery. If you dispatch a relief vehicle now, the driver will collect potentially damaged cargo.\n\nDo you want to proceed with Relief Truck dispatch anyway?'
+      );
+      if (!confirmDispatch) return;
+    }
+
+    setActionLoading(true);
+    try {
+      await api.post(`/incident-reports/${incident.incident_id}/resolve`, {
+        action: 'dispatch_relief',
+        notes: 'Relief truck requested from incident report.',
+      });
+      setCurrentResolution('dispatch_relief');
+      alert('Relief Truck dispatch initiated! Redirecting to Dispatch map...');
+      window.location.href = `/dispatch?deliveryId=${delivery.delivery_id || ''}&lat=${incident.latitude || ''}&lng=${incident.longitude || ''}&target=relief`;
+    } catch (err) {
+      alert('Failed to initiate relief workflow: ' + (err?.response?.data?.message || err.message));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleFlagRefund = async () => {
+    setActionLoading(true);
+    try {
+      await api.post(`/incident-reports/${incident.incident_id}/resolve`, {
+        action: 'flag_refund',
+        notes: 'Incident flagged for Customer Refund & Cargo Compensation review.',
+      });
+      setCurrentResolution('flag_refund');
+      alert('Incident successfully flagged for Customer Refund & Cargo Compensation review.');
+    } catch (err) {
+      alert('Failed to flag for refund: ' + (err?.response?.data?.message || err.message));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleMarkResolved = async () => {
+    setActionLoading(true);
+    try {
+      await api.post(`/incident-reports/${incident.incident_id}/resolve`, {
+        action: 'mark_resolved',
+        notes: 'Incident verified and closed by operations staff.',
+      });
+      setCurrentStatus('resolved');
+      setCurrentResolution('mark_resolved');
+      alert('Incident marked as RESOLVED.');
+    } catch (err) {
+      alert('Failed to resolve incident: ' + (err?.response?.data?.message || err.message));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const incidentTypeFormatted = incidentTypes.map(formatTypeName).join(' & ');
 
   return (
     <div className="incident-print-modal-overlay" onClick={onClose}>
@@ -69,8 +146,34 @@ export default function PrintableIncidentModal({ incident, onClose }) {
             <span>Official Incident Report &middot; {incidentCode}</span>
           </div>
           <div className="incident-modal-actions">
+            <button
+              className="btn-relief-action"
+              onClick={handleDispatchRelief}
+              disabled={actionLoading}
+              title="Assign an idle relief truck to the incident GPS coordinates"
+            >
+              <i className="fas fa-truck-pickup"></i> Dispatch Relief
+            </button>
+            <button
+              className="btn-refund-action"
+              onClick={handleFlagRefund}
+              disabled={actionLoading}
+              title="Flag this incident for customer refund / cargo compensation review"
+            >
+              <i className="fas fa-hand-holding-usd"></i> Flag Refund
+            </button>
+            {currentStatus !== 'resolved' && (
+              <button
+                className="btn-resolve-action"
+                onClick={handleMarkResolved}
+                disabled={actionLoading}
+                title="Mark this incident as resolved"
+              >
+                <i className="fas fa-check-circle"></i> Resolve
+              </button>
+            )}
             <button className="btn-print-action" onClick={handlePrint}>
-              <i className="fas fa-print"></i> Print / Save as PDF
+              <i className="fas fa-print"></i> Print
             </button>
             <button className="btn-close-action" onClick={onClose}>
               <i className="fas fa-times"></i> Close
@@ -114,11 +217,71 @@ export default function PrintableIncidentModal({ incident, onClose }) {
             </div>
             <div className="meta-cell">
               <span className="cell-label">Status</span>
-              <span className={`cell-badge status-${incident.status || 'pending'}`}>
-                {(incident.status || 'Pending').toUpperCase()}
+              <span className={`cell-badge status-${currentStatus || 'pending'}`}>
+                {(currentStatus || 'Pending').toUpperCase()}
               </span>
             </div>
           </div>
+
+          {/* Smart System Advisory & Operational Decision Banner */}
+          {(incident.recommendation_title || incident.recommended_action || incidentTypes.length > 1) && (
+            <div
+              style={{
+                margin: '18px 0 22px',
+                padding: '14px 18px',
+                borderRadius: '8px',
+                backgroundColor:
+                  incident.recommended_action === 'halt_and_inspect_cargo' ||
+                  incident.recommended_action === 'emergency_escalation' ||
+                  incident.severity === 'high'
+                    ? '#FEF2F2'
+                    : '#EFF6FF',
+                borderLeft: `5px solid ${
+                  incident.recommended_action === 'halt_and_inspect_cargo' ||
+                  incident.recommended_action === 'emergency_escalation' ||
+                  incident.severity === 'high'
+                    ? '#DC2626'
+                    : '#2563EB'
+                }`,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                <i
+                  className={
+                    incident.recommended_action === 'halt_and_inspect_cargo' ||
+                    incident.recommended_action === 'emergency_escalation' ||
+                    incident.severity === 'high'
+                      ? 'fas fa-exclamation-triangle text-red-600'
+                      : 'fas fa-robot text-blue-600'
+                  }
+                  style={{ fontSize: '15px' }}
+                ></i>
+                <span style={{ fontWeight: '800', fontSize: '13px', color: '#1F2937', letterSpacing: '0.3px' }}>
+                  SMART LOGISTICS ADVISORY: {incident.recommendation_title || 'Multi-Issue System Evaluation'}
+                </span>
+                {currentResolution && (
+                  <span
+                    style={{
+                      marginLeft: 'auto',
+                      backgroundColor: '#DC2626',
+                      color: '#FFF',
+                      fontSize: '10px',
+                      padding: '2px 8px',
+                      borderRadius: '10px',
+                      fontWeight: '700',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Action: {currentResolution.replace(/_/g, ' ')}
+                  </span>
+                )}
+              </div>
+              <p style={{ margin: 0, fontSize: '12px', color: '#374151', lineHeight: 1.5 }}>
+                {incident.recommendation_notes ||
+                  'Multiple issues recorded for this trip. Verify cargo condition before transshipping and arrange appropriate roadside assistance or relief vehicles.'}
+              </p>
+            </div>
+          )}
 
           {/* Section 1: Driver & Vehicle Identification */}
           <div className="paper-section">
@@ -267,8 +430,31 @@ export default function PrintableIncidentModal({ incident, onClose }) {
                 </span>
               </div>
               <div className="field-box">
-                <span className="field-label">Specific Incident Type</span>
-                <span className="field-value font-semibold">{incidentTypeFormatted}</span>
+                <span className="field-label">Specific Incident Type(s)</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                  {incidentTypes.map((type, idx) => (
+                    <span
+                      key={idx}
+                      style={{
+                        backgroundColor: '#FEE2E2',
+                        color: '#991B1B',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontWeight: '800',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.4px',
+                        border: '1px solid #FCA5A5',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <i className="fas fa-tag text-red-500" style={{ fontSize: '9px' }}></i>
+                      {formatTypeName(type)}
+                    </span>
+                  ))}
+                </div>
               </div>
               <div className="field-box col-span-2">
                 <span className="field-label">Incident Description & Driver Narrative / Cause</span>

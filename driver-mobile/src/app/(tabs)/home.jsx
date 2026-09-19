@@ -141,7 +141,7 @@ export default function Home() {
 
     useFocusEffect(
         useCallback(() => {
-            loadAssignments(false, assignments.length > 0, true);
+            loadAssignments(false, assignments.length > 0, false);
         }, [loadAssignments, assignments.length])
     );
 

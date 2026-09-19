@@ -343,6 +343,11 @@ Route::middleware('auth:sanctum')->group(function () {
         IncidentReportController::class
     );
 
+    Route::post(
+        'incident-reports/{incident}/resolve',
+        [IncidentReportController::class, 'resolve']
+    );
+
 
     /*
     |--------------------------------------------------------------------------

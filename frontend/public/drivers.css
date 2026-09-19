@@ -1,7 +1,3 @@
-
-
-
-
 /* Driver Stats - Figma Row Layout */
 .driver-stats {
     display: grid;
@@ -519,7 +515,7 @@
     .driver-stats {
         grid-template-columns: 1fr;
     }
-    
+
     .toolbar-right {
         flex-wrap: wrap;
     }
@@ -787,7 +783,7 @@
     cursor: pointer;
     padding: 0;
     text-decoration: underline;
-    text-decoration-color: gray ;
+    text-decoration-color: gray;
 }
 
 .edit-driver-profile-section .driver-modal-id {
@@ -874,7 +870,7 @@
     flex: 1;
 }
 
-.driver-date-field > span {
+.driver-date-field>span {
     font-size: 13px;
     color: #333;
     font-weight: 500;
@@ -1000,6 +996,7 @@
         opacity: 0;
         transform: translateX(30px);
     }
+
     to {
         opacity: 1;
         transform: translateX(0);
@@ -1401,6 +1398,7 @@
         opacity: 0;
         transform: scale(0.96) translateY(10px);
     }
+
     to {
         opacity: 1;
         transform: scale(1) translateY(0);
@@ -1765,6 +1763,7 @@
         opacity: 0;
         transform: scale(0.96) translateY(10px);
     }
+
     to {
         opacity: 1;
         transform: scale(1) translateY(0);
@@ -2058,6 +2057,7 @@
 }
 
 @media (max-width: 900px) {
+
     .add-driver-grid-top,
     .add-driver-grid-bottom {
         grid-template-columns: 1fr;
@@ -2114,6 +2114,7 @@
         opacity: 0;
         transform: scale(0.985) translateY(6px);
     }
+
     to {
         opacity: 1;
         transform: scale(1) translateY(0);
@@ -2425,10 +2426,12 @@
         flex-direction: column;
         align-items: center;
     }
+
     .driver-profile-card {
         width: 100%;
         max-width: 420px;
     }
+
     .driver-info-grid-row-top,
     .driver-info-grid-row-bottom {
         grid-template-columns: 1fr;
@@ -2550,6 +2553,63 @@
 
 .btn-print-action:hover {
     background: #b91c1c;
+}
+
+.btn-relief-action {
+    background: #2563eb;
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.15s ease;
+}
+
+.btn-relief-action:hover {
+    background: #1d4ed8;
+}
+
+.btn-refund-action {
+    background: #d97706;
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.15s ease;
+}
+
+.btn-refund-action:hover {
+    background: #b45309;
+}
+
+.btn-resolve-action {
+    background: #059669;
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.15s ease;
+}
+
+.btn-resolve-action:hover {
+    background: #047857;
 }
 
 .btn-close-action {
@@ -2923,5 +2983,3 @@
         border-radius: 0 !important;
     }
 }
-
-

@@ -84,19 +84,9 @@ export default function NavigationActions({
     }
   };
 
-  const handleReportIssue = () => {
-    console.log("Report Issue pressed");
-  };
-
-  const handleLongBreak = () => {
-    console.log("Long Break pressed");
-  };
-
   return (
     <View style={styles.actions}>
-
       {/* MAIN BUTTON */}
-
       <TouchableOpacity
         style={[
           styles.mainButton,
@@ -118,43 +108,6 @@ export default function NavigationActions({
           />
         )}
       </TouchableOpacity>
-
-      {/* SECONDARY BUTTONS */}
-
-      <View style={styles.secondaryRow}>
-
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={handleReportIssue}
-        >
-          <Ionicons
-            name="warning-outline"
-            size={18}
-            color="#FFFFFF"
-          />
-
-          <Text style={styles.secondaryText}>
-            Report Issue
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={handleLongBreak}
-        >
-          <Ionicons
-            name="time-outline"
-            size={18}
-            color="#FFFFFF"
-          />
-
-          <Text style={styles.secondaryText}>
-            Long Break
-          </Text>
-        </TouchableOpacity>
-
-      </View>
-
     </View>
   );
 }
@@ -183,32 +136,6 @@ const styles = StyleSheet.create({
   mainButtonText: {
     color: "#FFFFFF",
     fontSize: 15,
-    fontWeight: "800",
-  },
-
-  secondaryRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 10,
-  },
-
-  secondaryButton: {
-    flex: 1,
-    height: 44,
-    borderRadius: 9,
-
-    backgroundColor: "#A5A6AD",
-
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-
-    gap: 7,
-  },
-
-  secondaryText: {
-    color: "#FFFFFF",
-    fontSize: 12,
     fontWeight: "800",
   },
 });

@@ -17,6 +17,11 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "splash": {
+        "backgroundColor": "#070B12",
+        "resizeMode": "contain",
+        "image": "./assets/images/hjylogo.png"
+      },
       "predictiveBackGestureEnabled": false,
       "package": "com.adiei1.driverapp"
     },
@@ -24,14 +29,19 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+    "splash": {
+      "image": "./assets/images/hjylogo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#070B12"
+    },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#070B12",
+          "image": "./assets/images/hjylogo.png",
+          "imageWidth": 240
         }
       ],
       "expo-secure-store",

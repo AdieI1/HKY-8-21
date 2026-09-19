@@ -17,7 +17,11 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import { getDelivery, submitIncidentReport } from "../../services/api";
+import {
+  getDelivery,
+  submitIncidentReport,
+  getActiveAcceptedDeliveryId,
+} from "../../services/api";
 
 const ISSUE_TYPES = [
   {
@@ -66,37 +70,71 @@ const ISSUE_TYPES = [
 
 export default function ReportIssueScreen() {
   const { deliveryId } = useLocalSearchParams();
+  const rawId =
+    deliveryId && deliveryId !== "undefined" && deliveryId !== "null"
+      ? String(deliveryId)
+      : null;
+  const [resolvedDeliveryId, setResolvedDeliveryId] = useState(rawId);
   const [delivery, setDelivery] = useState(null);
   const [loadingDelivery, setLoadingDelivery] = useState(true);
 
-  const [selectedIssue, setSelectedIssue] = useState("vehicle_breakdown");
+  const [selectedIssues, setSelectedIssues] = useState(["vehicle_breakdown"]);
   const [description, setDescription] = useState("");
   const [photos, setPhotos] = useState([]);
   const [coords, setCoords] = useState(null);
   const [locationAddress, setLocationAddress] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  const handleToggleIssue = (issueId) => {
+    setSelectedIssues((prev) => {
+      if (prev.includes(issueId)) {
+        if (prev.length === 1) {
+          Alert.alert("Selection Required", "Please keep at least one issue selected.");
+          return prev;
+        }
+        return prev.filter((id) => id !== issueId);
+      } else {
+        return [...prev, issueId];
+      }
+    });
+  };
+
   // Fetch delivery details for top card
   useEffect(() => {
     let isMounted = true;
-    if (deliveryId) {
-      getDelivery(deliveryId)
-        .then((data) => {
+
+    (async () => {
+      let targetId = rawId;
+      if (!targetId) {
+        try {
+          const stored = await getActiveAcceptedDeliveryId();
+          if (stored && stored !== "undefined" && stored !== "null") {
+            targetId = String(stored);
+          }
+        } catch (e) {
+          console.warn("Could not read stored active delivery ID:", e);
+        }
+      }
+
+      if (targetId && isMounted) {
+        setResolvedDeliveryId(targetId);
+        try {
+          const data = await getDelivery(targetId);
           if (isMounted) setDelivery(data);
-        })
-        .catch((err) => {
+        } catch (err) {
           console.warn("Failed to fetch delivery for report:", err);
-        })
-        .finally(() => {
+        } finally {
           if (isMounted) setLoadingDelivery(false);
-        });
-    } else {
-      setLoadingDelivery(false);
-    }
+        }
+      } else {
+        if (isMounted) setLoadingDelivery(false);
+      }
+    })();
+
     return () => {
       isMounted = false;
     };
-  }, [deliveryId]);
+  }, [rawId]);
 
   // Fetch GPS location
   useEffect(() => {
@@ -137,6 +175,41 @@ export default function ReportIssueScreen() {
     })();
   }, []);
 
+  const handleTakePhoto = async () => {
+    if (photos.length >= 5) {
+      Alert.alert("Maximum Photos", "You can upload up to 5 photos.");
+      return;
+    }
+
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "Camera permission is required to take photos."
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 0.25,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const uriString = asset.base64
+          ? `data:image/jpeg;base64,${asset.base64}`
+          : asset.uri;
+        setPhotos((prev) => [...prev, uriString]);
+      }
+    } catch (err) {
+      Alert.alert("Camera Error", err?.message || "Could not take photo.");
+    }
+  };
+
   const handlePickPhoto = async () => {
     if (photos.length >= 5) {
       Alert.alert("Maximum Photos", "You can upload up to 5 photos.");
@@ -154,9 +227,9 @@ export default function ReportIssueScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        quality: 0.7,
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 0.25,
         base64: true,
       });
 
@@ -172,6 +245,19 @@ export default function ReportIssueScreen() {
     }
   };
 
+  const handleAddPhotoPrompt = () => {
+    if (photos.length >= 5) {
+      Alert.alert("Maximum Photos", "You can upload up to 5 photos.");
+      return;
+    }
+
+    Alert.alert("Add Incident Photo", "Choose an option:", [
+      { text: "Take Photo", onPress: handleTakePhoto },
+      { text: "Choose from Gallery", onPress: handlePickPhoto },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
   const handleRemovePhoto = (index) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
@@ -182,12 +268,33 @@ export default function ReportIssueScreen() {
       return;
     }
 
+    const finalDeliveryId =
+      resolvedDeliveryId ||
+      delivery?.delivery_id ||
+      delivery?.id;
+
+    if (!finalDeliveryId || isNaN(Number(finalDeliveryId))) {
+      Alert.alert(
+        "Missing Delivery Information",
+        "Could not identify the delivery for this report. Please return to navigation and try again."
+      );
+      return;
+    }
+
     setSubmitting(true);
     try {
+      const isHighSeverity =
+        selectedIssues.includes("accident") ||
+        (selectedIssues.includes("cargo_damage") &&
+          (selectedIssues.includes("vehicle_breakdown") ||
+            selectedIssues.includes("flat_tire") ||
+            selectedIssues.includes("vehicle_problem")));
+
       const payload = {
-        delivery_id: deliveryId || delivery?.delivery_id,
-        incident_type: selectedIssue,
-        severity: selectedIssue === "accident" ? "high" : "medium",
+        delivery_id: Number(finalDeliveryId),
+        incident_type: selectedIssues[0] || "other",
+        incident_types: selectedIssues,
+        severity: isHighSeverity ? "high" : "medium",
         description: description.trim(),
         location_address: locationAddress || null,
         latitude: coords?.latitude || null,
@@ -221,7 +328,9 @@ export default function ReportIssueScreen() {
 
   const requestCode = delivery?.request?.request_id
     ? `RQ${String(delivery.request.request_id).padStart(5, "0")}`
-    : `RQ${String(deliveryId || "00001").padStart(5, "0")}`;
+    : resolvedDeliveryId
+      ? `DEL-${String(resolvedDeliveryId).padStart(5, "0")}`
+      : "DEL-00001";
 
   const customerName =
     delivery?.request?.customer?.full_name ||
@@ -302,15 +411,22 @@ export default function ReportIssueScreen() {
 
         {/* Section 1: Select Issue Type */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Select Issue Type</Text>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionTitle}>Select Issue Type(s)</Text>
+            <View style={styles.selectedCountBadge}>
+              <Text style={styles.selectedCountText}>
+                {selectedIssues.length} Selected
+              </Text>
+            </View>
+          </View>
           <Text style={styles.sectionSubtitle}>
-            Choose the type of issue you encountered during delivery.
+            Tap to select one or multiple issues (e.g. Flat Tire + Cargo Damage).
           </Text>
         </View>
 
         <View style={styles.issuesGrid}>
           {ISSUE_TYPES.map((issue) => {
-            const isSelected = selectedIssue === issue.id;
+            const isSelected = selectedIssues.includes(issue.id);
             return (
               <TouchableOpacity
                 key={issue.id}
@@ -318,12 +434,16 @@ export default function ReportIssueScreen() {
                   styles.issueCard,
                   isSelected && styles.issueCardSelected,
                 ]}
-                onPress={() => setSelectedIssue(issue.id)}
+                onPress={() => handleToggleIssue(issue.id)}
                 activeOpacity={0.8}
               >
-                {isSelected && (
+                {isSelected ? (
                   <View style={styles.selectedBadge}>
-                    <Ionicons name="checkmark-circle" size={18} color="#DC2626" />
+                    <Ionicons name="checkmark-circle" size={19} color="#DC2626" />
+                  </View>
+                ) : (
+                  <View style={styles.unselectedBadge}>
+                    <Ionicons name="ellipse-outline" size={17} color="#D1D5DB" />
                   </View>
                 )}
 
@@ -347,6 +467,22 @@ export default function ReportIssueScreen() {
             );
           })}
         </View>
+
+        {/* Compound Advisory Notice if Vehicle + Cargo are both selected */}
+        {selectedIssues.includes("cargo_damage") &&
+          (selectedIssues.includes("vehicle_breakdown") ||
+            selectedIssues.includes("flat_tire") ||
+            selectedIssues.includes("vehicle_problem")) && (
+          <View style={styles.compoundNotice}>
+            <Ionicons name="alert-circle" size={20} color="#B91C1C" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.compoundNoticeTitle}>Compound Issue Detected</Text>
+              <Text style={styles.compoundNoticeText}>
+                Vehicle issue + Cargo damage reported. Dispatch will evaluate cargo before transshipment. Please attach photos of both!
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Section 2: Description */}
         <View style={styles.sectionHeader}>
@@ -380,7 +516,7 @@ export default function ReportIssueScreen() {
 
         <TouchableOpacity
           style={styles.uploadDashedBox}
-          onPress={handlePickPhoto}
+          onPress={handleAddPhotoPrompt}
           activeOpacity={0.7}
         >
           <Ionicons name="camera" size={32} color="#6B7280" />
@@ -576,10 +712,26 @@ const styles = StyleSheet.create({
   sectionHeader: {
     marginBottom: 10,
   },
+  sectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   sectionTitle: {
     fontSize: 15,
     fontWeight: "700",
     color: "#1F2937",
+  },
+  selectedCountBadge: {
+    backgroundColor: "#FEE2E2",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  selectedCountText: {
+    color: "#DC2626",
+    fontSize: 11,
+    fontWeight: "700",
   },
   sectionSubtitle: {
     fontSize: 12,
@@ -592,7 +744,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   issueCard: {
     width: "48%",
@@ -616,6 +768,11 @@ const styles = StyleSheet.create({
     top: 6,
     right: 6,
   },
+  unselectedBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+  },
   issueIconWrapper: {
     marginBottom: 8,
   },
@@ -628,6 +785,30 @@ const styles = StyleSheet.create({
   issueLabelSelected: {
     color: "#DC2626",
     fontWeight: "700",
+  },
+
+  /* Compound Notice */
+  compoundNotice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1.5,
+    borderColor: "#FCA5A5",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 20,
+  },
+  compoundNoticeTitle: {
+    color: "#991B1B",
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+  compoundNoticeText: {
+    color: "#B91C1C",
+    fontSize: 11,
+    lineHeight: 16,
   },
 
   /* Description Box */

@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { BlurView } from "expo-blur";
+import AppLoadingScreen from "../../components/AppLoadingScreen";
 
 import {
     login,
@@ -32,6 +33,7 @@ export default function Index() {
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
     const resumeDeliveryIfActive = async (deliveryId) => {
         if (!deliveryId) return false;
@@ -64,9 +66,14 @@ export default function Index() {
     useEffect(() => {
         let active = true;
         const checkAutoLogin = async () => {
+            const minWaitPromise = new Promise((resolve) => setTimeout(resolve, 1400));
             try {
                 const token = await getToken();
-                if (!token || !active) return;
+                if (!token) {
+                    await minWaitPromise;
+                    if (active) setIsCheckingAuth(false);
+                    return;
+                }
 
                 const [activeId, deliveries] = await Promise.all([
                     getActiveAcceptedDeliveryId().catch(() => null),
@@ -92,9 +99,14 @@ export default function Index() {
                     if (resumed || !active) return;
                 }
 
-                router.replace("/(tabs)/home");
+                await minWaitPromise;
+                if (active) {
+                    router.replace("/(tabs)/home");
+                }
             } catch (err) {
                 console.log("AUTO-LOGIN CHECK ERROR:", err);
+                await minWaitPromise;
+                if (active) setIsCheckingAuth(false);
             }
         };
 
@@ -194,6 +206,10 @@ export default function Index() {
             setLoading(false);
         }
     };
+
+    if (isCheckingAuth) {
+        return <AppLoadingScreen />;
+    }
 
     return (
         <SafeAreaView style={styles.safe}>

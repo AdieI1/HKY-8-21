@@ -51,7 +51,13 @@ export default function NavigationHeader({
     <View style={styles.header}>
       <TouchableOpacity
         style={styles.backButton}
-        onPress={() => router.back()}
+        onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace("/(tabs)/home");
+          }
+        }}
       >
         <Ionicons
           name="arrow-back"

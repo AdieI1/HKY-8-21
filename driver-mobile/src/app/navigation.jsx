@@ -96,6 +96,8 @@ export default function Navigation() {
     const distance = Number(request.distance_km || 0);
 
     return {
+      id: backendDelivery.delivery_id,
+      delivery_id: backendDelivery.delivery_id,
       requestId: `RQ${String(request.request_id || "").padStart(5, "0")}`,
       tripTicketNo: `TT-${String(backendDelivery.delivery_id).padStart(6, "0")}`,
       date: backendDelivery.trip_date

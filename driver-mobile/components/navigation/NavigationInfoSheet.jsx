@@ -204,12 +204,13 @@ export default function NavigationInfoSheet({
 
             <TouchableOpacity
               style={[styles.ticketButton, { flex: 1, marginTop: 0, backgroundColor: "#DC2626" }]}
-              onPress={() =>
+              onPress={() => {
+                const targetId = delivery?.delivery_id || delivery?.id;
                 router.push({
                   pathname: "/reportissue",
-                  params: { deliveryId: String(delivery.id || delivery.delivery_id) },
-                })
-              }
+                  params: targetId ? { deliveryId: String(targetId) } : {},
+                });
+              }}
               activeOpacity={0.8}
             >
               <Ionicons name="warning-outline" size={18} color="#FFFFFF" />
