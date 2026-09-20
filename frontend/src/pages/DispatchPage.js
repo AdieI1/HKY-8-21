@@ -199,13 +199,17 @@ function DispatchPage() {
   }, []);
 
   const getDeliveryStatus = useCallback((d) => {
-    if (isOverdue(d)) return { label: 'Overdue', key: 'overdue' };
-    if (!d.driver_id || d.status === 'pending') return { label: 'Pending', key: 'pending' };
-    if (d.status === 'assigned') return { label: 'Awaiting Dispatch', key: 'awaiting' };
-    if (['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit'].includes(d.status)) {
-      return { label: 'Dispatched', key: 'dispatched' };
+    const overdue = isOverdue(d);
+    if (!d.driver_id || d.status === 'pending') {
+      return { label: 'Pending', key: 'pending', isOverdue: overdue };
     }
-    return { label: 'Pending', key: 'pending' };
+    if (d.status === 'assigned') {
+      return { label: 'Awaiting Dispatch', key: 'awaiting', isOverdue: overdue };
+    }
+    if (['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit'].includes(d.status)) {
+      return { label: 'Dispatched', key: 'dispatched', isOverdue: false };
+    }
+    return { label: 'Pending', key: 'pending', isOverdue: overdue };
   }, [isOverdue]);
 
   const kpiCounts = useMemo(() => {
@@ -236,14 +240,14 @@ function DispatchPage() {
     if (activeFilter === 'overdue') {
       list = deliveries.filter(isOverdue);
     } else if (activeFilter === 'awaiting') {
-      list = deliveries.filter((d) => d.status === 'assigned' && !isOverdue(d));
+      list = deliveries.filter((d) => d.status === 'assigned');
     } else if (activeFilter === 'dispatched') {
-      list = deliveries.filter((d) => ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'assigned'].includes(d.status));
+      list = deliveries.filter((d) => ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit'].includes(d.status));
     } else if (activeFilter === 'pending') {
       list = deliveries.filter((d) => !d.driver_id || d.status === 'pending');
     } else {
-      // Default: approved requests ready for dispatch (unassigned / pending)
-      list = deliveries.filter((d) => !d.driver_id || d.status === 'pending');
+      // Default: show all active deliveries
+      list = deliveries.filter((d) => d.status !== 'completed');
     }
 
     if (sortBy === 'date-desc') {
@@ -319,17 +323,43 @@ function DispatchPage() {
     const initialVehicleId = delivery.vehicle_id ? String(delivery.vehicle_id) : '';
     setChosenVehicleId(initialVehicleId);
     setRouteDistanceKm(null);
-    setTripDate(todayIso());
+    setTripDate(
+      delivery.trip_date
+        ? String(delivery.trip_date).split('T')[0]
+        : (delivery.start_time ? String(delivery.start_time).split('T')[0] : todayIso())
+    );
     setEstimatedDurationDays(delivery.estimated_duration_days ? String(delivery.estimated_duration_days) : '2');
-    const initialOdometer = initialVehicleId ? getVehicleLastEndingOdometer(initialVehicleId, vehicles, deliveries) : '';
+    const initialOdometer = delivery.starting_odometer !== null && delivery.starting_odometer !== undefined
+      ? String(delivery.starting_odometer)
+      : (initialVehicleId ? getVehicleLastEndingOdometer(initialVehicleId, vehicles, deliveries) : '');
     setOdometerReading(initialOdometer || '');
-    setFuelLiters('');
-    setFuelReceiptNo('');
-    setRemarks('');
+    setFuelLiters(delivery.fuel_issued !== null && delivery.fuel_issued !== undefined ? String(delivery.fuel_issued) : '');
+    setFuelReceiptNo(delivery.fuel_receipt_no || '');
+    setRemarks(delivery.remarks || '');
     setDispatchError('');
     setDispatchWarning('');
   };
   const closeAssignPanel = () => setSelectedDelivery(null);
+
+  const isDispatched = Boolean(
+    selectedDelivery &&
+    ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'delivered', 'completed'].includes(selectedDelivery.status)
+  );
+
+  const assignedDriver = useMemo(() => {
+    if (!selectedDelivery) return null;
+    return selectedDelivery.driver || drivers.find((d) => String(d.driver_id) === String(selectedDelivery.driver_id)) || null;
+  }, [selectedDelivery, drivers]);
+
+  const assignedVehicle = useMemo(() => {
+    if (!selectedDelivery) return null;
+    return selectedDelivery.vehicle || vehicles.find((v) => String(v.vehicle_id) === String(selectedDelivery.vehicle_id)) || null;
+  }, [selectedDelivery, vehicles]);
+
+  const assignedBy = useMemo(() => {
+    if (!selectedDelivery) return null;
+    return selectedDelivery.assigned_by_user?.full_name || selectedDelivery.assignedBy?.full_name || null;
+  }, [selectedDelivery]);
 
   const dispatchDelivery = async () => {
     if (!chosenDriverId) {
@@ -469,7 +499,17 @@ function DispatchPage() {
 
           <div className="content-section">
             <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-              <h3 className="section-title">Approved Delivery Requests</h3>
+              <h3 className="section-title">
+                {activeFilter === 'overdue'
+                  ? 'Overdue Delivery Requests'
+                  : activeFilter === 'awaiting'
+                  ? 'Awaiting Dispatch (Assigned to Drivers)'
+                  : activeFilter === 'dispatched'
+                  ? 'Dispatched Deliveries (Active In-Transit)'
+                  : activeFilter === 'pending'
+                  ? 'Approved Delivery Requests (Pending Driver Assignment)'
+                  : 'Approved Delivery Requests'}
+              </h3>
               <div className="sort-wrapper">
                 <span className="sort-label">Sort by</span>
                 <select className="sort-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
@@ -509,9 +549,37 @@ function DispatchPage() {
                           <span className={`dispatch-status-val ${st.key}`}>
                             {st.label}
                           </span>
+                          {st.isOverdue && (
+                            <span
+                              style={{
+                                marginLeft: '8px',
+                                padding: '2px 7px',
+                                borderRadius: '4px',
+                                backgroundColor: '#FEE2E2',
+                                color: '#DC2626',
+                                fontSize: '11px',
+                                fontWeight: '700',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                verticalAlign: 'middle',
+                              }}
+                              title="Exceeded SLA dispatch timeline"
+                            >
+                              <i className="fas fa-exclamation-triangle" style={{ fontSize: '10px' }}></i> Overdue
+                            </span>
+                          )}
                         </td>
                         <td>{new Date(d.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}</td>
-                        <td><button className="btn-assign" onClick={() => openAssignPanel(d)}>Assign</button></td>
+                        <td>
+                          <button
+                            className="btn-assign"
+                            style={d.status === 'assigned' ? { background: '#2563EB' } : (['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit'].includes(d.status) ? { background: '#475569' } : {})}
+                            onClick={() => openAssignPanel(d)}
+                          >
+                            {!d.driver_id || d.status === 'pending' ? 'Assign' : (d.status === 'assigned' ? 'Reassign' : 'View Ticket')}
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -588,48 +656,192 @@ function DispatchPage() {
       >
         {selectedDelivery && (
           <>
-            <div className="tt-header">
-              <span><i className="fas fa-route"></i> TRIP TICKET / DISPATCH</span>
+            <div className="tt-header" style={isDispatched ? { background: '#1E293B' } : {}}>
+              <span>
+                <i className={isDispatched ? "fas fa-lock" : "fas fa-route"}></i>
+                {isDispatched ? 'TRIP TICKET (LOCKED - IN TRANSIT)' : 'TRIP TICKET / DISPATCH'}
+              </span>
               <button className="tt-close-btn" onClick={closeAssignPanel}>
                 <i className="fas fa-times"></i>
               </button>
             </div>
 
             <div className="tt-body">
-              <div className="tt-request-id">{requestCode(selectedDelivery.request?.request_id)}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <div className="tt-request-id" style={{ margin: 0 }}>{requestCode(selectedDelivery.request?.request_id)}</div>
+                {isDispatched && (
+                  <span style={{
+                    background: '#EFF6FF',
+                    color: '#1D4ED8',
+                    border: '1px solid #BFDBFE',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4
+                  }}>
+                    <i className="fas fa-satellite-dish" style={{ fontSize: 10 }}></i> Active In-Transit
+                  </span>
+                )}
+              </div>
               <div className="tt-customer-name">{selectedDelivery.request?.customer?.full_name}</div>
               <div className="tt-contact">Contact Number: {selectedDelivery.request?.customer?.phone || '—'}</div>
+
+              {isDispatched && (
+                <div style={{
+                  background: '#F0FDF4',
+                  border: '1px solid #BBF7D0',
+                  borderRadius: '8px',
+                  padding: '10px 12px',
+                  marginBottom: '14px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px'
+                }}>
+                  <i className="fas fa-lock" style={{ color: '#16A34A', fontSize: 16, marginTop: 2 }}></i>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: '#15803D', marginBottom: 2 }}>
+                      Dispatched &amp; Locked (Read-Only)
+                    </div>
+                    <div style={{ fontSize: 12, color: '#166534', lineHeight: 1.4 }}>
+                      This delivery is actively in transit. Reassignments are locked to protect live tracking and driver milestone synchronization.
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {dispatchError && <div className="form-error" style={{ color: '#d32f2f', margin: '8px 0' }}>{dispatchError}</div>}
 
               {/* Driver / Crew */}
               <div className="tt-section-header">
                 <i className="fas fa-user-circle tt-section-icon"></i>
-                <span>DRIVER</span>
+                <span>{isDispatched ? 'ASSIGNED DRIVER' : 'DRIVER'}</span>
               </div>
               <div className="tt-field tt-full">
-                <label className="tt-label">Driver</label>
-                <select className="tt-select" value={chosenDriverId} onChange={(e) => setChosenDriverId(e.target.value)}>
-                  <option value="">Select Driver</option>
-                  {availableDrivers.map((driver) => (
-                    <option key={driver.driver_id} value={driver.driver_id}>{driver.user?.full_name}</option>
-                  ))}
-                </select>
+                {isDispatched ? (
+                  <div style={{
+                    padding: '10px 14px',
+                    background: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: '50%',
+                        background: '#DBEAFE',
+                        color: '#1D4ED8',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 700,
+                        fontSize: 14
+                      }}>
+                        <i className="fas fa-user"></i>
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: '#0F172A' }}>
+                          {assignedDriver?.user?.full_name || 'Assigned Driver'}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                          {assignedDriver?.user?.phone ? `📞 ${assignedDriver.user.phone}` : ''}
+                          {assignedDriver?.license_number ? ` • Lic: ${assignedDriver.license_number}` : ''}
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: 11,
+                      padding: '3px 8px',
+                      borderRadius: 12,
+                      background: '#DCFCE7',
+                      color: '#15803D',
+                      fontWeight: 600
+                    }}>
+                      On Route
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <label className="tt-label">Driver</label>
+                    <select className="tt-select" value={chosenDriverId} onChange={(e) => setChosenDriverId(e.target.value)}>
+                      <option value="">Select Driver</option>
+                      {availableDrivers.map((driver) => (
+                        <option key={driver.driver_id} value={driver.driver_id}>{driver.user?.full_name}</option>
+                      ))}
+                    </select>
+                  </>
+                )}
               </div>
 
               {/* Vehicle Information */}
               <div className="tt-section-header">
                 <i className="fas fa-truck tt-section-icon"></i>
-                <span>VEHICLE INFORMATION</span>
+                <span>{isDispatched ? 'ASSIGNED VEHICLE' : 'VEHICLE INFORMATION'}</span>
               </div>
               <div className="tt-field tt-full">
-                <label className="tt-label">Truck No. / Plate No.</label>
-                <select className="tt-select" value={chosenVehicleId} onChange={(e) => handleVehicleChange(e.target.value)}>
-                  <option value="">Select Vehicle</option>
-                  {availableVehicles.map((vehicle) => (
-                    <option key={vehicle.vehicle_id} value={vehicle.vehicle_id}>{vehicle.model} ({vehicle.plate_number})</option>
-                  ))}
-                </select>
+                {isDispatched ? (
+                  <div style={{
+                    padding: '10px 14px',
+                    background: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 8,
+                        background: '#FEF3C7',
+                        color: '#B45309',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 700,
+                        fontSize: 14
+                      }}>
+                        <i className="fas fa-truck"></i>
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: '#0F172A' }}>
+                          {assignedVehicle ? `${assignedVehicle.model} (${assignedVehicle.plate_number})` : 'Assigned Truck'}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                          {assignedVehicle?.fuel_type ? `Fuel: ${assignedVehicle.fuel_type.toUpperCase()}` : ''}
+                          {(selectedDelivery.starting_odometer !== null && selectedDelivery.starting_odometer !== undefined) ? ` • Start Odo: ${selectedDelivery.starting_odometer} km` : ''}
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: 11,
+                      padding: '3px 8px',
+                      borderRadius: 12,
+                      background: '#FEF3C7',
+                      color: '#92400E',
+                      fontWeight: 600
+                    }}>
+                      In Use
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <label className="tt-label">Truck No. / Plate No.</label>
+                    <select className="tt-select" value={chosenVehicleId} onChange={(e) => handleVehicleChange(e.target.value)}>
+                      <option value="">Select Vehicle</option>
+                      {availableVehicles.map((vehicle) => (
+                        <option key={vehicle.vehicle_id} value={vehicle.vehicle_id}>{vehicle.model} ({vehicle.plate_number})</option>
+                      ))}
+                    </select>
+                  </>
+                )}
               </div>
 
               {/* Client / Cargo */}
@@ -701,7 +913,7 @@ function DispatchPage() {
                 <div className="tt-field">
                   <label className="tt-label">Date</label>
                   <div className="tt-input-unit">
-                    <input className="tt-input" type="date" value={tripDate} onChange={(e) => setTripDate(e.target.value)} />
+                    <input className="tt-input" type="date" value={tripDate} onChange={(e) => setTripDate(e.target.value)} readOnly={isDispatched} />
                   </div>
                 </div>
                 <div className="tt-field">
@@ -713,6 +925,7 @@ function DispatchPage() {
                       placeholder="100"
                       value={fuelLiters}
                       onChange={(e) => setFuelLiters(e.target.value)}
+                      readOnly={isDispatched}
                     />
                     <span className="tt-unit">L</span>
                   </div>
@@ -730,6 +943,7 @@ function DispatchPage() {
                       value={estimatedDurationDays}
                       onChange={(e) => setEstimatedDurationDays(e.target.value)}
                       placeholder="2"
+                      readOnly={isDispatched}
                     />
                     <span className="tt-unit">Days</span>
                   </div>
@@ -742,27 +956,76 @@ function DispatchPage() {
                     placeholder="FR-2026-00045"
                     value={fuelReceiptNo}
                     onChange={(e) => setFuelReceiptNo(e.target.value)}
+                    readOnly={isDispatched}
                   />
                 </div>
               </div>
               <div className="tt-field tt-full" style={{ marginTop: '10px' }}>
-                <label className="tt-label">Remarks (Optional)</label>
+                <label className="tt-label">Remarks</label>
                 <input
                   className="tt-input"
                   type="text"
-                  placeholder="Enter remarks..."
+                  placeholder={isDispatched ? 'No remarks recorded' : 'Enter remarks...'}
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
+                  readOnly={isDispatched}
                 />
               </div>
 
-              {/* Send Button */}
-              <button className="tt-send-btn" onClick={dispatchDelivery} disabled={dispatching}>
-                <i className="fas fa-paper-plane"></i> {dispatching ? 'Dispatching...' : 'Send Trip Ticket & Dispatch'}
-              </button>
-              <div className="tt-note">
-                <i className="fas fa-shield-alt"></i> This assigns the driver &amp; vehicle to the delivery, and records the odometer/fuel entries above.
-              </div>
+              {assignedBy && (
+                <div style={{ marginTop: '12px', fontSize: 12, color: '#64748B', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <i className="fas fa-user-check" style={{ color: '#2563EB' }}></i>
+                  <span>Dispatched by: <strong style={{ color: '#1E293B' }}>{assignedBy}</strong></span>
+                </div>
+              )}
+
+              {/* Actions */}
+              {isDispatched ? (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
+                    <button
+                      type="button"
+                      className="tt-send-btn"
+                      style={{ background: '#2563EB', margin: 0 }}
+                      onClick={() => {
+                        window.location.href = `/delivery?deliveryId=${selectedDelivery.delivery_id}`;
+                      }}
+                    >
+                      <i className="fas fa-satellite-dish"></i> View Live on Delivery Monitoring
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeAssignPanel}
+                      style={{
+                        width: '100%',
+                        padding: '11px',
+                        borderRadius: 8,
+                        border: '1px solid #D1D5DB',
+                        background: '#F3F4F6',
+                        color: '#374151',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                      }}
+                    >
+                      Close Details
+                    </button>
+                  </div>
+                  <div className="tt-note" style={{ marginTop: 10 }}>
+                    <i className="fas fa-lock"></i> Trip details are locked because this shipment has already been dispatched.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <button className="tt-send-btn" onClick={dispatchDelivery} disabled={dispatching}>
+                    <i className="fas fa-paper-plane"></i> {dispatching ? 'Dispatching...' : 'Send Trip Ticket & Dispatch'}
+                  </button>
+                  <div className="tt-note">
+                    <i className="fas fa-shield-alt"></i> This assigns the driver &amp; vehicle to the delivery, and records the odometer/fuel entries above.
+                  </div>
+                </>
+              )}
             </div>
           </>
         )}

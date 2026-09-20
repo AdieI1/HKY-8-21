@@ -1284,10 +1284,20 @@ function DriversPage() {
                       </div>
                     </div>
                     <div className="form-group">
-                      <label>Authorized By</label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        Authorized By
+                        {editingDriver && (
+                          <span style={{ fontSize: 11, color: '#64748b', fontWeight: 'normal', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            <i className="fas fa-lock" style={{ fontSize: 10 }}></i> Immutable Audit Field
+                          </span>
+                        )}
+                      </label>
                       <input
                         type="text"
-                        value={form.authorized_by}
+                        value={form.authorized_by || ''}
+                        disabled={Boolean(editingDriver)}
+                        readOnly={Boolean(editingDriver)}
+                        style={editingDriver ? { backgroundColor: '#f1f5f9', color: '#475569', cursor: 'not-allowed' } : {}}
                         placeholder="Auto-detected authorized user"
                         onChange={(e) => setForm({ ...form, authorized_by: e.target.value })}
                       />
@@ -1358,11 +1368,21 @@ function DriversPage() {
                       />
                     </div>
                     <div className="form-group">
-                      <label>Hired By</label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        Hired By
+                        {editingDriver && (
+                          <span style={{ fontSize: 11, color: '#64748b', fontWeight: 'normal', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            <i className="fas fa-lock" style={{ fontSize: 10 }}></i> Immutable
+                          </span>
+                        )}
+                      </label>
                       <input
                         type="text"
                         placeholder="e.g. HR / Manager"
-                        value={form.hired_by}
+                        value={form.hired_by || ''}
+                        disabled={Boolean(editingDriver)}
+                        readOnly={Boolean(editingDriver)}
+                        style={editingDriver ? { backgroundColor: '#f1f5f9', color: '#475569', cursor: 'not-allowed' } : {}}
                         onChange={(e) => setForm({ ...form, hired_by: e.target.value })}
                       />
                     </div>

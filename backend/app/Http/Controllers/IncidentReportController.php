@@ -142,7 +142,8 @@ class IncidentReportController extends Controller
             'delivery.request.customer',
             'delivery.assignedByUser',
             'delivery.checklists.inspector',
-            'reporter'
+            'reporter',
+            'resolver'
         ])->orderByDesc('reported_at')->get();
     }
 
@@ -236,10 +237,11 @@ class IncidentReportController extends Controller
                         $storedPhotos[] = $saved;
                     }
                 }
-                $validated['photos'] = $storedPhotos;
-
-                if (empty($validated['photo_proof']) && count($storedPhotos) > 0) {
-                    $validated['photo_proof'] = $storedPhotos[0];
+                if (count($storedPhotos) > 0) {
+                    $validated['photos'] = $storedPhotos;
+                    if (empty($validated['photo_proof'])) {
+                        $validated['photo_proof'] = $storedPhotos[0];
+                    }
                 }
             }
         }
@@ -247,9 +249,20 @@ class IncidentReportController extends Controller
         $report = IncidentReport::create($validated);
 
         try {
-            $delivery = $report->delivery()->with(['request', 'driver.user'])->first();
+            $delivery = $report->delivery()->with(['request', 'driver.user', 'vehicle'])->first();
             $driverName = $delivery?->driver?->user?->full_name ?? 'Driver';
             $reqId = $delivery?->request?->request_id ? 'REQ' . str_pad($delivery->request->request_id, 4, '0', STR_PAD_LEFT) : 'Trip';
+
+            // Automatic Fleet Safety Lock: Set truck to maintenance if breakdown/accident or severe
+            $types = is_array($report->incident_types) ? $report->incident_types : [$report->incident_type];
+            $hasDisablingIssue = in_array('accident', $types) || 
+                                 in_array('vehicle_breakdown', $types) || 
+                                 in_array('engine_trouble', $types) || 
+                                 in_array($report->severity, ['high', 'severe']);
+
+            if ($hasDisablingIssue && $delivery?->vehicle) {
+                $delivery->vehicle->update(['status' => 'maintenance']);
+            }
 
             $formattedTypes = count($report->incident_types ?: []) > 1
                 ? implode(' & ', array_map(fn($t) => ucfirst(str_replace('_', ' ', $t)), $report->incident_types))
@@ -262,7 +275,7 @@ class IncidentReportController extends Controller
                 '/drivers'
             );
         } catch (\Throwable $e) {
-            \Log::warning("Notification failed for incident report: " . $e->getMessage());
+            \Log::warning("Notification or fleet lock failed for incident report: " . $e->getMessage());
         }
 
         return $report->load([
@@ -271,7 +284,8 @@ class IncidentReportController extends Controller
             'delivery.request.customer',
             'delivery.assignedByUser',
             'delivery.checklists.inspector',
-            'reporter'
+            'reporter',
+            'resolver'
         ]);
     }
 
@@ -282,16 +296,89 @@ class IncidentReportController extends Controller
         $validated = $request->validate([
             'action' => 'required|string|in:dispatch_relief,flag_refund,roadside_assist,mark_resolved',
             'notes' => 'nullable|string',
+            'police_report_no' => 'nullable|string|max:100',
+            'vehicle_towed_to' => 'nullable|string|max:255',
+            'cargo_condition' => 'nullable|string|in:intact,partial_damage,total_loss',
+            'vehicle_status_after' => 'nullable|string|in:maintenance,available',
+            'relief_vehicle_id' => 'nullable|exists:vehicles,vehicle_id',
+            'relief_driver_id' => 'nullable|exists:drivers,driver_id',
         ]);
 
         $incident->resolution_action = $validated['action'];
         if (!empty($validated['notes'])) {
             $incident->resolution_notes = $validated['notes'];
         }
+        if (isset($validated['police_report_no'])) {
+            $incident->police_report_no = $validated['police_report_no'];
+        }
+        if (isset($validated['vehicle_towed_to'])) {
+            $incident->vehicle_towed_to = $validated['vehicle_towed_to'];
+        }
+        if (isset($validated['cargo_condition'])) {
+            $incident->cargo_condition = $validated['cargo_condition'];
+        }
+
+        $user = $request->user();
+        if ($user) {
+            $incident->resolved_by = $user->user_id;
+        }
 
         if ($validated['action'] === 'mark_resolved') {
             $incident->status = 'resolved';
             $incident->resolved_at = now();
+
+            // If staff explicitly designated vehicle as repaired/cleared:
+            if (!empty($validated['vehicle_status_after']) && $incident->delivery?->vehicle) {
+                $incident->delivery->vehicle->update([
+                    'status' => $validated['vehicle_status_after']
+                ]);
+            }
+        } elseif ($validated['action'] === 'dispatch_relief') {
+            $incident->status = 'investigating';
+
+            $delivery = $incident->delivery;
+            if ($delivery) {
+                $oldVehicle = $delivery->vehicle;
+                $oldDriver = $delivery->driver;
+
+                if ($oldVehicle) {
+                    $oldVehicle->update(['status' => 'maintenance']);
+                }
+
+                if (!empty($validated['relief_vehicle_id'])) {
+                    $reliefVehicle = \App\Models\Vehicle::find($validated['relief_vehicle_id']);
+                    if ($reliefVehicle) {
+                        $delivery->update(['vehicle_id' => $reliefVehicle->vehicle_id]);
+                        $reliefVehicle->update(['status' => 'in_use']);
+                    }
+                }
+
+                if (!empty($validated['relief_driver_id'])) {
+                    $reliefDriver = \App\Models\Driver::find($validated['relief_driver_id']);
+                    if ($reliefDriver) {
+                        if ($oldDriver && $oldDriver->driver_id !== $reliefDriver->driver_id) {
+                            $oldDriver->update(['availability_status' => 'available']);
+                        }
+                        $delivery->update(['driver_id' => $reliefDriver->driver_id]);
+                        $reliefDriver->update(['availability_status' => 'busy']);
+                    }
+                }
+
+                \App\Models\DeliveryTracking::create([
+                    'delivery_id' => $delivery->delivery_id,
+                    'status_update' => 'in_transit',
+                    'latitude' => $incident->latitude,
+                    'longitude' => $incident->longitude,
+                    'timestamp' => now(),
+                ]);
+
+                \App\Models\AppNotification::notify(
+                    'dispatch',
+                    'Relief Vehicle Dispatched',
+                    "Relief vehicle assigned to Delivery #DEL" . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT) . " at incident location.",
+                    '/delivery'
+                );
+            }
         } elseif ($incident->status === 'pending') {
             $incident->status = 'investigating';
         }
@@ -306,7 +393,8 @@ class IncidentReportController extends Controller
                 'delivery.request.customer',
                 'delivery.assignedByUser',
                 'delivery.checklists.inspector',
-                'reporter'
+                'reporter',
+                'resolver',
             ]),
         ]);
     }
@@ -319,7 +407,8 @@ class IncidentReportController extends Controller
             'delivery.request.customer',
             'delivery.assignedByUser',
             'delivery.checklists.inspector',
-            'reporter'
+            'reporter',
+            'resolver'
         ]);
     }
 
@@ -333,7 +422,8 @@ class IncidentReportController extends Controller
             'delivery.request.customer',
             'delivery.assignedByUser',
             'delivery.checklists.inspector',
-            'reporter'
+            'reporter',
+            'resolver'
         ]);
     }
 

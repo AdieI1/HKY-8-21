@@ -28,6 +28,10 @@ class IncidentReport extends Model
         'status',
         'resolution_action',
         'resolution_notes',
+        'police_report_no',
+        'vehicle_towed_to',
+        'cargo_condition',
+        'resolved_by',
         'reported_at',
         'resolved_at'
     ];
@@ -49,5 +53,10 @@ class IncidentReport extends Model
     public function reporter()
     {
         return $this->belongsTo(User::class, 'reported_by', 'user_id');
+    }
+
+    public function resolver()
+    {
+        return $this->belongsTo(User::class, 'resolved_by', 'user_id');
     }
 }

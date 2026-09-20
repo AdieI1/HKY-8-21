@@ -28,9 +28,43 @@ function formatDateTime(dateStr) {
 
 export default function PrintableIncidentModal({ incident, onClose }) {
   const printContentRef = useRef(null);
+  const authUser = JSON.parse(localStorage.getItem('auth_user') || '{}');
   const [actionLoading, setActionLoading] = useState(false);
   const [currentStatus, setCurrentStatus] = useState(incident?.status || 'pending');
   const [currentResolution, setCurrentResolution] = useState(incident?.resolution_action || null);
+  const [resolvedRecord, setResolvedRecord] = useState(incident);
+  const [showResolveModal, setShowResolveModal] = useState(false);
+  const [showReliefModal, setShowReliefModal] = useState(false);
+  const [availableVehicles, setAvailableVehicles] = useState([]);
+  const [availableDrivers, setAvailableDrivers] = useState([]);
+  const [reliefForm, setReliefForm] = useState({
+    relief_vehicle_id: '',
+    relief_driver_id: '',
+    notes: '',
+  });
+  const [reliefLoading, setReliefLoading] = useState(false);
+  const [reliefSuccessInfo, setReliefSuccessInfo] = useState(null);
+
+  const incidentTypes = Array.isArray(incident?.incident_types) && incident?.incident_types.length > 0
+    ? incident.incident_types
+    : typeof incident?.incident_types === 'string'
+      ? (() => {
+          try {
+            const parsed = JSON.parse(incident.incident_types);
+            return Array.isArray(parsed) && parsed.length > 0 ? parsed : [incident?.incident_type || 'other'];
+          } catch (e) {
+            return [incident?.incident_type || 'other'];
+          }
+        })()
+      : [incident?.incident_type || 'other'];
+
+  const [resolveForm, setResolveForm] = useState({
+    police_report_no: incident?.police_report_no || '',
+    vehicle_towed_to: incident?.vehicle_towed_to || '',
+    cargo_condition: incident?.cargo_condition || (incidentTypes.includes('cargo_damage') ? 'partial_damage' : 'intact'),
+    vehicle_status_after: 'maintenance',
+    notes: incident?.resolution_notes || '',
+  });
 
   if (!incident) return null;
 
@@ -40,7 +74,17 @@ export default function PrintableIncidentModal({ incident, onClose }) {
   const driver = delivery.driver || {};
   const driverUser = driver.user || {};
   const vehicle = delivery.vehicle || {};
-  const dispatcher = delivery.assigned_by_user || delivery.assignedByUser || {};
+  const dispatcher =
+    delivery.assigned_by_user ||
+    delivery.assignedByUser ||
+    (delivery.assignedBy && typeof delivery.assignedBy === 'object' ? delivery.assignedBy : null) ||
+    delivery.assigned_user ||
+    {};
+  const dispatcherName =
+    dispatcher.full_name ||
+    dispatcher.name ||
+    authUser?.full_name ||
+    'Authorized Dispatch Officer';
 
   // Find pre-trip checklist
   const checklists = Array.isArray(delivery.checklists) ? delivery.checklists : [];
@@ -49,24 +93,11 @@ export default function PrintableIncidentModal({ incident, onClose }) {
     preTrip.inspector_name ||
     preTrip.inspector?.full_name ||
     preTrip.inspector?.name ||
-    'Certified Fleet Inspector';
+    (dispatcher.full_name ? dispatcher.full_name : (authUser?.full_name || 'Fleet Safety Inspector'));
 
   const incidentCode = `INC-${String(incident.incident_id).padStart(5, '0')}`;
   const requestCode = request.request_id ? `REQ${String(request.request_id).padStart(4, '0')}` : '—';
   const driverCode = driver.driver_id ? `DR${String(driver.driver_id).padStart(3, '0')}` : '—';
-
-  const incidentTypes = Array.isArray(incident.incident_types) && incident.incident_types.length > 0
-    ? incident.incident_types
-    : typeof incident.incident_types === 'string'
-      ? (() => {
-          try {
-            const parsed = JSON.parse(incident.incident_types);
-            return Array.isArray(parsed) && parsed.length > 0 ? parsed : [incident.incident_type || 'other'];
-          } catch (e) {
-            return [incident.incident_type || 'other'];
-          }
-        })()
-      : [incident.incident_type || 'other'];
 
   const formatTypeName = (type) =>
     (type || 'Other')
@@ -77,7 +108,7 @@ export default function PrintableIncidentModal({ incident, onClose }) {
     window.print();
   };
 
-  const handleDispatchRelief = async () => {
+  const handleOpenReliefModal = async () => {
     if (incidentTypes.includes('cargo_damage')) {
       const confirmDispatch = window.confirm(
         '⚠️ Warning: Cargo damage was reported on this delivery. If you dispatch a relief vehicle now, the driver will collect potentially damaged cargo.\n\nDo you want to proceed with Relief Truck dispatch anyway?'
@@ -87,17 +118,68 @@ export default function PrintableIncidentModal({ incident, onClose }) {
 
     setActionLoading(true);
     try {
-      await api.post(`/incident-reports/${incident.incident_id}/resolve`, {
-        action: 'dispatch_relief',
-        notes: 'Relief truck requested from incident report.',
+      const [vehRes, drvRes] = await Promise.all([
+        api.get('/vehicles'),
+        api.get('/drivers'),
+      ]);
+
+      const vehList = (Array.isArray(vehRes.data) ? vehRes.data : vehRes.data?.data || []).filter(
+        (v) => v.status === 'available' && String(v.vehicle_id) !== String(delivery.vehicle_id)
+      );
+
+      const drvList = (Array.isArray(drvRes.data) ? drvRes.data : drvRes.data?.data || []).filter(
+        (d) =>
+          d.status === 'active' &&
+          d.availability_status === 'available' &&
+          String(d.driver_id) !== String(delivery.driver_id)
+      );
+
+      setAvailableVehicles(vehList);
+      setAvailableDrivers(drvList);
+      setReliefForm({
+        relief_vehicle_id: vehList[0]?.vehicle_id || '',
+        relief_driver_id: drvList[0]?.driver_id || '',
+        notes: `Relief vehicle dispatched to incident location (${incident.location_address || 'on route'}) for Delivery #${requestCode}. Cargo transshipment instructed.`,
       });
-      setCurrentResolution('dispatch_relief');
-      alert('Relief Truck dispatch initiated! Redirecting to Dispatch map...');
-      window.location.href = `/dispatch?deliveryId=${delivery.delivery_id || ''}&lat=${incident.latitude || ''}&lng=${incident.longitude || ''}&target=relief`;
+      setShowReliefModal(true);
     } catch (err) {
-      alert('Failed to initiate relief workflow: ' + (err?.response?.data?.message || err.message));
+      alert('Failed to load available fleet for relief dispatch: ' + (err?.response?.data?.message || err.message));
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleConfirmRelief = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!reliefForm.relief_vehicle_id) {
+      alert('Please select an available relief vehicle.');
+      return;
+    }
+
+    setReliefLoading(true);
+    try {
+      await api.post(`/incident-reports/${incident.incident_id}/resolve`, {
+        action: 'dispatch_relief',
+        relief_vehicle_id: reliefForm.relief_vehicle_id,
+        relief_driver_id: reliefForm.relief_driver_id || null,
+        notes: reliefForm.notes.trim(),
+      });
+
+      const chosenVeh = availableVehicles.find((v) => String(v.vehicle_id) === String(reliefForm.relief_vehicle_id));
+      const chosenDrv = availableDrivers.find((d) => String(d.driver_id) === String(reliefForm.relief_driver_id));
+
+      setCurrentResolution('dispatch_relief');
+      setReliefSuccessInfo({
+        vehicle: chosenVeh ? `${chosenVeh.plate_number} (${chosenVeh.model})` : 'Relief Truck',
+        driver: chosenDrv ? (chosenDrv.user?.full_name || chosenDrv.full_name || 'Standby Driver') : 'Standby Driver',
+        dispatchedAt: new Date(),
+      });
+      setShowReliefModal(false);
+      alert('✅ Relief Truck dispatched successfully!\n\n• Disabled vehicle has been set to Maintenance Hold.\n• Relief truck & driver assigned to continue the delivery.');
+    } catch (err) {
+      alert('Failed to dispatch relief truck: ' + (err?.response?.data?.message || err.message));
+    } finally {
+      setReliefLoading(false);
     }
   };
 
@@ -117,16 +199,34 @@ export default function PrintableIncidentModal({ incident, onClose }) {
     }
   };
 
-  const handleMarkResolved = async () => {
+  const handleSubmitResolution = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!resolveForm.notes.trim()) {
+      alert('Please provide official resolution findings and corrective actions taken.');
+      return;
+    }
+
     setActionLoading(true);
     try {
-      await api.post(`/incident-reports/${incident.incident_id}/resolve`, {
+      const res = await api.post(`/incident-reports/${incident.incident_id}/resolve`, {
         action: 'mark_resolved',
-        notes: 'Incident verified and closed by operations staff.',
+        notes: resolveForm.notes.trim(),
+        police_report_no: resolveForm.police_report_no.trim() || null,
+        vehicle_towed_to: resolveForm.vehicle_towed_to.trim() || null,
+        cargo_condition: resolveForm.cargo_condition,
+        vehicle_status_after: resolveForm.vehicle_status_after,
       });
+
+      const updated = res.data?.incident || {};
       setCurrentStatus('resolved');
       setCurrentResolution('mark_resolved');
-      alert('Incident marked as RESOLVED.');
+      setResolvedRecord({
+        ...incident,
+        ...updated,
+        resolver: updated.resolver || authUser,
+      });
+      setShowResolveModal(false);
+      alert('Incident Case File successfully resolved and officially closed.');
     } catch (err) {
       alert('Failed to resolve incident: ' + (err?.response?.data?.message || err.message));
     } finally {
@@ -148,11 +248,11 @@ export default function PrintableIncidentModal({ incident, onClose }) {
           <div className="incident-modal-actions">
             <button
               className="btn-relief-action"
-              onClick={handleDispatchRelief}
-              disabled={actionLoading}
+              onClick={handleOpenReliefModal}
+              disabled={actionLoading || currentResolution === 'dispatch_relief'}
               title="Assign an idle relief truck to the incident GPS coordinates"
             >
-              <i className="fas fa-truck-pickup"></i> Dispatch Relief
+              <i className="fas fa-truck-pickup"></i> {currentResolution === 'dispatch_relief' ? 'Relief Dispatched' : 'Dispatch Relief'}
             </button>
             <button
               className="btn-refund-action"
@@ -162,15 +262,30 @@ export default function PrintableIncidentModal({ incident, onClose }) {
             >
               <i className="fas fa-hand-holding-usd"></i> Flag Refund
             </button>
-            {currentStatus !== 'resolved' && (
+            {currentStatus !== 'resolved' ? (
               <button
                 className="btn-resolve-action"
-                onClick={handleMarkResolved}
+                onClick={() => setShowResolveModal(true)}
                 disabled={actionLoading}
-                title="Mark this incident as resolved"
+                title="Open structured case file resolution and audit sign-off"
               >
-                <i className="fas fa-check-circle"></i> Resolve
+                <i className="fas fa-clipboard-check"></i> Resolve Case
               </button>
+            ) : (
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                backgroundColor: '#DCFCE7',
+                color: '#166534',
+                fontSize: '12px',
+                fontWeight: '700',
+                border: '1px solid #86EFAC'
+              }}>
+                <i className="fas fa-check-circle"></i> Resolved &amp; Audited
+              </span>
             )}
             <button className="btn-print-action" onClick={handlePrint}>
               <i className="fas fa-print"></i> Print
@@ -263,7 +378,7 @@ export default function PrintableIncidentModal({ incident, onClose }) {
                   <span
                     style={{
                       marginLeft: 'auto',
-                      backgroundColor: '#DC2626',
+                      backgroundColor: currentResolution === 'dispatch_relief' ? '#16A34A' : '#DC2626',
                       color: '#FFF',
                       fontSize: '10px',
                       padding: '2px 8px',
@@ -280,6 +395,11 @@ export default function PrintableIncidentModal({ incident, onClose }) {
                 {incident.recommendation_notes ||
                   'Multiple issues recorded for this trip. Verify cargo condition before transshipping and arrange appropriate roadside assistance or relief vehicles.'}
               </p>
+              {reliefSuccessInfo && (
+                <div style={{ marginTop: '10px', padding: '10px 14px', borderRadius: '8px', backgroundColor: '#ECFDF5', border: '1px solid #6EE7B7', color: '#065F46', fontSize: '12px' }}>
+                  <strong><i className="fas fa-check-circle"></i> Relief Truck Dispatched:</strong> {reliefSuccessInfo.vehicle} with Driver <strong>{reliefSuccessInfo.driver}</strong>. Disabled vehicle placed on Maintenance Hold.
+                </div>
+              )}
             </div>
           )}
 
@@ -397,7 +517,7 @@ export default function PrintableIncidentModal({ incident, onClose }) {
               <div className="field-box">
                 <span className="field-label">Dispatched By (Authorized Officer)</span>
                 <span className="field-value font-semibold text-blue">
-                  {dispatcher.full_name || dispatcher.name || 'Operations Dispatch Officer'}
+                  {dispatcherName}
                 </span>
               </div>
               <div className="field-box col-span-2">
@@ -494,7 +614,7 @@ export default function PrintableIncidentModal({ incident, onClose }) {
           <div className="paper-section signature-section">
             <div className="section-heading">
               <span className="section-num">6</span>
-              <span className="section-title">OFFICIAL INVESTIGATION SIGN-OFF & CERTIFICATION</span>
+              <span className="section-title">OFFICIAL INVESTIGATION SIGN-OFF &amp; CERTIFICATION</span>
             </div>
             <div className="signature-grid">
               <div className="signature-box">
@@ -506,14 +626,14 @@ export default function PrintableIncidentModal({ incident, onClose }) {
               <div className="signature-box">
                 <div className="sig-line"></div>
                 <div className="sig-name">{inspectorName}</div>
-                <div className="sig-title">Safety & Inspection Officer</div>
+                <div className="sig-title">Safety &amp; Inspection Officer</div>
                 <div className="sig-date">Date: {formatDate(preTrip.completed_at || incident.reported_at)}</div>
               </div>
               <div className="signature-box">
                 <div className="sig-line"></div>
-                <div className="sig-name">{dispatcher.full_name || 'Fleet Manager'}</div>
+                <div className="sig-name">{resolvedRecord?.resolver?.full_name || dispatcherName}</div>
                 <div className="sig-title">Fleet Operations Manager</div>
-                <div className="sig-date">Date: _______________</div>
+                <div className="sig-date">Date: {formatDate(resolvedRecord?.resolved_at || incident.reported_at)}</div>
               </div>
             </div>
           </div>
@@ -524,6 +644,361 @@ export default function PrintableIncidentModal({ incident, onClose }) {
           </div>
         </div>
       </div>
+
+      {/* Structured Case File Resolution Modal */}
+      {showResolveModal && (
+        <div
+          className="incident-resolve-submodal-overlay"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            zIndex: 10000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setShowResolveModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '560px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              overflow: 'hidden',
+              border: '1px solid #E2E8F0',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ backgroundColor: '#1E293B', padding: '16px 20px', color: '#FFFFFF', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: 34, height: 34, borderRadius: '8px', backgroundColor: '#DC2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <i className="fas fa-clipboard-check" style={{ color: '#fff', fontSize: 16 }}></i>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700' }}>Incident Case File Resolution</h3>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#94A3B8' }}>{incidentCode} &bull; Official Audit Sign-off</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowResolveModal(false)}
+                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {/* Form Body */}
+            <form onSubmit={handleSubmitResolution} style={{ padding: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                    Police Blotter / Reference #
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. PNP-BLOTTER-2026-098"
+                    value={resolveForm.police_report_no}
+                    onChange={(e) => setResolveForm({ ...resolveForm, police_report_no: e.target.value })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                    Vehicle Towing / Depot Location
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. HJY Yard 2 / Apex Shop"
+                    value={resolveForm.vehicle_towed_to}
+                    onChange={(e) => setResolveForm({ ...resolveForm, vehicle_towed_to: e.target.value })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                    Cargo Condition Assessment <span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <select
+                    value={resolveForm.cargo_condition}
+                    onChange={(e) => setResolveForm({ ...resolveForm, cargo_condition: e.target.value })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#fff' }}
+                  >
+                    <option value="intact">Intact &amp; Verified Undamaged</option>
+                    <option value="partial_damage">Partially Damaged</option>
+                    <option value="total_loss">Total Loss (Destroyed)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                    Vehicle Post-Incident Status
+                  </label>
+                  <select
+                    value={resolveForm.vehicle_status_after}
+                    onChange={(e) => setResolveForm({ ...resolveForm, vehicle_status_after: e.target.value })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#fff' }}
+                  >
+                    <option value="maintenance">Keep in Maintenance Hold</option>
+                    <option value="available">Cleared &amp; Return to Available</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                  Official Resolution Findings &amp; Actions Taken <span style={{ color: '#DC2626' }}>*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Document root cause, investigation outcome, driver medical check, and corrective measures taken..."
+                  value={resolveForm.notes}
+                  onChange={(e) => setResolveForm({ ...resolveForm, notes: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', resize: 'vertical' }}
+                  required
+                />
+              </div>
+
+              {/* Staff Sign-off confirmation */}
+              <div style={{ backgroundColor: '#F8FAFC', padding: '10px 14px', borderRadius: '8px', border: '1px solid #E2E8F0', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <span style={{ fontSize: '11px', color: '#64748B', display: 'block' }}>Authorizing Operations Officer:</span>
+                  <span style={{ fontSize: '13px', fontWeight: '700', color: '#1E293B' }}>{authUser?.full_name || 'Authorized Staff'}</span>
+                </div>
+                <span style={{ fontSize: '11px', color: '#16A34A', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <i className="fas fa-shield-alt"></i> Verified Session
+                </span>
+              </div>
+
+              {/* Footer Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowResolveModal(false)}
+                  disabled={actionLoading}
+                  style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#475569', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  style={{
+                    padding: '9px 18px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: '#16A34A',
+                    color: '#FFFFFF',
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    cursor: actionLoading ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    opacity: actionLoading ? 0.7 : 1,
+                  }}
+                >
+                  {actionLoading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check-circle"></i>}
+                  Confirm &amp; Close Case File
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Relief Truck Dispatch Modal */}
+      {showReliefModal && (
+        <div
+          className="incident-resolve-submodal-overlay"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            zIndex: 10000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setShowReliefModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '560px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              overflow: 'hidden',
+              border: '1px solid #E2E8F0',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ backgroundColor: '#1E293B', padding: '16px 20px', color: '#FFFFFF', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: 34, height: 34, borderRadius: '8px', backgroundColor: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <i className="fas fa-truck-pickup" style={{ color: '#fff', fontSize: 16 }}></i>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700' }}>Dispatch Relief Truck &amp; Driver</h3>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#94A3B8' }}>{incidentCode} &bull; Cargo Transshipment &amp; Roadside Relief</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReliefModal(false)}
+                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {/* Form Body */}
+            <form onSubmit={handleConfirmRelief} style={{ padding: '20px' }}>
+              {/* Incident Recap Box */}
+              <div style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '12px 14px', marginBottom: '14px', fontSize: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div>
+                  <span style={{ color: '#64748B', display: 'block' }}>Delivery Request:</span>
+                  <strong style={{ color: '#1E293B' }}>{requestCode}</strong>
+                </div>
+                <div>
+                  <span style={{ color: '#64748B', display: 'block' }}>Incident Location:</span>
+                  <strong style={{ color: '#1E293B' }}>{incident.location_address || 'On Route'}</strong>
+                </div>
+                <div>
+                  <span style={{ color: '#64748B', display: 'block' }}>Disabled Vehicle:</span>
+                  <span style={{ color: '#DC2626', fontWeight: '600' }}>{vehicle.plate_number || 'Truck'} ({vehicle.model || 'Model'}) &bull; Moving to Maintenance</span>
+                </div>
+                <div>
+                  <span style={{ color: '#64748B', display: 'block' }}>Relieved Driver:</span>
+                  <strong style={{ color: '#1E293B' }}>{driverUser.full_name || 'Driver'}</strong>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                  Select Available Relief Vehicle <span style={{ color: '#DC2626' }}>*</span>
+                </label>
+                {availableVehicles.length === 0 ? (
+                  <div style={{ padding: '10px', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '6px', color: '#DC2626', fontSize: '12px' }}>
+                    ⚠️ No spare vehicles are currently marked with "available" status in the depot.
+                  </div>
+                ) : (
+                  <select
+                    value={reliefForm.relief_vehicle_id}
+                    onChange={(e) => setReliefForm({ ...reliefForm, relief_vehicle_id: e.target.value })}
+                    style={{ width: '100%', padding: '9px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#fff' }}
+                    required
+                  >
+                    {availableVehicles.map((v) => (
+                      <option key={v.vehicle_id} value={v.vehicle_id}>
+                        {v.plate_number} — {v.model} ({v.vehicle_type || 'Cargo Truck'}, {v.capacity_tons ? `${v.capacity_tons}T` : 'Standard'})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                  Select Standby Driver
+                </label>
+                {availableDrivers.length === 0 ? (
+                  <div style={{ padding: '10px', backgroundColor: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '6px', color: '#B45309', fontSize: '12px' }}>
+                    ℹ️ No available standby drivers found. The current driver will remain assigned to the relief vehicle.
+                  </div>
+                ) : (
+                  <select
+                    value={reliefForm.relief_driver_id}
+                    onChange={(e) => setReliefForm({ ...reliefForm, relief_driver_id: e.target.value })}
+                    style={{ width: '100%', padding: '9px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#fff' }}
+                  >
+                    <option value="">Keep current driver ({driverUser.full_name || 'Driver'})</option>
+                    {availableDrivers.map((d) => (
+                      <option key={d.driver_id} value={d.driver_id}>
+                        {d.user?.full_name || d.full_name || `Driver #${d.driver_id}`} (License: {d.license_number || 'Valid'})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                  Transshipment &amp; Roadside Instructions
+                </label>
+                <textarea
+                  rows={3}
+                  value={reliefForm.notes}
+                  onChange={(e) => setReliefForm({ ...reliefForm, notes: e.target.value })}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', resize: 'vertical' }}
+                />
+              </div>
+
+              {/* Authorizing staff badge */}
+              <div style={{ backgroundColor: '#F8FAFC', padding: '10px 14px', borderRadius: '8px', border: '1px solid #E2E8F0', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <span style={{ fontSize: '11px', color: '#64748B', display: 'block' }}>Authorizing Dispatcher:</span>
+                  <span style={{ fontSize: '13px', fontWeight: '700', color: '#1E293B' }}>{authUser?.full_name || 'Authorized Staff'}</span>
+                </div>
+                <span style={{ fontSize: '11px', color: '#16A34A', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <i className="fas fa-shield-alt"></i> Verified Session
+                </span>
+              </div>
+
+              {/* Footer Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowReliefModal(false)}
+                  disabled={reliefLoading}
+                  style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#475569', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={reliefLoading || availableVehicles.length === 0}
+                  style={{
+                    padding: '9px 18px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: '#2563EB',
+                    color: '#FFFFFF',
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    cursor: reliefLoading ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    opacity: (reliefLoading || availableVehicles.length === 0) ? 0.6 : 1,
+                  }}
+                >
+                  {reliefLoading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-truck-pickup"></i>}
+                  Confirm &amp; Dispatch Relief Truck
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

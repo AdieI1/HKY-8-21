@@ -76,6 +76,10 @@ class DeliveryController extends Controller
             $validated['payment_verification'] = 'pending';
         }
 
+        if (empty($validated['assigned_by']) && $request->user()) {
+            $validated['assigned_by'] = $request->user()->user_id;
+        }
+
         return Delivery::create($validated);
     }
 
@@ -370,10 +374,15 @@ class DeliveryController extends Controller
                 $estDeliveryDate = now()->addDays($durationDays);
             }
 
+            $dispatcherUserId = $request->user()?->user_id 
+                ?? $request->input('assigned_by') 
+                ?? \App\Models\User::whereHas('role', fn($q) => $q->whereIn('role_name', ['Staff', 'Admin', 'Dispatcher', 'staff', 'admin']))->value('user_id')
+                ?? 2;
+
             $delivery->update([
                 'driver_id' => $request->driver_id,
                 'vehicle_id' => $request->vehicle_id,
-                'assigned_by' => $request->user()?->user_id,
+                'assigned_by' => $dispatcherUserId,
                 'start_time' => now(),
                 'status' => 'assigned',
                 'trip_date' => $validated['trip_date'] ?? now()->toDateString(),
@@ -722,12 +731,21 @@ class DeliveryController extends Controller
             ], 422);
         }
 
+        $inspectorId = $user?->user_id;
+        $inspectorName = $user?->full_name ?? $user?->name ?? $request->input('inspector_name', 'Authorized Inspector');
+
+        $checklistData = array_merge($validated, [
+            'inspected_by' => $inspectorId,
+            'inspector_name' => $inspectorName,
+            'completed_at' => now(),
+        ]);
+
         $checklist = DeliveryChecklist::updateOrCreate(
             [
                 'delivery_id' => $delivery->delivery_id,
                 'type' => $validated['type'],
             ],
-            array_merge($validated, ['completed_at' => now()])
+            $checklistData
         );
 
         if ($validated['type'] === 'pre_trip') {
