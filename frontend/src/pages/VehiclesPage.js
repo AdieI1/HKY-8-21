@@ -350,13 +350,15 @@ function VehiclesPage() {
   // ----- Schedule Maintenance Modal (Matches Reference Image) -----
   const openScheduleMaintenanceModal = (vehicle, e) => {
     e?.stopPropagation();
+    const today = new Date().toISOString().split('T')[0];
+    const defaultCompletion = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     setSchedulingVehicle(vehicle);
     setScheduleForm({
-      maintenance_date: new Date().toISOString().split('T')[0],
-      maintenance_type: 'Preventive Maintenance',
+      maintenance_date: today,
+      next_maintenance_date: defaultCompletion,
+      maintenance_type: vehicle.status === 'broken' ? 'Emergency Maintenance' : 'Preventive Maintenance',
       maintenance_cost: '',
       maintained_by_name: '',
-      notes: '',
       part_id: '',
       quantity_used: '',
       status: 'Scheduled',
@@ -391,9 +393,9 @@ function VehiclesPage() {
         vehicle_id: schedulingVehicle.vehicle_id,
         maintenance_type: scheduleForm.maintenance_type,
         maintenance_date: scheduleForm.maintenance_date,
+        next_maintenance_date: scheduleForm.next_maintenance_date || null,
         maintenance_cost: scheduleForm.maintenance_cost ? parseFloat(scheduleForm.maintenance_cost) : 0,
         maintained_by_name: scheduleForm.maintained_by_name,
-        notes: scheduleForm.notes,
         status: scheduleForm.status,
         part_id: scheduleForm.part_id || null,
         quantity_used: scheduleForm.quantity_used ? parseInt(scheduleForm.quantity_used, 10) : null,
@@ -560,69 +562,139 @@ function VehiclesPage() {
                           </td>
                           <td className="vehicle-id" style={{ fontWeight: 600, fontSize: 13 }}>{vehicleCode(vehicle.vehicle_id)}</td>
                           <td style={{ fontWeight: 600, fontSize: 13 }}>{vehicle.plate_number}</td>
-                          <td><span className={`vehicle-status ${statusClass(vehicle.status)}`} style={{ fontSize: 12 }}><i className="fas fa-circle"></i> {statusLabel(vehicle.status)}</span></td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              <span className={`vehicle-status ${statusClass(vehicle.status)}`} style={{ fontSize: 12 }}>
+                                <i className="fas fa-circle"></i> {statusLabel(vehicle.status)}
+                              </span>
+                              {vehicle.status === 'broken' && (
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    color: '#991b1b',
+                                    background: '#fee2e2',
+                                    border: '1px solid #fca5a5',
+                                    padding: '3px 6px',
+                                    borderRadius: 4,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    whiteSpace: 'nowrap',
+                                    width: 'fit-content',
+                                  }}
+                                  title="Vehicle disabled due to an incident/accident. Please schedule maintenance immediately."
+                                >
+                                  <i className="fas fa-triangle-exclamation"></i> Accident Reported — Schedule Maintenance ASAP
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td style={{ fontSize: 13 }}>{vehicle.condition || '—'}</td>
                           <td style={{ fontSize: 13 }}>{formatDate(vehicle.last_maintenance_date)}</td>
                           <td className="action-cell" onClick={(e) => e.stopPropagation()}>
-                            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'nowrap' }}>
-                              <button
-                                className="btn-action-schedule"
-                                onClick={(e) => openScheduleMaintenanceModal(vehicle, e)}
-                                title="Schedule Maintenance"
-                                style={{
-                                  background: '#f97316',
-                                  color: '#fff',
-                                  border: 'none',
-                                  padding: '5px 8px',
-                                  borderRadius: 5,
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  cursor: 'pointer',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 3,
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                <i className="fas fa-tools"></i> Schedule
-                              </button>
-                              <button
-                                className="btn-danger btn-decommission"
-                                onClick={(e) => openDecommissionModal(vehicle, e)}
-                                title="Decommission Vehicle"
-                                style={{
-                                  background: '#ef4444',
-                                  color: '#fff',
-                                  border: 'none',
-                                  padding: '5px 8px',
-                                  borderRadius: 5,
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  cursor: 'pointer',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                Decommission
-                              </button>
-                              <button
-                                className="btn-edit"
-                                onClick={(e) => { e.stopPropagation(); openEditModal(vehicle); }}
-                                title="Edit Vehicle Information"
-                                style={{
-                                  background: '#475569',
-                                  color: '#fff',
-                                  border: 'none',
-                                  padding: '5px 8px',
-                                  borderRadius: 5,
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  cursor: 'pointer',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                Edit
-                              </button>
-                            </div>
+                            {(() => {
+                              const isAvailable = vehicle.status === 'available';
+                              const isBroken = vehicle.status === 'broken';
+                              const isInUse = vehicle.status === 'in_use';
+                              const isMaintenance = vehicle.status === 'maintenance';
+                              const canSchedule = isAvailable || isBroken;
+                              const canDecommission = isAvailable;
+                              const canEdit = isAvailable;
+
+                              return (
+                                <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'nowrap' }}>
+                                  <button
+                                    className="btn-action-schedule"
+                                    onClick={(e) => canSchedule && openScheduleMaintenanceModal(vehicle, e)}
+                                    disabled={!canSchedule}
+                                    title={
+                                      isInUse
+                                        ? 'Cannot schedule maintenance: vehicle is currently active in a delivery trip.'
+                                        : isMaintenance
+                                        ? 'Vehicle is already under active maintenance.'
+                                        : isBroken
+                                        ? 'Schedule urgent repair for broken vehicle'
+                                        : 'Schedule Maintenance'
+                                    }
+                                    style={{
+                                      background: !canSchedule ? '#cbd5e1' : (isBroken ? '#dc2626' : '#f97316'),
+                                      color: !canSchedule ? '#64748b' : '#fff',
+                                      border: 'none',
+                                      padding: '5px 8px',
+                                      borderRadius: 5,
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: !canSchedule ? 'not-allowed' : 'pointer',
+                                      opacity: !canSchedule ? 0.55 : 1,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 3,
+                                      whiteSpace: 'nowrap',
+                                      boxShadow: isBroken ? '0 0 8px rgba(220, 38, 38, 0.4)' : 'none',
+                                    }}
+                                  >
+                                    <i className={isBroken ? 'fas fa-wrench' : 'fas fa-tools'}></i>
+                                    {isBroken ? 'Schedule Repair' : 'Schedule'}
+                                  </button>
+                                  <button
+                                    className="btn-danger btn-decommission"
+                                    onClick={(e) => canDecommission && openDecommissionModal(vehicle, e)}
+                                    disabled={!canDecommission}
+                                    title={
+                                      isInUse
+                                        ? 'Cannot decommission vehicle: currently in use on a trip.'
+                                        : !isAvailable
+                                        ? 'Only available vehicles can be decommissioned.'
+                                        : 'Decommission Vehicle'
+                                    }
+                                    style={{
+                                      background: !canDecommission ? '#fca5a5' : '#ef4444',
+                                      color: '#fff',
+                                      border: 'none',
+                                      padding: '5px 8px',
+                                      borderRadius: 5,
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: !canDecommission ? 'not-allowed' : 'pointer',
+                                      opacity: !canDecommission ? 0.45 : 1,
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    Decommission
+                                  </button>
+                                  <button
+                                    className="btn-edit"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (canEdit) openEditModal(vehicle);
+                                    }}
+                                    disabled={!canEdit}
+                                    title={
+                                      isInUse
+                                        ? 'Cannot edit specifications: vehicle is currently active on a trip.'
+                                        : !isAvailable
+                                        ? 'Vehicle must be available to edit specifications.'
+                                        : 'Edit Vehicle Information'
+                                    }
+                                    style={{
+                                      background: !canEdit ? '#94a3b8' : '#475569',
+                                      color: '#fff',
+                                      border: 'none',
+                                      padding: '5px 8px',
+                                      borderRadius: 5,
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: !canEdit ? 'not-allowed' : 'pointer',
+                                      opacity: !canEdit ? 0.45 : 1,
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    Edit
+                                  </button>
+                                </div>
+                              );
+                            })()}
                           </td>
                         </tr>
                       ))
@@ -837,24 +909,49 @@ function VehiclesPage() {
               </h4>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {/* Schedule Date */}
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
-                    Schedule Date:
-                  </label>
-                  <input
-                    type="date"
-                    value={scheduleForm.maintenance_date}
-                    onChange={(e) => setScheduleForm({ ...scheduleForm, maintenance_date: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '10px 12px',
-                      borderRadius: 6,
-                      border: '1px solid #cbd5e1',
-                      fontSize: 14,
-                      boxSizing: 'border-box',
-                    }}
-                  />
+                {/* Schedule & Expected Completion Dates */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
+                      Schedule Date:
+                    </label>
+                    <input
+                      type="date"
+                      value={scheduleForm.maintenance_date}
+                      onChange={(e) => setScheduleForm({ ...scheduleForm, maintenance_date: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: 6,
+                        border: '1px solid #cbd5e1',
+                        fontSize: 14,
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
+                      Expected Completion Date:
+                    </label>
+                    <input
+                      type="date"
+                      min={scheduleForm.maintenance_date}
+                      value={scheduleForm.next_maintenance_date || ''}
+                      onChange={(e) => setScheduleForm({ ...scheduleForm, next_maintenance_date: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: 6,
+                        border: '1px solid #cbd5e1',
+                        fontSize: 14,
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', background: '#f8fafc', padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <i className="fas fa-clock" style={{ color: '#2563eb' }}></i>
+                  <span><strong>Automated Return:</strong> The vehicle automatically returns to <strong>Available</strong> status and emits an alert once the completion date is reached.</span>
                 </div>
 
                 {/* Select Service Type (7 Required types) */}
@@ -906,11 +1003,11 @@ function VehiclesPage() {
                 {/* Maintained By */}
                 <div>
                   <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
-                    Maintained By:
+                    External Maintenance Provider / Shop:
                   </label>
                   <input
                     type="text"
-                    placeholder="Enter Maintenance Provider"
+                    placeholder="e.g. Isuzu Motors / HJY Machine Shop"
                     value={scheduleForm.maintained_by_name}
                     onChange={(e) => setScheduleForm({ ...scheduleForm, maintained_by_name: e.target.value })}
                     style={{
@@ -978,27 +1075,6 @@ function VehiclesPage() {
                     <i className="fas fa-info-circle"></i> Inspection does not require spare parts deduction.
                   </p>
                 )}
-
-                {/* Notes */}
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
-                    Notes / Description:
-                  </label>
-                  <textarea
-                    rows="2"
-                    placeholder="Enter additional details or issues found..."
-                    value={scheduleForm.notes}
-                    onChange={(e) => setScheduleForm({ ...scheduleForm, notes: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      border: '1px solid #cbd5e1',
-                      fontSize: 13,
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                </div>
               </div>
 
               {/* Submit Button */}

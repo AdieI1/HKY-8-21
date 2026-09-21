@@ -43,6 +43,7 @@ class DeliveryController extends Controller
             },
             'checklists',
             'reviews',
+            'incidents',
         ])->get();
     }
 
@@ -106,7 +107,8 @@ class DeliveryController extends Controller
             'assignedBy',
             'permit',
             'tracking',
-            'checklists'
+            'checklists',
+            'incidents'
         ]);
     }
 
@@ -349,7 +351,7 @@ class DeliveryController extends Controller
             ) {
                 $oldVehicle = $delivery->vehicle;
 
-                if ($oldVehicle) {
+                if ($oldVehicle && !in_array($oldVehicle->status, ['broken', 'maintenance', 'decommissioned'])) {
                     $oldVehicle->update([
                         'status' => 'available'
                     ]);
@@ -379,13 +381,16 @@ class DeliveryController extends Controller
                 ?? \App\Models\User::whereHas('role', fn($q) => $q->whereIn('role_name', ['Staff', 'Admin', 'Dispatcher', 'staff', 'admin']))->value('user_id')
                 ?? 2;
 
+            $wasOngoing = in_array($delivery->status, ['accepted', 'in_transit', 'out_for_delivery', 'loading_cargo', 'arrived_pickup']);
+            $newStatus = $wasOngoing ? 'out_for_delivery' : 'assigned';
+
             $delivery->update([
                 'driver_id' => $request->driver_id,
                 'vehicle_id' => $request->vehicle_id,
                 'assigned_by' => $dispatcherUserId,
-                'start_time' => now(),
-                'status' => 'assigned',
-                'trip_date' => $validated['trip_date'] ?? now()->toDateString(),
+                'start_time' => $delivery->start_time ?: now(),
+                'status' => $newStatus,
+                'trip_date' => $validated['trip_date'] ?? ($delivery->trip_date ?: now()->toDateString()),
                 'estimated_duration_days' => $durationDays,
                 'estimated_delivery_date' => $estDeliveryDate,
                 'fuel_issued' => $validated['fuel_issued'] ?? null,

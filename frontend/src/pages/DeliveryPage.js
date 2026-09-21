@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import ViewLocationMap from '../components/delivery/ViewLocationMap';
@@ -14,10 +15,10 @@ import DelayActionModal from '../components/delivery/DelayActionModal';
 const STATUS_STEPS = [
   { key: 'pending', label: 'Pending Dispatch' },
   { key: 'assigned', label: 'Dispatched' },
-  { key: 'accepted', label: 'In Transit' },
+  { key: 'accepted', label: 'On Route' },
   { key: 'arrived_pickup', label: 'Arrived at Pickup' },
   { key: 'loading_cargo', label: 'Loading Cargo' },
-  { key: 'out_for_delivery', label: 'On Delivery' },
+  { key: 'out_for_delivery', label: 'On Route' },
   { key: 'arrived_dropoff', label: 'Arrived at Drop-off' },
   { key: 'unloading_cargo', label: 'Unloading Cargo' },
   { key: 'returning_to_hq', label: 'Returning to HQ' },
@@ -118,11 +119,59 @@ export function getDelayDetails(d) {
   };
 }
 
+export function isDeliveryBrokenDown(d) {
+  if (!d || typeof d !== 'object') return false;
+  if (d.status === 'completed' || d.status === 'rejected') return false;
+  if (d.vehicle?.status === 'broken') return true;
+  if (Array.isArray(d.incidents) && d.incidents.some((inc) => 
+    inc.status !== 'resolved' && (
+      (inc.incident_type || '').toLowerCase().includes('breakdown') ||
+      (inc.incident_type || '').toLowerCase().includes('accident') ||
+      (inc.incident_type || '').toLowerCase().includes('problem') ||
+      (inc.incident_type || '').toLowerCase().includes('damage') ||
+      (inc.incident_types || []).some((t) => t.includes('breakdown') || t.includes('accident'))
+    )
+  )) {
+    return true;
+  }
+  return false;
+}
+
+export function getBreakdownDetails(d) {
+  if (!isDeliveryBrokenDown(d)) return null;
+  const activeIncident = (d.incidents || []).find((inc) => inc.status !== 'resolved') || d.incidents?.[0];
+  const lastTracking = Array.isArray(d.tracking) && d.tracking.length > 0 ? d.tracking[d.tracking.length - 1] : null;
+
+  return {
+    incident: activeIncident,
+    locationAddress: activeIncident?.location_address || d.request?.pickup_address || 'Mindanao Highway Route',
+    lat: activeIncident?.latitude ? Number(activeIncident.latitude) : (lastTracking?.latitude ? Number(lastTracking.latitude) : (d.request?.pickup_lat ? Number(d.request.pickup_lat) : 8.4862)),
+    lng: activeIncident?.longitude ? Number(activeIncident.longitude) : (lastTracking?.longitude ? Number(lastTracking.longitude) : (d.request?.pickup_lng ? Number(d.request.pickup_lng) : 124.6522)),
+    description: activeIncident?.description || 'Vehicle breakdown / disabled en route. Immediate relief or repair required.',
+    incidentType: activeIncident?.incident_type ? activeIncident.incident_type.replace(/_/g, ' ').toUpperCase() : 'VEHICLE BREAKDOWN',
+    recommendationTitle: activeIncident?.recommendation_title || 'Vehicle Disabled: Relief Vehicle & Transshipment Needed',
+    recommendationNotes: activeIncident?.recommendation_notes || 'Assign an idle relief truck to the incident GPS coordinates to transfer cargo and complete delivery on time.',
+  };
+}
+
+export function isDeliveryAssignedForMonitoring(d) {
+  if (!d || typeof d !== 'object') return false;
+  if (d.status === 'completed') return true;
+  // Exclude unassigned/pending deliveries awaiting dispatch (they belong in Dispatch Management)
+  if (!d.driver_id && !d.driver) return false;
+  if (d.status === 'pending' || d.status === 'draft') return false;
+  return true;
+}
+
 function statusLabel(d) {
   if (!d) return '—';
   if (typeof d === 'string') {
     const step = STATUS_STEPS.find((s) => s.key === d);
     return step ? step.label : d === 'rejected' ? 'Rejected' : d === 'draft' ? 'Draft' : d;
+  }
+
+  if (isDeliveryBrokenDown(d)) {
+    return 'Broken Down (On Route)';
   }
 
   let baseLabel = 'Pending';
@@ -136,6 +185,10 @@ function statusLabel(d) {
   } else {
     const step = STATUS_STEPS.find((s) => s.key === d.status);
     baseLabel = step ? step.label : d.status === 'rejected' ? 'Rejected' : d.status === 'draft' ? 'Draft' : (d.status || 'Pending');
+  }
+
+  if (baseLabel === 'In Transit' || baseLabel === 'On Delivery') {
+    baseLabel = 'On Route';
   }
 
   if (isDeliveryDelayed(d)) {
@@ -153,6 +206,9 @@ function statusBadgeClass(d) {
     if (d === 'pending' || d === 'draft') return 'pending';
     if (d === 'rejected') return 'rejected';
     return 'in-transit';
+  }
+  if (isDeliveryBrokenDown(d)) {
+    return 'broken-down';
   }
   if (isDeliveryDelayed(d)) {
     return 'delayed';
@@ -191,6 +247,7 @@ function deliveryCode(id) {
 }
 
 function DeliveryPage() {
+  const location = useLocation();
   const [deliveries, setDeliveries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -202,6 +259,18 @@ function DeliveryPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 8;
   const [selectedDelivery, setSelectedDelivery] = useState(null);
+
+  // Deep-link from calendar or notification (?delivery_id=...)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const delId = params.get('delivery_id');
+    if (delId && deliveries.length > 0) {
+      const matched = deliveries.find((d) => Number(d.delivery_id) === Number(delId));
+      if (matched) {
+        setSelectedDelivery(matched);
+      }
+    }
+  }, [location.search, deliveries]);
   const [showMapModal, setShowMapModal] = useState(false);
   const [eta, setEta] = useState(null);
   const [detectedHazards, setDetectedHazards] = useState([]);
@@ -412,13 +481,14 @@ function DeliveryPage() {
   }, [deliveries, selectedDelivery]);
 
   const stats = useMemo(() => {
-    const active = deliveries.filter((d) => !['completed', 'rejected'].includes(d.status)).length;
-    const inTransit = deliveries.filter((d) => ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo'].includes(d.status)).length;
-    const returning = deliveries.filter((d) => d.status === 'returning_to_hq').length;
-    const dispatched = deliveries.filter((d) => d.status === 'assigned').length;
-    const delayed = deliveries.filter(isDeliveryDelayed).length;
-    const completed = deliveries.filter((d) => d.status === 'completed').length;
-    return { active, inTransit, returning, dispatched, delayed, completed };
+    const monitored = deliveries.filter(isDeliveryAssignedForMonitoring);
+    const all = monitored.filter((d) => !['completed', 'rejected'].includes(d.status)).length;
+    const active = monitored.filter((d) => !isDeliveryBrokenDown(d) && ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo'].includes(d.status)).length;
+    const brokenDown = monitored.filter(isDeliveryBrokenDown).length;
+    const returning = monitored.filter((d) => d.status === 'returning_to_hq').length;
+    const delayed = monitored.filter((d) => !isDeliveryBrokenDown(d) && isDeliveryDelayed(d)).length;
+    const completed = monitored.filter((d) => d.status === 'completed').length;
+    return { all, active, returning, brokenDown, delayed, completed };
   }, [deliveries]);
 
   useEffect(() => {
@@ -426,7 +496,7 @@ function DeliveryPage() {
   }, [viewTab, activeFilter, search, sortBy]);
 
   const filteredDeliveries = useMemo(() => {
-    let list = [...deliveries];
+    let list = deliveries.filter(isDeliveryAssignedForMonitoring);
 
     // Primary viewTab filtering:
     if (viewTab === 'completed') {
@@ -435,12 +505,12 @@ function DeliveryPage() {
       list = list.filter((d) => d.status !== 'completed');
 
       // Optional granular sub-filter from clicking KPI cards:
-      if (activeFilter === 'inTransit') {
-        list = list.filter((d) => ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo'].includes(d.status));
+      if (activeFilter === 'active' || activeFilter === 'inTransit') {
+        list = list.filter((d) => !isDeliveryBrokenDown(d) && ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo'].includes(d.status));
       } else if (activeFilter === 'returning') {
         list = list.filter((d) => d.status === 'returning_to_hq');
-      } else if (activeFilter === 'dispatched') {
-        list = list.filter((d) => d.status === 'assigned');
+      } else if (activeFilter === 'brokenDown') {
+        list = list.filter(isDeliveryBrokenDown);
       } else if (activeFilter === 'delayed') {
         list = list.filter(isDeliveryDelayed);
       }
@@ -577,19 +647,19 @@ function DeliveryPage() {
             <div
               className={`stat-card ${viewTab === 'active' && activeFilter === 'all' ? 'active-filter' : ''}`}
               onClick={() => { setViewTab('active'); setActiveFilter('all'); }}
-              title="View All Active Deliveries"
+              title="View All Monitored Deliveries"
             >
-              <div className="stat-badge green">{stats.active}</div>
-              <span className="stat-label">Active Deliveries</span>
+              <div className="stat-badge green">{stats.all}</div>
+              <span className="stat-label">All Deliveries</span>
             </div>
 
             <div
-              className={`stat-card ${viewTab === 'active' && activeFilter === 'inTransit' ? 'active-filter' : ''}`}
-              onClick={() => { setViewTab('active'); setActiveFilter('inTransit'); }}
-              title="Filter by In Transit Deliveries"
+              className={`stat-card ${viewTab === 'active' && (activeFilter === 'active' || activeFilter === 'inTransit') ? 'active-filter' : ''}`}
+              onClick={() => { setViewTab('active'); setActiveFilter('active'); }}
+              title="Filter by Active Deliveries (On Route)"
             >
-              <div className="stat-badge blue">{stats.inTransit}</div>
-              <span className="stat-label">In Transit</span>
+              <div className="stat-badge blue">{stats.active}</div>
+              <span className="stat-label">Active Deliveries</span>
             </div>
 
             <div
@@ -602,12 +672,27 @@ function DeliveryPage() {
             </div>
 
             <div
-              className={`stat-card ${viewTab === 'active' && activeFilter === 'dispatched' ? 'active-filter' : ''}`}
-              onClick={() => { setViewTab('active'); setActiveFilter('dispatched'); }}
-              title="Filter by Dispatched Deliveries"
+              className={`stat-card ${viewTab === 'active' && activeFilter === 'brokenDown' ? 'active-filter' : ''}`}
+              onClick={() => { setViewTab('active'); setActiveFilter('brokenDown'); }}
+              title="Filter by Broken Down Deliveries"
+              style={stats.brokenDown > 0 ? { borderColor: '#FCA5A5', background: '#FEF2F2' } : {}}
             >
-              <div className="stat-badge purple">{stats.dispatched}</div>
-              <span className="stat-label">Dispatched</span>
+              <div
+                className="stat-badge red"
+                style={{
+                  background: stats.brokenDown > 0 ? '#DC2626' : '#94A3B8',
+                  color: '#fff',
+                  boxShadow: stats.brokenDown > 0 ? '0 0 8px rgba(220, 38, 38, 0.4)' : 'none',
+                }}
+              >
+                {stats.brokenDown}
+              </div>
+              <span
+                className="stat-label"
+                style={stats.brokenDown > 0 ? { color: '#991B1B', fontWeight: 700 } : {}}
+              >
+                Broken Down
+              </span>
             </div>
 
             <div
@@ -1100,64 +1185,140 @@ function DeliveryPage() {
                   </div>
 
                   {(() => {
-                    const isInTransitNavigating = ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo', 'returning_to_hq'].includes(selectedDelivery.status);
-
-                    if (isInTransitNavigating) {
-                      return (
-                        <button className="btn-view-location" onClick={openMapModal}>
-                          <i className="fas fa-map-marker-alt"></i> View Live Location
-                        </button>
-                      );
-                    }
+                    const isBroken = isDeliveryBrokenDown(selectedDelivery);
+                    const breakdown = getBreakdownDetails(selectedDelivery);
+                    const isInTransitNavigating = isBroken || ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo', 'returning_to_hq'].includes(selectedDelivery.status);
 
                     return (
-                      <div className="panel-transit-status-box">
-                        <div className="transit-status-header">
-                          <span className="transit-status-dot"></span>
-                          <span className="transit-status-title">Waiting for driver to be in transit</span>
-                        </div>
-                        <div className="transit-status-subtitle">
-                          Live location tracking will pop up once the driver is in transit navigating to the pickup point.
-                        </div>
+                      <>
+                        {isBroken && breakdown && (
+                          <div
+                            style={{
+                              background: '#FEF2F2',
+                              border: '1.5px solid #F87171',
+                              borderRadius: '10px',
+                              padding: '14px',
+                              margin: '16px 0 12px',
+                              boxShadow: '0 4px 12px rgba(220, 38, 38, 0.08)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#991B1B', fontWeight: 800, fontSize: '13px' }}>
+                              <i className="fas fa-exclamation-triangle" style={{ fontSize: '16px' }}></i>
+                              Decision Support: Vehicle Breakdown
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#7F1D1D', marginTop: '6px', lineHeight: '1.4' }}>
+                              <strong>Breakdown Location:</strong> {breakdown.locationAddress}
+                              <br />
+                              <strong>Reported Issue:</strong> {breakdown.description}
+                            </div>
 
-                        <div className="transit-actions-wrap">
-                          {canReassign ? (
-                            <>
+                            <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                               <button
                                 type="button"
-                                className="btn-reassign-panel-primary"
                                 onClick={() => openReassignModal(selectedDelivery)}
+                                style={{
+                                  width: '100%',
+                                  padding: '9px 12px',
+                                  background: '#DC2626',
+                                  color: '#FFFFFF',
+                                  border: 'none',
+                                  borderRadius: '6px',
+                                  fontWeight: 700,
+                                  fontSize: '12.5px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '6px',
+                                  boxShadow: '0 2px 4px rgba(220, 38, 38, 0.25)',
+                                }}
                               >
-                                <i className="fas fa-user-edit"></i> Re-assign Driver &amp; Vehicle
+                                <i className="fas fa-truck-pickup"></i> Re-assign (Dispatch Relief Truck)
                               </button>
                               <button
                                 type="button"
-                                className="btn-link-resched"
                                 onClick={() => openRescheduleModal(selectedDelivery)}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  background: '#FFFFFF',
+                                  color: '#B45309',
+                                  border: '1px solid #FCD34D',
+                                  borderRadius: '6px',
+                                  fontWeight: 600,
+                                  fontSize: '12px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '6px',
+                                }}
                               >
-                                <i className="far fa-calendar-alt"></i> Propose Reschedule Instead
+                                <i className="far fa-calendar-alt"></i> Re-schedule Delivery Instead
                               </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                className="btn-resched-panel-primary"
-                                onClick={() => openRescheduleModal(selectedDelivery)}
-                              >
-                                <i className="far fa-calendar-alt"></i> Propose Reschedule to Customer
-                              </button>
-                              <div className="transit-fleet-note">
-                                <i className="fas fa-info-circle"></i> {!hasAvailableDrivers && !hasAvailableVehicles
-                                  ? 'No drivers or vehicles currently available for reassignment.'
-                                  : !hasAvailableDrivers
-                                  ? 'No drivers currently available for reassignment.'
-                                  : 'No vehicles currently available for reassignment.'}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {isInTransitNavigating ? (
+                          <button
+                            className="btn-view-location"
+                            onClick={openMapModal}
+                            style={isBroken ? { background: '#B91C1C', borderColor: '#DC2626' } : {}}
+                          >
+                            <i className={isBroken ? 'fas fa-map-marked-alt' : 'fas fa-map-marker-alt'}></i>{' '}
+                            {isBroken ? 'View Breakdown Location & Live Map' : 'View Live Location'}
+                          </button>
+                        ) : (
+                          <div className="panel-transit-status-box">
+                            <div className="transit-status-header">
+                              <span className="transit-status-dot"></span>
+                              <span className="transit-status-title">Waiting for driver to be in transit</span>
+                            </div>
+                            <div className="transit-status-subtitle">
+                              Live location tracking will pop up once the driver is in transit navigating to the pickup point.
+                            </div>
+
+                            <div className="transit-actions-wrap">
+                              {canReassign ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="btn-reassign-panel-primary"
+                                    onClick={() => openReassignModal(selectedDelivery)}
+                                  >
+                                    <i className="fas fa-user-edit"></i> Re-assign Driver &amp; Vehicle
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-link-resched"
+                                    onClick={() => openRescheduleModal(selectedDelivery)}
+                                  >
+                                    <i className="far fa-calendar-alt"></i> Propose Reschedule Instead
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="btn-resched-panel-primary"
+                                    onClick={() => openRescheduleModal(selectedDelivery)}
+                                  >
+                                    <i className="far fa-calendar-alt"></i> Propose Reschedule to Customer
+                                  </button>
+                                  <div className="transit-fleet-note">
+                                    <i className="fas fa-info-circle"></i> {!hasAvailableDrivers && !hasAvailableVehicles
+                                      ? 'No drivers or vehicles currently available for reassignment.'
+                                      : !hasAvailableDrivers
+                                      ? 'No drivers currently available for reassignment.'
+                                      : 'No vehicles currently available for reassignment.'}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </>
                     );
                   })()}
                 </>
@@ -1182,6 +1343,79 @@ function DeliveryPage() {
             </div>
             <div className="map-modal-body">
               <div className="map-info-card">
+                {isDeliveryBrokenDown(selectedDelivery) && (() => {
+                  const bd = getBreakdownDetails(selectedDelivery);
+                  return (
+                    <div className="map-section" style={{ borderLeft: '4px solid #dc2626', background: '#FEF2F2', padding: '12px', borderRadius: '8px', marginBottom: '14px', boxShadow: '0 1px 4px rgba(220,38,38,0.1)' }}>
+                      <div style={{ fontWeight: 800, fontSize: '13px', color: '#991B1B', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <i className="fas fa-exclamation-triangle"></i>
+                        <span>Decision Support: Vehicle Breakdown</span>
+                      </div>
+                      <p style={{ margin: '6px 0 8px 0', fontSize: '11.5px', color: '#7F1D1D', lineHeight: '1.4' }}>
+                        Truck is disabled due to <strong>{bd.incidentType || 'VEHICLE BREAKDOWN'}</strong>.
+                      </p>
+                      {bd.description && (
+                        <div style={{ fontSize: '11px', color: '#991B1B', marginBottom: '8px', background: '#FEE2E2', padding: '4px 8px', borderRadius: '4px' }}>
+                          <strong>Issue:</strong> {bd.description}
+                        </div>
+                      )}
+                      <div style={{ fontSize: '11px', color: '#7F1D1D', marginBottom: '10px' }}>
+                        System recommended contingency actions:
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            closeMapModal();
+                            openReassignModal(selectedDelivery);
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            background: '#DC2626',
+                            color: '#FFFFFF',
+                            border: 'none',
+                            borderRadius: '6px',
+                            fontWeight: 700,
+                            fontSize: '11.5px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 4px rgba(220, 38, 38, 0.25)',
+                          }}
+                        >
+                          <i className="fas fa-truck-pickup"></i> Re-assign (Dispatch Relief Truck)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            closeMapModal();
+                            openRescheduleModal(selectedDelivery);
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '7px 10px',
+                            background: '#FFFFFF',
+                            color: '#B45309',
+                            border: '1px solid #FCD34D',
+                            borderRadius: '6px',
+                            fontWeight: 600,
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <i className="far fa-calendar-alt"></i> Re-schedule Delivery Instead
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div className="map-section">
                   <div className="map-section-title"><i className="fas fa-truck"></i> Delivery Details</div>
                   <div className="map-detail-row">
@@ -1304,6 +1538,7 @@ function DeliveryPage() {
                 driverName={selectedDelivery.driver?.user?.full_name}
                 driverPhone={selectedDelivery.driver?.user?.phone}
                 vehiclePlate={selectedDelivery.vehicle ? `${selectedDelivery.vehicle.model} (${selectedDelivery.vehicle.plate_number})` : ''}
+                breakdownLocation={isDeliveryBrokenDown(selectedDelivery) ? getBreakdownDetails(selectedDelivery) : null}
                 onEtaChange={setEta}
                 onDangerZonesDetected={setDetectedHazards}
               />

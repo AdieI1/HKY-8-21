@@ -127,6 +127,7 @@ export default function ViewLocationMap({
   driverName,
   driverPhone,
   vehiclePlate,
+  breakdownLocation = null,
   onEtaChange,
   onDangerZonesDetected,
 }) {
@@ -138,6 +139,7 @@ export default function ViewLocationMap({
   const dropoffMarkerRef = useRef(null);
   const driverMarkerRef = useRef(null);
   const driverPulseCircleRef = useRef(null);
+  const breakdownMarkerRef = useRef(null);
   const breadcrumbTrailRef = useRef(null);
   const trajectoryLineRef = useRef(null);
   const dangerZoneLayerRef = useRef(null);
@@ -465,10 +467,17 @@ export default function ViewLocationMap({
     }
   }, [coords]);
 
-  // 5. Initial Camera Framing: Fit bounds to encompass Pickup, Dropoff, and Driver
+  // 5. Initial Camera Framing: Prioritize breakdown focus if disabled, else fit route
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || initialFitDoneRef.current) return;
+
+    if (breakdownLocation?.lat && breakdownLocation?.lng) {
+      map.setView([breakdownLocation.lat, breakdownLocation.lng], 16, { animate: true });
+      initialFitDoneRef.current = true;
+      setFollowDriver(false);
+      return;
+    }
 
     const pts = [];
     if (coords.pickup) pts.push([coords.pickup.lat, coords.pickup.lng]);
@@ -481,7 +490,7 @@ export default function ViewLocationMap({
       map.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 16 });
       initialFitDoneRef.current = true;
     }
-  }, [coords, driverLocation]);
+  }, [coords, driverLocation, breakdownLocation]);
 
   // 6. Live Driver Marker & Dynamic Heading Direction Bearing
   useEffect(() => {
@@ -596,6 +605,66 @@ export default function ViewLocationMap({
       map.panTo(latLng, { animate: true, duration: 0.8 });
     }
   }, [driverLocation, coords, driverName, driverPhone, vehiclePlate, followDriver, speedMetrics]);
+
+  // Breakdown Incident Marker (Pulsating Emergency Alert Pin)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (breakdownMarkerRef.current) {
+      try { map.removeLayer(breakdownMarkerRef.current); } catch (_) {}
+      breakdownMarkerRef.current = null;
+    }
+
+    if (breakdownLocation?.lat && breakdownLocation?.lng) {
+      const breakdownLatLng = [breakdownLocation.lat, breakdownLocation.lng];
+      const icon = L.divIcon({
+        className: 'map-breakdown-pin-wrapper',
+        html: `
+          <div style="
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: #DC2626;
+            color: #FFFFFF;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.35), 0 4px 12px rgba(0,0,0,0.35);
+            border: 2.5px solid #FFFFFF;
+            cursor: pointer;
+          " title="Disabled Vehicle • Breakdown Location">
+            <i class="fas fa-exclamation-triangle"></i>
+          </div>
+        `,
+        iconSize: [42, 42],
+        iconAnchor: [21, 21],
+        popupAnchor: [0, -22],
+      });
+
+      const marker = L.marker(breakdownLatLng, { icon, zIndexOffset: 1600 }).addTo(map);
+      marker.bindPopup(`
+        <div class="map-popup-card" style="min-width: 250px;">
+          <span class="map-popup-tag" style="background: #DC2626; color: #fff; font-weight: 800; letter-spacing: 0.5px;">⚠️ DISABLED VEHICLE • BREAKDOWN POINT</span>
+          <div class="map-popup-title" style="color: #991B1B; font-weight: 700; margin-top: 5px; font-size: 13px;">${breakdownLocation.locationAddress || 'Incident / Breakdown Point'}</div>
+          <div style="font-size: 12px; color: #4B5563; margin-top: 5px; line-height: 1.4;">
+            <strong>Issue:</strong> ${breakdownLocation.description || 'Vehicle breakdown / disabled en route.'}
+          </div>
+          <div class="map-popup-coord" style="margin-top: 6px;">GPS: ${Number(breakdownLocation.lat).toFixed(6)}, ${Number(breakdownLocation.lng).toFixed(6)}</div>
+        </div>
+      `);
+      marker.openPopup();
+      breakdownMarkerRef.current = marker;
+    }
+
+    return () => {
+      if (breakdownMarkerRef.current && map) {
+        try { map.removeLayer(breakdownMarkerRef.current); } catch (_) {}
+        breakdownMarkerRef.current = null;
+      }
+    };
+  }, [breakdownLocation]);
 
   // 7. Render Traveled Breadcrumb History Polyline
   useEffect(() => {
@@ -828,6 +897,17 @@ export default function ViewLocationMap({
       }
     }
   }, [driverLocation]);
+
+  const handleFocusBreakdown = useCallback(() => {
+    const map = mapInstanceRef.current;
+    if (map && breakdownLocation?.lat && breakdownLocation?.lng) {
+      map.setView([breakdownLocation.lat, breakdownLocation.lng], 16, { animate: true });
+      setFollowDriver(false);
+      if (breakdownMarkerRef.current) {
+        breakdownMarkerRef.current.openPopup();
+      }
+    }
+  }, [breakdownLocation]);
 
   const handleFitRoute = useCallback(() => {
     const map = mapInstanceRef.current;
@@ -1098,6 +1178,19 @@ export default function ViewLocationMap({
 
       {/* Floating Action Controls Bar (Bottom Right) */}
       <div className="map-view-actions">
+        {breakdownLocation?.lat && breakdownLocation?.lng && (
+          <button
+            type="button"
+            onClick={handleFocusBreakdown}
+            className="map-action-btn"
+            style={{ color: '#DC2626', background: '#FEF2F2', borderColor: '#FCA5A5', fontWeight: 700 }}
+            title="Center camera on breakdown location"
+          >
+            <i className="fas fa-exclamation-triangle"></i>
+            Breakdown Point
+          </button>
+        )}
+
         {driverLocation && (
           <>
             <button

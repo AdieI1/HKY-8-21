@@ -5,6 +5,7 @@ import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
 import AnalyticsOverviewModal from '../components/analytics/AnalyticsOverviewModal';
 import CustomerRatingsModal from '../components/analytics/CustomerRatingsModal';
+import ClaimsRefundsModal from '../components/analytics/ClaimsRefundsModal';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -52,6 +53,8 @@ function AnalyticsPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [overviewModalType, setOverviewModalType] = useState(null); // 'deliveries' | 'revenue' | null
   const [showRatingsModal, setShowRatingsModal] = useState(false);
+  const [showClaimsModal, setShowClaimsModal] = useState(false);
+  const [incidents, setIncidents] = useState([]);
   const [importedPdfFile, setImportedPdfFile] = useState(null);
   const [importedPdfUrl, setImportedPdfUrl] = useState(null);
   const PAGE_SIZE = 8;
@@ -98,6 +101,7 @@ function AnalyticsPage() {
       { key: 'deliveries', url: '/deliveries', setter: setDeliveries },
       { key: 'reviews', url: '/reviews', setter: setReviews },
       { key: 'vehicle-maintenance', url: '/vehicle-maintenance', setter: setMaintenance },
+      { key: 'incident-reports', url: '/incident-reports', setter: setIncidents },
     ];
 
     const results = await Promise.allSettled(endpoints.map((e) => api.get(e.url)));
@@ -152,6 +156,49 @@ function AnalyticsPage() {
     () => lastMonthDeliveries.filter((d) => d.payment_verification === 'approved').reduce((s, d) => s + Number(d.trip_cost || 0), 0),
     [lastMonthDeliveries]
   );
+
+  const flaggedIncidents = useMemo(() => {
+    return (Array.isArray(incidents) ? incidents : []).filter(
+      (inc) =>
+        inc.resolution_action === 'flag_refund' ||
+        inc.resolution_action === 'approve_refund' ||
+        inc.refund_status === 'pending_review' ||
+        inc.refund_status === 'approved' ||
+        Number(inc.refund_amount || 0) > 0
+    );
+  }, [incidents]);
+
+  const periodClaims = useMemo(() => {
+    if (timeFilter === 'month') {
+      return flaggedIncidents.filter((inc) => isSameMonth(inc.reported_at || inc.resolved_at || inc.created_at, now));
+    }
+    return flaggedIncidents;
+  }, [flaggedIncidents, timeFilter, now]);
+
+  const totalClaimsAmount = useMemo(() => {
+    return periodClaims.reduce((sum, inc) => sum + Number(inc.refund_amount || 0), 0);
+  }, [periodClaims]);
+
+  const periodMaintenance = useMemo(() => {
+    if (timeFilter === 'month') {
+      return (Array.isArray(maintenance) ? maintenance : []).filter((m) =>
+        isSameMonth(m.maintenance_date || m.created_at, now)
+      );
+    }
+    return Array.isArray(maintenance) ? maintenance : [];
+  }, [maintenance, timeFilter, now]);
+
+  const totalMaintenanceCost = useMemo(() => {
+    return periodMaintenance.reduce((sum, m) => sum + Number(m.maintenance_cost || m.total_cost || 0), 0);
+  }, [periodMaintenance]);
+
+  const totalLosses = useMemo(() => {
+    return totalClaimsAmount + totalMaintenanceCost;
+  }, [totalClaimsAmount, totalMaintenanceCost]);
+
+  const netRevenue = useMemo(() => {
+    return Math.max(0, thisMonthRevenue - totalLosses);
+  }, [thisMonthRevenue, totalLosses]);
 
   const reviewsPool = useMemo(() => {
     const monthReviews = reviews.filter((r) => isSameMonth(r.created_at, now));
@@ -495,8 +542,36 @@ function AnalyticsPage() {
                     {revenueTrend.pct}
                   </span>
                 </div>
-                <div className="stat-info-sub">Gross verified revenue</div>
+                <div className="stat-info-sub">
+                  {totalLosses > 0 ? `Net: ${formatMoney(netRevenue)} after losses & maint` : 'Gross verified revenue'}
+                </div>
                 <div className="stat-view-details">
+                  View Details <i className="fas fa-chevron-right" style={{ fontSize: 9 }}></i>
+                </div>
+              </div>
+            </article>
+
+            <article
+              className="analytics-stat-card clickable-card"
+              onClick={() => setShowClaimsModal(true)}
+              title="Click to view Claims & Incident Losses breakdown"
+            >
+              <div className="stat-icon-wrap red">
+                <i className="fas fa-hand-holding-usd"></i>
+              </div>
+              <div className="stat-info-wrap">
+                <div className="stat-info-label">Claims &amp; Refunds</div>
+                <div className="stat-info-val-row">
+                  <span className="stat-info-value" style={{ color: totalClaimsAmount > 0 ? '#DC2626' : undefined }}>
+                    {formatMoney(totalClaimsAmount)}
+                  </span>
+                </div>
+                <div className="stat-info-sub">
+                  {periodClaims.length > 0
+                    ? `${periodClaims.length} active compensation ${periodClaims.length === 1 ? 'claim' : 'claims'}`
+                    : 'Zero incident losses'}
+                </div>
+                <div className="stat-view-details" style={{ color: '#DC2626' }}>
                   View Details <i className="fas fa-chevron-right" style={{ fontSize: 9 }}></i>
                 </div>
               </div>
@@ -1325,6 +1400,16 @@ function AnalyticsPage() {
         isOpen={showRatingsModal}
         onClose={() => setShowRatingsModal(false)}
         reviews={reviews}
+      />
+
+      {/* Claims & Incident Losses Overview Modal */}
+      <ClaimsRefundsModal
+        isOpen={showClaimsModal}
+        onClose={() => setShowClaimsModal(false)}
+        incidents={incidents}
+        maintenance={periodMaintenance}
+        grossRevenue={thisMonthRevenue}
+        onIncidentUpdated={loadData}
       />
     </>
   );

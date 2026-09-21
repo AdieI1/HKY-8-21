@@ -253,7 +253,7 @@ class IncidentReportController extends Controller
             $driverName = $delivery?->driver?->user?->full_name ?? 'Driver';
             $reqId = $delivery?->request?->request_id ? 'REQ' . str_pad($delivery->request->request_id, 4, '0', STR_PAD_LEFT) : 'Trip';
 
-            // Automatic Fleet Safety Lock: Set truck to maintenance if breakdown/accident or severe
+            // Automatic Fleet Safety Lock: Set truck to broken if breakdown/accident or severe
             $types = is_array($report->incident_types) ? $report->incident_types : [$report->incident_type];
             $hasDisablingIssue = in_array('accident', $types) || 
                                  in_array('vehicle_breakdown', $types) || 
@@ -261,7 +261,7 @@ class IncidentReportController extends Controller
                                  in_array($report->severity, ['high', 'severe']);
 
             if ($hasDisablingIssue && $delivery?->vehicle) {
-                $delivery->vehicle->update(['status' => 'maintenance']);
+                $delivery->vehicle->update(['status' => 'broken']);
             }
 
             $formattedTypes = count($report->incident_types ?: []) > 1
@@ -294,7 +294,7 @@ class IncidentReportController extends Controller
         $incident = IncidentReport::findOrFail($id);
 
         $validated = $request->validate([
-            'action' => 'required|string|in:dispatch_relief,flag_refund,roadside_assist,mark_resolved',
+            'action' => 'required|string|in:dispatch_relief,flag_refund,approve_refund,roadside_assist,mark_resolved',
             'notes' => 'nullable|string',
             'police_report_no' => 'nullable|string|max:100',
             'vehicle_towed_to' => 'nullable|string|max:255',
@@ -302,6 +302,9 @@ class IncidentReportController extends Controller
             'vehicle_status_after' => 'nullable|string|in:maintenance,available',
             'relief_vehicle_id' => 'nullable|exists:vehicles,vehicle_id',
             'relief_driver_id' => 'nullable|exists:drivers,driver_id',
+            'refund_amount' => 'nullable|numeric|min:0',
+            'refund_reason' => 'nullable|string|max:150',
+            'refund_status' => 'nullable|string|max:50',
         ]);
 
         $incident->resolution_action = $validated['action'];
@@ -321,6 +324,8 @@ class IncidentReportController extends Controller
         $user = $request->user();
         if ($user) {
             $incident->resolved_by = $user->user_id;
+        } elseif ($request->filled('resolved_by')) {
+            $incident->resolved_by = $request->input('resolved_by');
         }
 
         if ($validated['action'] === 'mark_resolved') {
@@ -333,6 +338,37 @@ class IncidentReportController extends Controller
                     'status' => $validated['vehicle_status_after']
                 ]);
             }
+        } elseif ($validated['action'] === 'approve_refund') {
+            $incident->refund_status = 'approved';
+            $incident->status = 'resolved';
+            $incident->resolved_at = now();
+
+            $delivery = $incident->delivery;
+            $reqCode = $delivery?->request?->request_id ? 'REQ' . str_pad($delivery->request->request_id, 4, '0', STR_PAD_LEFT) : ('#DEL' . str_pad($delivery?->delivery_id ?? 0, 4, '0', STR_PAD_LEFT));
+            $formattedAmount = number_format((float)($incident->refund_amount ?? 0), 2);
+
+            \App\Models\AppNotification::notify(
+                'dispatch',
+                'Refund Claim Approved',
+                "Executive management approved ₱{$formattedAmount} compensation refund for Incident #INC" . str_pad($incident->incident_id, 4, '0', STR_PAD_LEFT) . " ({$reqCode}).",
+                '/analytics'
+            );
+        } elseif ($validated['action'] === 'flag_refund') {
+            $incident->status = 'investigating';
+            $incident->refund_amount = isset($validated['refund_amount']) ? (float)$validated['refund_amount'] : 0;
+            $incident->refund_reason = $validated['refund_reason'] ?? 'Cargo Damage / SLA Compensation';
+            $incident->refund_status = $validated['refund_status'] ?? 'pending_review';
+
+            $delivery = $incident->delivery;
+            $reqCode = $delivery?->request?->request_id ? 'REQ' . str_pad($delivery->request->request_id, 4, '0', STR_PAD_LEFT) : ('#DEL' . str_pad($delivery?->delivery_id ?? 0, 4, '0', STR_PAD_LEFT));
+            $formattedAmount = number_format((float)$incident->refund_amount, 2);
+
+            \App\Models\AppNotification::notify(
+                'dispatch',
+                'Refund & Claim Flagged',
+                "Incident #INC" . str_pad($incident->incident_id, 4, '0', STR_PAD_LEFT) . " flagged for ₱{$formattedAmount} customer refund review ({$reqCode}).",
+                '/analytics'
+            );
         } elseif ($validated['action'] === 'dispatch_relief') {
             $incident->status = 'investigating';
 
@@ -342,7 +378,7 @@ class IncidentReportController extends Controller
                 $oldDriver = $delivery->driver;
 
                 if ($oldVehicle) {
-                    $oldVehicle->update(['status' => 'maintenance']);
+                    $oldVehicle->update(['status' => 'broken']);
                 }
 
                 if (!empty($validated['relief_vehicle_id'])) {

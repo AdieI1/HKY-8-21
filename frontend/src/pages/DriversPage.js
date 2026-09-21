@@ -27,8 +27,11 @@ function driverCode(id) {
 
 function availabilityLabel(driver) {
   if (driver.status === 'inactive') return 'Inactive';
-  if (driver.availability_status === 'busy') return 'On Delivery';
   if (driver.availability_status === 'offline') return 'Inactive';
+  const hasActiveDelivery = Array.isArray(driver.deliveries) && driver.deliveries.some(
+    (d) => d.status !== 'completed' && d.status !== 'rejected'
+  );
+  if (driver.availability_status === 'busy' && hasActiveDelivery) return 'On Delivery';
   return 'Available';
 }
 

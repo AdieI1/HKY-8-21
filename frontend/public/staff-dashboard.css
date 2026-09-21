@@ -201,6 +201,7 @@
 
 .adm-fleet-cell.scheduled { background: #FEF3C7; color: #B45309; font-weight: 600; border-radius: 6px; border: 1px solid #FDE68A; }
 .adm-fleet-cell.delivery  { background: #FFF1F1; color: #C53030; font-weight: 600; border-radius: 6px; }
+.adm-fleet-cell.accident  { background: #FEF2F2; color: #991B1B; font-weight: 700; border-radius: 6px; border: 1px solid #FCA5A5; }
 .adm-fleet-cell.completed { background: #EFF6FF; color: #1D4ED8; font-weight: 600; border-radius: 6px; border: 1px solid #DBEAFE; }
 .adm-fleet-cell.available { background: #F0FDF4; color: #16A34A; font-weight: 600; border-radius: 6px; }
 .adm-fleet-cell.on-break  { background: #FFFBEB; color: #D97706; font-weight: 600; border-radius: 6px; }
@@ -227,6 +228,7 @@
 
 .adm-legend-dot.scheduled   { background: #D97706; }
 .adm-legend-dot.delivery    { background: #EF4444; }
+.adm-legend-dot.accident    { background: #DC2626; }
 .adm-legend-dot.completed   { background: #3B82F6; }
 .adm-legend-dot.available   { background: #22C55E; }
 .adm-legend-dot.break       { background: #F59E0B; }

@@ -44,6 +44,23 @@ export default function PrintableIncidentModal({ incident, onClose }) {
   });
   const [reliefLoading, setReliefLoading] = useState(false);
   const [reliefSuccessInfo, setReliefSuccessInfo] = useState(null);
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [refundForm, setRefundForm] = useState({
+    refund_amount: incident?.refund_amount ? String(incident.refund_amount) : (incident?.delivery?.trip_cost ? String(incident.delivery.trip_cost) : ''),
+    refund_reason: incident?.refund_reason || 'Total Cargo Loss / Perished',
+    cargo_condition: incident?.cargo_condition || (incident?.incident_types?.includes?.('cargo_damage') ? 'total_loss' : 'intact'),
+    notes: incident?.resolution_notes || '',
+  });
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundSuccessInfo, setRefundSuccessInfo] = useState(
+    incident?.resolution_action === 'flag_refund'
+      ? {
+          amount: incident.refund_amount,
+          reason: incident.refund_reason || 'Customer Compensation',
+          status: incident.refund_status || 'pending_review',
+        }
+      : null
+  );
 
   const incidentTypes = Array.isArray(incident?.incident_types) && incident?.incident_types.length > 0
     ? incident.incident_types
@@ -183,19 +200,35 @@ export default function PrintableIncidentModal({ incident, onClose }) {
     }
   };
 
-  const handleFlagRefund = async () => {
-    setActionLoading(true);
+  const handleConfirmRefund = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (refundForm.refund_amount === '' || Number(refundForm.refund_amount) < 0) {
+      alert('Please enter a valid refund / claim amount.');
+      return;
+    }
+
+    setRefundLoading(true);
     try {
       await api.post(`/incident-reports/${incident.incident_id}/resolve`, {
         action: 'flag_refund',
-        notes: 'Incident flagged for Customer Refund & Cargo Compensation review.',
+        refund_amount: refundForm.refund_amount,
+        refund_reason: refundForm.refund_reason,
+        cargo_condition: refundForm.cargo_condition,
+        notes: refundForm.notes.trim(),
       });
+
       setCurrentResolution('flag_refund');
-      alert('Incident successfully flagged for Customer Refund & Cargo Compensation review.');
+      setRefundSuccessInfo({
+        amount: refundForm.refund_amount,
+        reason: refundForm.refund_reason,
+        status: 'pending_review',
+      });
+      setShowRefundModal(false);
+      alert('✅ Incident successfully flagged for Customer Refund & Cargo Compensation review!\n\n• Claim recorded.\n• Executive Analytics updated.');
     } catch (err) {
       alert('Failed to flag for refund: ' + (err?.response?.data?.message || err.message));
     } finally {
-      setActionLoading(false);
+      setRefundLoading(false);
     }
   };
 
@@ -256,11 +289,12 @@ export default function PrintableIncidentModal({ incident, onClose }) {
             </button>
             <button
               className="btn-refund-action"
-              onClick={handleFlagRefund}
-              disabled={actionLoading}
+              onClick={() => setShowRefundModal(true)}
+              disabled={actionLoading || currentResolution === 'flag_refund' || incident.resolution_action === 'flag_refund'}
+              style={(currentResolution === 'flag_refund' || incident.resolution_action === 'flag_refund') ? { backgroundColor: '#DC2626', color: '#fff', cursor: 'default' } : {}}
               title="Flag this incident for customer refund / cargo compensation review"
             >
-              <i className="fas fa-hand-holding-usd"></i> Flag Refund
+              <i className="fas fa-hand-holding-usd"></i> {(currentResolution === 'flag_refund' || incident.resolution_action === 'flag_refund') ? 'Refund Flagged' : 'Flag Refund'}
             </button>
             {currentStatus !== 'resolved' ? (
               <button
@@ -400,6 +434,27 @@ export default function PrintableIncidentModal({ incident, onClose }) {
                   <strong><i className="fas fa-check-circle"></i> Relief Truck Dispatched:</strong> {reliefSuccessInfo.vehicle} with Driver <strong>{reliefSuccessInfo.driver}</strong>. Disabled vehicle placed on Maintenance Hold.
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Customer Refund & Compensation Claim Banner */}
+          {(refundSuccessInfo || currentResolution === 'flag_refund' || incident.resolution_action === 'flag_refund') && (
+            <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '8px', backgroundColor: '#FEF2F2', border: '1.5px solid #FCA5A5', color: '#991B1B', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <i className="fas fa-hand-holding-usd" style={{ fontSize: '20px', color: '#DC2626' }}></i>
+                <div>
+                  <strong style={{ fontSize: '13px' }}>Flagged for Customer Refund &amp; Cargo Claim:</strong>{' '}
+                  <span>{refundSuccessInfo?.reason || incident.refund_reason || 'Cargo Damage / SLA Compensation'}</span>
+                  {(refundSuccessInfo?.amount || incident.refund_amount) && (
+                    <span style={{ marginLeft: 6, fontWeight: '700', color: '#B91C1C' }}>
+                      &bull; Claim Amount: ₱{Number(refundSuccessInfo?.amount || incident.refund_amount).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <span style={{ fontSize: '10px', fontWeight: '700', background: '#FEE2E2', color: '#991B1B', padding: '4px 10px', borderRadius: '12px', border: '1px solid #F87171', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>
+                Pending Review
+              </span>
             </div>
           )}
 
@@ -993,6 +1048,169 @@ export default function PrintableIncidentModal({ incident, onClose }) {
                 >
                   {reliefLoading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-truck-pickup"></i>}
                   Confirm &amp; Dispatch Relief Truck
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Refund & Compensation Claim Modal */}
+      {showRefundModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setShowRefundModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '540px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              overflow: 'hidden',
+              border: '1px solid #E2E8F0',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ backgroundColor: '#991B1B', padding: '16px 20px', color: '#FFFFFF', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: 34, height: 34, borderRadius: '8px', backgroundColor: '#B91C1C', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <i className="fas fa-hand-holding-usd" style={{ color: '#fff', fontSize: 16 }}></i>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700' }}>Flag Customer Refund &amp; Cargo Claim</h3>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#FCA5A5' }}>{incidentCode} &bull; Executive Compensation Review</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRefundModal(false)}
+                style={{ background: 'none', border: 'none', color: '#FCA5A5', fontSize: '18px', cursor: 'pointer' }}
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {/* Form Body */}
+            <form onSubmit={handleConfirmRefund} style={{ padding: '20px' }}>
+              {/* Delivery Recap */}
+              <div style={{ backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '12px 14px', marginBottom: '16px', fontSize: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div>
+                  <span style={{ color: '#991B1B', display: 'block' }}>Customer:</span>
+                  <strong style={{ color: '#1E293B' }}>{customer.full_name || 'Customer'}</strong>
+                </div>
+                <div>
+                  <span style={{ color: '#991B1B', display: 'block' }}>Delivery Code:</span>
+                  <strong style={{ color: '#1E293B' }}>{requestCode}</strong>
+                </div>
+                <div>
+                  <span style={{ color: '#991B1B', display: 'block' }}>Cargo Type:</span>
+                  <strong style={{ color: '#1E293B' }}>{request.cargo_type || 'General Cargo'}</strong>
+                </div>
+                <div>
+                  <span style={{ color: '#991B1B', display: 'block' }}>Trip Standard Fee:</span>
+                  <strong style={{ color: '#16A34A' }}>₱{Number(delivery.trip_cost || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</strong>
+                </div>
+              </div>
+
+              {/* Refund Amount Input */}
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '4px' }}>
+                  Proposed Claim / Refund Amount (₱) <span style={{ color: '#DC2626' }}>*</span>
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', fontWeight: '700', color: '#64748B' }}>₱</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={refundForm.refund_amount}
+                    onChange={(e) => setRefundForm({ ...refundForm, refund_amount: e.target.value })}
+                    placeholder="Enter refund or compensation claim amount"
+                    style={{ width: '100%', padding: '9px 10px 9px 28px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '14px', fontWeight: '600', boxSizing: 'border-box' }}
+                    required
+                  />
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748B', marginTop: '4px' }}>
+                  Trip Fee is ₱{Number(delivery.trip_cost || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}. You may enter full fee or total cargo insured loss.
+                </div>
+              </div>
+
+              {/* Compensation Reason */}
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '4px' }}>
+                  Compensation Classification / Reason <span style={{ color: '#DC2626' }}>*</span>
+                </label>
+                <select
+                  value={refundForm.refund_reason}
+                  onChange={(e) => setRefundForm({ ...refundForm, refund_reason: e.target.value })}
+                  style={{ width: '100%', padding: '9px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#fff', boxSizing: 'border-box' }}
+                  required
+                >
+                  <option value="Total Cargo Loss / Perished">Total Cargo Loss / Perished</option>
+                  <option value="Partial Cargo Damage">Partial Cargo Damage</option>
+                  <option value="Accident Delay / SLA Breach">Accident Delay / SLA Breach</option>
+                  <option value="Customer Goodwill Courtesy">Customer Goodwill Courtesy</option>
+                  <option value="Vehicle Breakdown Non-Delivery">Vehicle Breakdown Non-Delivery</option>
+                </select>
+              </div>
+
+              {/* Cargo Condition */}
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '4px' }}>
+                  Cargo Assessment Condition
+                </label>
+                <select
+                  value={refundForm.cargo_condition}
+                  onChange={(e) => setRefundForm({ ...refundForm, cargo_condition: e.target.value })}
+                  style={{ width: '100%', padding: '9px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#fff', boxSizing: 'border-box' }}
+                >
+                  <option value="total_loss">Total Loss (100% Unrecoverable / Damaged)</option>
+                  <option value="partial_damage">Partial Damage (Salvageable Cargo)</option>
+                  <option value="intact">Intact Cargo (Refund for Delivery Delay Only)</option>
+                </select>
+              </div>
+
+              {/* Notes */}
+              <div style={{ marginBottom: '18px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '4px' }}>
+                  Operations &amp; Audit Notes
+                </label>
+                <textarea
+                  rows="3"
+                  value={refundForm.notes}
+                  onChange={(e) => setRefundForm({ ...refundForm, notes: e.target.value })}
+                  placeholder="State the justification for this refund or cargo claim..."
+                  style={{ width: '100%', padding: '9px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              {/* Modal Actions */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowRefundModal(false)}
+                  style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #CBD5E1', backgroundColor: '#F1F5F9', color: '#475569', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={refundLoading}
+                  style={{ padding: '8px 18px', borderRadius: '6px', border: 'none', backgroundColor: '#DC2626', color: '#FFFFFF', fontSize: '13px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <i className="fas fa-hand-holding-usd"></i> {refundLoading ? 'Submitting...' : 'Confirm & Flag Refund'}
                 </button>
               </div>
             </form>

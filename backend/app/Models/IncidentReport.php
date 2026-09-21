@@ -31,6 +31,9 @@ class IncidentReport extends Model
         'police_report_no',
         'vehicle_towed_to',
         'cargo_condition',
+        'refund_amount',
+        'refund_reason',
+        'refund_status',
         'resolved_by',
         'reported_at',
         'resolved_at'
@@ -41,6 +44,7 @@ class IncidentReport extends Model
         'photos' => 'array',
         'latitude' => 'float',
         'longitude' => 'float',
+        'refund_amount' => 'decimal:2',
         'reported_at' => 'datetime',
         'resolved_at' => 'datetime',
     ];

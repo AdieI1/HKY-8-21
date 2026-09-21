@@ -283,6 +283,21 @@
     box-shadow: 0 2px 5px rgba(239, 68, 68, 0.35);
 }
 
+.status-badge-monitor.broken-down {
+    background: #B91C1C;
+    color: white;
+    border: 1px solid #EF4444;
+    box-shadow: 0 2px 6px rgba(185, 28, 28, 0.45);
+    font-weight: 700;
+}
+
+.map-status-badge.broken-down {
+    background: #FEF2F2;
+    color: #B91C1C;
+    border: 1px solid #FCA5A5;
+    font-weight: 700;
+}
+
 .status-badge-monitor.pending {
     background: #94A3B8;
     color: white;

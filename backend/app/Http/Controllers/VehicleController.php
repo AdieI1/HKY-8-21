@@ -11,6 +11,15 @@ class VehicleController extends Controller
 {
     public function index()
     {
+        VehicleMaintenanceController::checkAndCompleteExpiredMaintenance();
+
+        // Auto-sync: If vehicle is marked in_use but has no active ongoing deliveries, release to available
+        Vehicle::where('status', 'in_use')
+            ->whereDoesntHave('deliveries', function ($q) {
+                $q->whereNotIn('status', ['completed', 'rejected']);
+            })
+            ->update(['status' => 'available']);
+
         return Vehicle::with([
             'maintenances.part',
             'maintenances.partsUsages.part',
@@ -53,6 +62,16 @@ class VehicleController extends Controller
 
     public function show(Vehicle $vehicle)
     {
+        if ($vehicle->status === 'in_use') {
+            $hasActiveDelivery = $vehicle->deliveries()
+                ->whereNotIn('status', ['completed', 'rejected'])
+                ->exists();
+            if (!$hasActiveDelivery) {
+                $vehicle->update(['status' => 'available']);
+                $vehicle->refresh();
+            }
+        }
+
         return $vehicle->load([
             'maintenances.part',
             'maintenances.partsUsages.part',

@@ -6,6 +6,7 @@ import NotificationBell from '../components/NotificationBell';
 import reverb from '../utils/reverb';
 
 function cellClass(type) {
+  if (type === 'accident' || type === 'broken') return 'adm-fleet-cell accident';
   if (type === 'scheduled') return 'adm-fleet-cell scheduled';
   if (type === 'delivery') return 'adm-fleet-cell delivery';
   if (type === 'completed') return 'adm-fleet-cell completed';
@@ -113,6 +114,8 @@ function StaffDashboardPage() {
   const [rawVehicles, setRawVehicles] = useState([]);
   const [rawDeliveries, setRawDeliveries] = useState([]);
   const [rawDrivers, setRawDrivers] = useState([]);
+  const [rawMaintenances, setRawMaintenances] = useState([]);
+  const [rawIncidents, setRawIncidents] = useState([]);
   const [priorityRequests, setPriorityRequests] = useState([]);
   const [activityFeed, setActivityFeed] = useState([]);
   const [showAllActivitiesModal, setShowAllActivitiesModal] = useState(false);
@@ -162,7 +165,7 @@ function StaffDashboardPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const buildFleetSchedule = useCallback((vehiclesList, deliveriesList, driversList, offset) => {
+  const buildFleetSchedule = useCallback((vehiclesList, deliveriesList, driversList, maintenancesList, incidentsList, offset) => {
     const days = getCurrentWeekDays(offset);
     setWeekDays(days);
 
@@ -203,10 +206,44 @@ function StaffDashboardPage() {
           return false;
         });
 
+        // Check if there is an accident or breakdown report for this vehicle/day
+        const dayIncident = (incidentsList || []).find((inc) => {
+          const vehMatch = Number(inc.vehicle_id) === Number(v.vehicle_id) || Number(inc.delivery?.vehicle_id) === Number(v.vehicle_id);
+          if (!vehMatch) return false;
+          // Check if delivery matches one of today's deliveries
+          if (dayDeliveries.some((d) => Number(d.delivery_id) === Number(inc.delivery_id))) return true;
+          // Check incident date or created date
+          const incDate = inc.incident_date ? String(inc.incident_date).slice(0, 10) : (inc.created_at ? String(inc.created_at).slice(0, 10) : '');
+          if (incDate === day.iso) return true;
+          // If vehicle is broken and today is highlighted
+          if (v.status === 'broken' && day.highlight) return true;
+          return false;
+        });
+
+        // Check if there is a maintenance record whose date range covers this day
+        const dayMaintenance = (maintenancesList || []).find((m) => {
+          if (Number(m.vehicle_id) !== Number(v.vehicle_id)) return false;
+          if (m.status === 'cancelled') return false;
+          const start = m.maintenance_date ? String(m.maintenance_date).slice(0, 10) : '';
+          const end = m.next_maintenance_date ? String(m.next_maintenance_date).slice(0, 10) : (m.end_date ? String(m.end_date).slice(0, 10) : start);
+          if (start && day.iso >= start && day.iso <= (end || start)) return true;
+          if (['in_progress', 'scheduled', 'pending'].includes(m.status) && day.highlight && v.status === 'maintenance') return true;
+          return false;
+        });
+
         let cellType = 'available';
         let cellLabel = 'Available';
 
-        if (dayDeliveries.length > 0) {
+        if (dayIncident && (v.status === 'broken' || ['accident', 'vehicle_breakdown', 'breakdown', 'damage', 'mechanical'].some((t) => (dayIncident.incident_type || '').toLowerCase().includes(t)))) {
+          cellType = 'accident';
+          const from = shortCity(dayDeliveries[0]?.request?.pickup_address || dayIncident.delivery?.request?.pickup_address);
+          const to = shortCity(dayDeliveries[0]?.request?.dropoff_address || dayIncident.delivery?.request?.dropoff_address);
+          if (from && to && from !== 'CDO') {
+            cellLabel = `⚠️ Accident Reported\n${from} → ${to}`;
+          } else {
+            cellLabel = `⚠️ Accident Reported\n${dayIncident.incident_type ? dayIncident.incident_type.replace(/_/g, ' ') : 'Disabled'}`;
+          }
+        } else if (dayDeliveries.length > 0) {
           const activeDel = dayDeliveries.find((d) =>
             ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status)
           );
@@ -237,9 +274,10 @@ function StaffDashboardPage() {
             const countText = dayDeliveries.length > 1 ? `${dayDeliveries.length} Trips Done` : 'Trip Done';
             cellLabel = `${countText}\n${from} → ${to}`;
           }
-        } else if (v.status === 'maintenance' || v.status === 'broken') {
+        } else if (dayMaintenance) {
           cellType = 'break';
-          cellLabel = 'Under Maintenance';
+          const typeName = dayMaintenance.maintenance_type || dayMaintenance.service_type || 'Under Maintenance';
+          cellLabel = `Under Maintenance\n${typeName}`;
         } else if (day.key === 'sat' || day.key === 'sun') {
           cellType = 'empty';
           cellLabel = '–';
@@ -253,6 +291,8 @@ function StaffDashboardPage() {
           label: cellLabel,
           type: cellType,
           deliveries: dayDeliveries,
+          incident: dayIncident,
+          maintenance: dayMaintenance,
         };
       });
 
@@ -563,8 +603,10 @@ function StaffDashboardPage() {
       setRawVehicles(vehicles);
       setRawDeliveries(deliveries);
       setRawDrivers(drivers);
+      setRawMaintenances(maintenances);
+      setRawIncidents(incidents);
 
-      buildFleetSchedule(vehicles, deliveries, drivers, weekOffset);
+      buildFleetSchedule(vehicles, deliveries, drivers, maintenances, incidents, weekOffset);
     } finally {
       setLoadingCalendar(false);
     }
@@ -572,9 +614,9 @@ function StaffDashboardPage() {
 
   useEffect(() => {
     if (rawVehicles.length > 0) {
-      buildFleetSchedule(rawVehicles, rawDeliveries, rawDrivers, weekOffset);
+      buildFleetSchedule(rawVehicles, rawDeliveries, rawDrivers, rawMaintenances, rawIncidents, weekOffset);
     }
-  }, [weekOffset, rawVehicles, rawDeliveries, rawDrivers, buildFleetSchedule]);
+  }, [weekOffset, rawVehicles, rawDeliveries, rawDrivers, rawMaintenances, rawIncidents, buildFleetSchedule]);
 
   useEffect(() => {
     loadDashboardData();
@@ -839,6 +881,7 @@ function StaffDashboardPage() {
               <span className="adm-legend-dot completed"></span> Completed Trip
               <span className="adm-legend-dot available"></span> Available
               <span className="adm-legend-dot break"></span> On Break / Maintenance
+              <span className="adm-legend-dot accident"></span> Broken / Accident Reported
             </div>
           </div>
 
@@ -1214,25 +1257,38 @@ function StaffDashboardPage() {
                       padding: '3px 10px',
                       borderRadius: '16px',
                       background:
-                        selectedCell.cell.type === 'delivery'
+                        selectedCell.cell.type === 'accident'
                           ? '#fee2e2'
+                          : selectedCell.cell.type === 'delivery'
+                          ? '#fee2e2'
+                          : selectedCell.cell.type === 'scheduled'
+                          ? '#fdf4ff'
                           : selectedCell.cell.type === 'completed'
                           ? '#dbeafe'
                           : selectedCell.cell.type === 'break'
                           ? '#fef3c7'
                           : '#dcfce7',
                       color:
-                        selectedCell.cell.type === 'delivery'
+                        selectedCell.cell.type === 'accident'
+                          ? '#991b1b'
+                          : selectedCell.cell.type === 'delivery'
                           ? '#dc2626'
+                          : selectedCell.cell.type === 'scheduled'
+                          ? '#a21caf'
                           : selectedCell.cell.type === 'completed'
                           ? '#1d4ed8'
                           : selectedCell.cell.type === 'break'
                           ? '#d97706'
                           : '#16a34a',
+                      border: selectedCell.cell.type === 'accident' ? '1px solid #fca5a5' : 'none',
                     }}
                   >
-                    {selectedCell.cell.type === 'delivery'
+                    {selectedCell.cell.type === 'accident'
+                      ? '⚠️ Broken / Accident Reported'
+                      : selectedCell.cell.type === 'delivery'
                       ? 'Active Delivery'
+                      : selectedCell.cell.type === 'scheduled'
+                      ? 'Scheduled Delivery'
                       : selectedCell.cell.type === 'completed'
                       ? 'Trip(s) Completed'
                       : selectedCell.cell.type === 'break'
@@ -1245,6 +1301,58 @@ function StaffDashboardPage() {
                   {selectedCell.cell.deliveries?.length || 0} Trip{selectedCell.cell.deliveries?.length === 1 ? '' : 's'} on this Date
                 </div>
               </div>
+
+              {/* Incident Alert Banner if Accident */}
+              {(selectedCell.cell.type === 'accident' || selectedCell.cell.incident) && (
+                <div
+                  style={{
+                    background: '#fef2f2',
+                    border: '1px solid #f87171',
+                    borderRadius: '10px',
+                    padding: '14px 18px',
+                    marginBottom: '20px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#991b1b', fontWeight: 700, fontSize: '14px' }}>
+                    <i className="fas fa-exclamation-triangle" style={{ fontSize: '16px' }}></i>
+                    Incident / Accident Flagged
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#7f1d1d', marginTop: '6px', lineHeight: '1.5' }}>
+                    <strong>Type:</strong> {(selectedCell.cell.incident?.incident_type || 'Vehicle Accident / Damage').replace(/_/g, ' ').toUpperCase()}
+                    <br />
+                    <strong>Description:</strong> {selectedCell.cell.incident?.description || 'Vehicle reported in incident or disabled.'}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#b91c1c', marginTop: '8px', fontWeight: 600 }}>
+                    ⚠️ Unit is flagged as broken. Immediate maintenance or repair scheduling required in Fleet Management.
+                  </div>
+                </div>
+              )}
+
+              {/* Maintenance Details Banner if Under Maintenance */}
+              {selectedCell.cell.type === 'break' && (
+                <div
+                  style={{
+                    background: '#fffbeb',
+                    border: '1px solid #fcd34d',
+                    borderRadius: '10px',
+                    padding: '14px 18px',
+                    marginBottom: '20px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#b45309', fontWeight: 700, fontSize: '14px' }}>
+                    <i className="fas fa-wrench" style={{ fontSize: '16px' }}></i>
+                    Scheduled Maintenance Service
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#92400e', marginTop: '6px', lineHeight: '1.5' }}>
+                    <strong>Service:</strong> {selectedCell.cell.maintenance?.maintenance_type || selectedCell.cell.maintenance?.service_type || 'General Maintenance & Inspection'}
+                    <br />
+                    <strong>Provider:</strong> {selectedCell.cell.maintenance?.service_provider || 'External Service Center'}
+                    <br />
+                    <strong>Window:</strong> {selectedCell.cell.maintenance?.maintenance_date ? String(selectedCell.cell.maintenance.maintenance_date).slice(0, 10) : 'Active'}
+                    {selectedCell.cell.maintenance?.next_maintenance_date ? ` to ${String(selectedCell.cell.maintenance.next_maintenance_date).slice(0, 10)}` : ''}
+                  </div>
+                </div>
+              )}
 
               {/* Trips List or Empty State */}
               {!selectedCell.cell.deliveries || selectedCell.cell.deliveries.length === 0 ? (
@@ -1502,7 +1610,7 @@ function StaffDashboardPage() {
                         {/* Open in Delivery Monitoring */}
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
                           <Link
-                            to="/delivery"
+                            to={`/delivery?delivery_id=${del.delivery_id}`}
                             style={{
                               fontSize: '12px',
                               color: '#2563eb',
