@@ -122,9 +122,11 @@ export function getDelayDetails(d) {
 export function isDeliveryBrokenDown(d) {
   if (!d || typeof d !== 'object') return false;
   if (d.status === 'completed' || d.status === 'rejected') return false;
+  // If relief mission is already dispatched/active, it is handled and progressing
+  if (d.is_relief) return false;
   if (d.vehicle?.status === 'broken') return true;
   if (Array.isArray(d.incidents) && d.incidents.some((inc) => 
-    inc.status !== 'resolved' && (
+    inc.status !== 'resolved' && inc.status !== 'relief_dispatched' && (
       (inc.incident_type || '').toLowerCase().includes('breakdown') ||
       (inc.incident_type || '').toLowerCase().includes('accident') ||
       (inc.incident_type || '').toLowerCase().includes('problem') ||
@@ -139,7 +141,7 @@ export function isDeliveryBrokenDown(d) {
 
 export function getBreakdownDetails(d) {
   if (!isDeliveryBrokenDown(d)) return null;
-  const activeIncident = (d.incidents || []).find((inc) => inc.status !== 'resolved') || d.incidents?.[0];
+  const activeIncident = (d.incidents || []).find((inc) => inc.status !== 'resolved' && inc.status !== 'relief_dispatched') || d.incidents?.[0];
   const lastTracking = Array.isArray(d.tracking) && d.tracking.length > 0 ? d.tracking[d.tracking.length - 1] : null;
 
   return {
@@ -172,6 +174,13 @@ function statusLabel(d) {
 
   if (isDeliveryBrokenDown(d)) {
     return 'Broken Down (On Route)';
+  }
+
+  if (d.is_relief) {
+    if (d.status === 'assigned') return 'Relief Dispatched';
+    if (d.status === 'accepted' || d.status === 'arrived_pickup' || d.status === 'loading_cargo') return 'On Route (Relief)';
+    if (['out_for_delivery', 'arrived_dropoff', 'unloading_cargo'].includes(d.status)) return 'On Route (Relief)';
+    if (d.status === 'completed') return 'Completed (Relief)';
   }
 
   let baseLabel = 'Pending';
@@ -209,6 +218,9 @@ function statusBadgeClass(d) {
   }
   if (isDeliveryBrokenDown(d)) {
     return 'broken-down';
+  }
+  if (d.is_relief) {
+    return 'relief-dispatched';
   }
   if (isDeliveryDelayed(d)) {
     return 'delayed';
@@ -473,6 +485,29 @@ function DeliveryPage() {
       unsubscribeLocation();
     };
   }, [loadData]);
+
+  // Live 2.5-second tracking stream while ViewLocationMap modal is open (FoodPanda / Grab real-time smoothness)
+  useEffect(() => {
+    if (!showMapModal || !selectedDelivery?.delivery_id) return;
+    const delId = selectedDelivery.delivery_id;
+
+    const streamInterval = setInterval(async () => {
+      try {
+        const res = await api.get(`/deliveries/${delId}`);
+        if (res?.data) {
+          const fresh = res.data;
+          setSelectedDelivery(fresh);
+          setDeliveries((prev) =>
+            prev.map((d) => (d.delivery_id === fresh.delivery_id ? fresh : d))
+          );
+        }
+      } catch (err) {
+        // Silent safety ignore
+      }
+    }, 2500);
+
+    return () => clearInterval(streamInterval);
+  }, [showMapModal, selectedDelivery?.delivery_id]);
 
   useEffect(() => {
     if (!selectedDelivery) return;
@@ -947,6 +982,54 @@ function DeliveryPage() {
                   {statusLabel(selectedDelivery)}
                 </span>
               </div>
+
+              {selectedDelivery.is_relief && (
+                <div
+                  style={{
+                    background: '#FFFBEB',
+                    border: '1.5px solid #F59E0B',
+                    borderRadius: '10px',
+                    padding: '12px 14px',
+                    margin: '12px 0',
+                    boxShadow: '0 2px 8px rgba(245, 158, 11, 0.12)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', color: '#92400E', fontWeight: 800, fontSize: '13px' }}>
+                      <i className="fas fa-truck-moving" style={{ fontSize: '15px', color: '#D97706' }}></i>
+                      {selectedDelivery.cargo_loaded ? 'Relief Mission: Cargo Transshipment' : 'Replacement Mission: Direct Pick-up'}
+                    </div>
+                    <span style={{ fontSize: '10.5px', fontWeight: 700, background: '#FDE68A', color: '#78350F', padding: '2px 7px', borderRadius: '10px' }}>
+                      {selectedDelivery.cargo_loaded ? 'Transshipment' : 'Direct Pickup'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '11.5px', color: '#78350F', marginTop: '6px', lineHeight: '1.45' }}>
+                    <div><strong>Relief Driver:</strong> {selectedDelivery.driver?.user?.full_name || 'Assigned'} ({selectedDelivery.vehicle ? `${selectedDelivery.vehicle.model || selectedDelivery.vehicle.brand} • ${selectedDelivery.vehicle.plate_number}` : 'Relief Truck'})</div>
+                    {selectedDelivery.cargo_loaded ? (
+                      <>
+                        <div style={{ marginTop: '3px' }}><strong>Pick-up (Breakdown Site):</strong> {selectedDelivery.relief_origin_address || 'Breakdown Location'}</div>
+                        {selectedDelivery.stranded_driver && (
+                          <div style={{ marginTop: '3px' }}>
+                            <strong>Stranded Driver:</strong> {selectedDelivery.stranded_driver?.user?.full_name} ({selectedDelivery.stranded_driver?.user?.phone || 'No phone'})
+                          </div>
+                        )}
+                        {selectedDelivery.stranded_vehicle && (
+                          <div style={{ marginTop: '2px' }}>
+                            <strong>Disabled Vehicle:</strong> {selectedDelivery.stranded_vehicle?.model || selectedDelivery.stranded_vehicle?.brand} ({selectedDelivery.stranded_vehicle?.plate_number})
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ marginTop: '3px' }}>
+                        <strong>Pick-up Location:</strong> {selectedDelivery.request?.pickup_address || 'Customer Pick-up'}
+                        <div style={{ marginTop: '2px', fontSize: '11px', color: '#92400E' }}>
+                          <em>Original truck broke down before loading. Relief driver is heading directly to the customer pickup.</em>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               {isDeliveryDelayed(selectedDelivery) && (() => {
                 const delayInfo = getDelayDetails(selectedDelivery);
                 return (
@@ -1102,7 +1185,24 @@ function DeliveryPage() {
               <div className="panel-detail"><span className="panel-detail-label">Contact Number:</span><span className="panel-detail-value">{selectedDelivery.request?.customer?.phone || '—'}</span></div>
               <div className="panel-detail"><span className="panel-detail-label">Driver:</span><span className="panel-detail-value">{selectedDelivery.driver?.user?.full_name ? `${selectedDelivery.driver.user.full_name} (DR${String(selectedDelivery.driver.driver_id).padStart(3, '0')})` : 'Unassigned'}</span></div>
               <div className="panel-detail"><span className="panel-detail-label">Vehicle:</span><span className="panel-detail-value">{selectedDelivery.vehicle ? `${selectedDelivery.vehicle.model} – ${selectedDelivery.vehicle.plate_number}` : 'Unassigned'}</span></div>
-              <div className="panel-detail"><span className="panel-detail-label">Pickup:</span><span className="panel-detail-value">{selectedDelivery.request?.pickup_address || '—'}</span></div>
+              <div className="panel-detail">
+                <span className="panel-detail-label">Pickup:</span>
+                <span className="panel-detail-value">
+                  {selectedDelivery.is_relief && selectedDelivery.cargo_loaded && selectedDelivery.relief_origin_address ? (
+                    <>
+                      <span style={{ color: '#D97706', fontWeight: 700 }}>[Breakdown Site] </span>
+                      {selectedDelivery.relief_origin_address}
+                    </>
+                  ) : selectedDelivery.is_relief && !selectedDelivery.cargo_loaded ? (
+                    <>
+                      <span style={{ color: '#2563EB', fontWeight: 700 }}>[Direct Pick-up] </span>
+                      {selectedDelivery.request?.pickup_address || '—'}
+                    </>
+                  ) : (
+                    selectedDelivery.request?.pickup_address || '—'
+                  )}
+                </span>
+              </div>
               <div className="panel-detail"><span className="panel-detail-label">Drop-Off:</span><span className="panel-detail-value">{selectedDelivery.request?.dropoff_address || '—'}</span></div>
 
               {selectedDelivery.status === 'completed' ? (
@@ -1187,78 +1287,143 @@ function DeliveryPage() {
                   {(() => {
                     const isBroken = isDeliveryBrokenDown(selectedDelivery);
                     const breakdown = getBreakdownDetails(selectedDelivery);
-                    const isInTransitNavigating = isBroken || ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo', 'returning_to_hq'].includes(selectedDelivery.status);
+                    const isInTransitNavigating = isBroken || selectedDelivery.is_relief || ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo', 'returning_to_hq'].includes(selectedDelivery.status);
 
                     return (
                       <>
-                        {isBroken && breakdown && (
+                        {selectedDelivery.is_relief && (
                           <div
                             style={{
-                              background: '#FEF2F2',
-                              border: '1.5px solid #F87171',
+                              background: '#FFFBEB',
+                              border: '1.5px solid #F59E0B',
                               borderRadius: '10px',
                               padding: '14px',
                               margin: '16px 0 12px',
-                              boxShadow: '0 4px 12px rgba(220, 38, 38, 0.08)',
+                              boxShadow: '0 4px 12px rgba(245, 158, 11, 0.1)',
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#991B1B', fontWeight: 800, fontSize: '13px' }}>
-                              <i className="fas fa-exclamation-triangle" style={{ fontSize: '16px' }}></i>
-                              Decision Support: Vehicle Breakdown
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#92400E', fontWeight: 800, fontSize: '13px' }}>
+                              <i className="fas fa-truck-moving" style={{ fontSize: '16px', color: '#D97706' }}></i>
+                              Relief Mission Active
                             </div>
-                            <div style={{ fontSize: '12px', color: '#7F1D1D', marginTop: '6px', lineHeight: '1.4' }}>
-                              <strong>Breakdown Location:</strong> {breakdown.locationAddress}
-                              <br />
-                              <strong>Reported Issue:</strong> {breakdown.description}
-                            </div>
-
-                            <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              <button
-                                type="button"
-                                onClick={() => openReassignModal(selectedDelivery)}
-                                style={{
-                                  width: '100%',
-                                  padding: '9px 12px',
-                                  background: '#DC2626',
-                                  color: '#FFFFFF',
-                                  border: 'none',
-                                  borderRadius: '6px',
-                                  fontWeight: 700,
-                                  fontSize: '12.5px',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  gap: '6px',
-                                  boxShadow: '0 2px 4px rgba(220, 38, 38, 0.25)',
-                                }}
-                              >
-                                <i className="fas fa-truck-pickup"></i> Re-assign (Dispatch Relief Truck)
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => openRescheduleModal(selectedDelivery)}
-                                style={{
-                                  width: '100%',
-                                  padding: '8px 12px',
-                                  background: '#FFFFFF',
-                                  color: '#B45309',
-                                  border: '1px solid #FCD34D',
-                                  borderRadius: '6px',
-                                  fontWeight: 600,
-                                  fontSize: '12px',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  gap: '6px',
-                                }}
-                              >
-                                <i className="far fa-calendar-alt"></i> Re-schedule Delivery Instead
-                              </button>
+                            <div style={{ fontSize: '12px', color: '#78350F', marginTop: '8px', lineHeight: '1.5' }}>
+                              <div><strong>Relief Driver:</strong> {selectedDelivery.driver?.user?.full_name || 'Assigned'} ({selectedDelivery.vehicle ? `${selectedDelivery.vehicle.model || selectedDelivery.vehicle.brand} • ${selectedDelivery.vehicle.plate_number}` : 'Relief Truck'})</div>
+                              <div style={{ marginTop: '4px' }}><strong>Pick-up (Breakdown Site):</strong> {selectedDelivery.relief_origin_address || 'Breakdown Location'}</div>
+                              {selectedDelivery.stranded_driver && (
+                                <div style={{ marginTop: '4px' }}>
+                                  <strong>Stranded Driver:</strong> {selectedDelivery.stranded_driver?.user?.full_name} ({selectedDelivery.stranded_driver?.user?.phone || 'No phone'})
+                                </div>
+                              )}
+                              {selectedDelivery.stranded_vehicle && (
+                                <div style={{ marginTop: '2px' }}>
+                                  <strong>Disabled Vehicle:</strong> {selectedDelivery.stranded_vehicle?.model || selectedDelivery.stranded_vehicle?.brand} ({selectedDelivery.stranded_vehicle?.plate_number})
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}
+                        {isBroken && breakdown && (() => {
+                          const isCargoLoadedOnDisabled = ['loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo'].includes(selectedDelivery.status) || Boolean(selectedDelivery.cargo_loaded);
+
+                          return (
+                            <div
+                              style={{
+                                background: '#FEF2F2',
+                                border: '1.5px solid #F87171',
+                                borderRadius: '10px',
+                                padding: '14px',
+                                margin: '16px 0 12px',
+                                boxShadow: '0 4px 12px rgba(220, 38, 38, 0.08)',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#991B1B', fontWeight: 800, fontSize: '13px' }}>
+                                <i className="fas fa-exclamation-triangle" style={{ fontSize: '16px' }}></i>
+                                {isCargoLoadedOnDisabled
+                                  ? 'Decision Support: Breakdown On Route (Cargo Loaded — Transshipment Required)'
+                                  : 'Decision Support: Breakdown En Route to Pick-up (Cargo NOT Loaded)'}
+                              </div>
+                              <div style={{ fontSize: '12px', color: '#7F1D1D', marginTop: '6px', lineHeight: '1.4' }}>
+                                <strong>Breakdown Location:</strong> {breakdown.locationAddress}
+                                <br />
+                                <strong>Reported Issue:</strong> {breakdown.description}
+                                <div style={{ marginTop: '6px', padding: '6px 8px', background: '#FEE2E2', borderRadius: '6px', fontSize: '11.5px' }}>
+                                  {isCargoLoadedOnDisabled
+                                    ? '⚠️ Cargo is stranded on the disabled vehicle. Re-assigning will dispatch a relief truck to the breakdown GPS for cargo transshipment before proceeding to drop-off.'
+                                    : 'ℹ️ Vehicle broke down before reaching pick-up. No cargo is onboard. Re-assigning will dispatch a replacement truck directly to the customer pickup point.'}
+                                </div>
+                              </div>
+
+                              <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {canReassign ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openReassignModal(selectedDelivery)}
+                                    style={{
+                                      width: '100%',
+                                      padding: '9px 12px',
+                                      background: '#DC2626',
+                                      color: '#FFFFFF',
+                                      border: 'none',
+                                      borderRadius: '6px',
+                                      fontWeight: 700,
+                                      fontSize: '12.5px',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      gap: '6px',
+                                      boxShadow: '0 2px 4px rgba(220, 38, 38, 0.25)',
+                                    }}
+                                  >
+                                    <i className="fas fa-truck-pickup"></i>{' '}
+                                    {isCargoLoadedOnDisabled
+                                      ? 'Re-assign (Dispatch Relief Truck to Breakdown Site)'
+                                      : 'Re-assign (Dispatch Replacement Direct to Pick-up)'}
+                                  </button>
+                                ) : (
+                                  <div
+                                    style={{
+                                      background: '#FEF3C7',
+                                      border: '1px solid #FCD34D',
+                                      borderRadius: '6px',
+                                      padding: '8px 10px',
+                                      fontSize: '11.5px',
+                                      color: '#92400E',
+                                      fontWeight: 600,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px',
+                                    }}
+                                  >
+                                    <i className="fas fa-info-circle"></i> No drivers/vehicles currently available for relief. Immediate customer reschedule recommended.
+                                  </div>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => openRescheduleModal(selectedDelivery)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '8px 12px',
+                                    background: '#FFFFFF',
+                                    color: '#B45309',
+                                    border: '1px solid #FCD34D',
+                                    borderRadius: '6px',
+                                    fontWeight: 600,
+                                    fontSize: '12px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px',
+                                  }}
+                                >
+                                  <i className="far fa-calendar-alt"></i> Propose Reschedule &amp; Notify Customer
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         {isInTransitNavigating ? (
                           <button

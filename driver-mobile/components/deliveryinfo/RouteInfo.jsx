@@ -13,12 +13,16 @@ import { setActiveAcceptedDeliveryId } from "../../services/api";
 export default function RouteInfo({ delivery }) {
     const request = delivery?.request;
 
-    // Pickup address from backend
+    // Pickup address from backend (or breakdown site if transshipment)
+    const isRelief = Boolean(delivery?.is_relief);
+    const cargoLoaded = Boolean(delivery?.cargo_loaded);
     const pickupAddress =
-        request?.pickup_address ||
-        request?.pickup_location ||
-        request?.pickup ||
-        "Pickup address not provided";
+        isRelief && cargoLoaded && delivery?.relief_origin_address
+            ? delivery.relief_origin_address
+            : request?.pickup_address ||
+              request?.pickup_location ||
+              request?.pickup ||
+              "Pickup address not provided";
 
     // Drop-off address from backend
     const dropoffAddress =
@@ -35,11 +39,36 @@ export default function RouteInfo({ delivery }) {
             ? `${request.distance_km} kilometers`
             : "Distance not provided";
 
+    const isAcceptedOrActive = [
+        "accepted",
+        "arrived_pickup",
+        "loading_cargo",
+        "out_for_delivery",
+        "arrived_dropoff",
+        "unloading_cargo",
+    ].includes(delivery?.status);
+
     const handleAcceptAssignment = () => {
         const id = delivery?.delivery_id;
         if (id) {
             setActiveAcceptedDeliveryId(id);
         }
+
+        if (isAcceptedOrActive) {
+            const hasPreTrip = delivery?.checklists?.some(
+                (e) => e.type === "pre_trip"
+            );
+            if (hasPreTrip || (delivery?.status && !["assigned", "pending"].includes(delivery.status))) {
+                router.replace({
+                    pathname: "/navigation",
+                    params: {
+                        deliveryId: String(id || ""),
+                    },
+                });
+                return;
+            }
+        }
+
         router.push({
             pathname: "/pretripcheck",
             params: {
@@ -73,7 +102,9 @@ export default function RouteInfo({ delivery }) {
                 </Text>
 
                 <Text style={styles.label}>
-                    Pick-up:
+                    {isRelief
+                        ? (cargoLoaded ? "Pick-up (Breakdown Site):" : "Pick-up (Direct):")
+                        : "Pick-up:"}
                 </Text>{" "}
 
                 {pickupAddress}
@@ -105,14 +136,14 @@ export default function RouteInfo({ delivery }) {
                 {distance}
             </Text>
 
-            {/* Accept Assignment */}
+            {/* Action Button */}
             <TouchableOpacity
                 style={styles.acceptButton}
                 onPress={handleAcceptAssignment}
                 activeOpacity={0.8}
             >
                 <Text style={styles.acceptText}>
-                    Accept Assignment
+                    {isAcceptedOrActive ? "Continue Delivery" : "Accept Assignment"}
                 </Text>
             </TouchableOpacity>
 

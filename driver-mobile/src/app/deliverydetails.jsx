@@ -5,15 +5,18 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Platform,
+  StatusBar,
 } from "react-native";
 
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import CustomerInfo from "../../components/deliveryinfo/CustomerInfo";
 import CargoInfo from "../../components/deliveryinfo/CargoInfo";
 import RouteInfo from "../../components/deliveryinfo/RouteInfo";
+import StrandedVehicleInfo from "../../components/deliveryinfo/StrandedVehicleInfo";
 
 import { getDelivery } from "../../services/api";
 
@@ -25,6 +28,11 @@ import {
 
 export default function DeliveryDetails() {
   const params = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(
+    insets.top,
+    Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0
+  );
 
   const deliveryId = params.deliveryId;
 
@@ -64,7 +72,12 @@ export default function DeliveryDetails() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={[styles.container, { paddingTop: topInset }]}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor="transparent"
+          translucent
+        />
         <View style={styles.center}>
           <ActivityIndicator
             size="large"
@@ -75,13 +88,18 @@ export default function DeliveryDetails() {
             Loading delivery...
           </Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (error || !delivery) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={[styles.container, { paddingTop: topInset }]}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor="transparent"
+          translucent
+        />
         <View style={styles.center}>
           <Ionicons
             name="alert-circle"
@@ -107,47 +125,66 @@ export default function DeliveryDetails() {
             </Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerTitle}>
-          <Ionicons
-            name="cube-outline"
-            size={30}
-            color="#FFFFFF"
-          />
+    <View style={styles.container}>
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="#951F21"
+        translucent
+      />
+      <View
+        style={[
+          styles.header,
+          {
+            paddingTop: topInset,
+            height: 60 + topInset,
+          },
+        ]}
+      >
+        <View style={styles.headerContent}>
+          <View style={styles.headerTitle}>
+            <Ionicons
+              name="cube-outline"
+              size={30}
+              color="#FFFFFF"
+            />
 
-          <Text style={styles.title}>
-            Delivery Details
-          </Text>
+            <Text style={styles.title}>
+              Delivery Details
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace("/(tabs)/home");
+              }
+            }}
+            style={styles.backButton}
+          >
+            <Ionicons
+              name="arrow-back"
+              size={29}
+              color="#FFFFFF"
+            />
+          </TouchableOpacity>
         </View>
-
-        <TouchableOpacity
-          onPress={() => {
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace("/(tabs)/home");
-            }
-          }}
-          style={styles.backButton}
-        >
-          <Ionicons
-            name="arrow-back"
-            size={29}
-            color="#FFFFFF"
-          />
-        </TouchableOpacity>
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
+        <StrandedVehicleInfo
+          delivery={delivery}
+        />
+
         <CustomerInfo
           delivery={delivery}
         />
@@ -160,7 +197,7 @@ export default function DeliveryDetails() {
           delivery={delivery}
         />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -171,8 +208,12 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    height: 65,
     backgroundColor: "#951F21",
+    justifyContent: "flex-end",
+  },
+
+  headerContent: {
+    height: 60,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",

@@ -580,9 +580,13 @@ export default function ViewLocationMap({
       driverMarkerRef.current = L.marker(latLng, { icon: driverIcon, zIndexOffset: 1200 })
         .addTo(map)
         .bindPopup(popupHtml);
+      driverMarkerRef.current._prevHtml = driverHtml;
     } else {
-      driverMarkerRef.current.setIcon(driverIcon);
       driverMarkerRef.current.setLatLng(latLng);
+      if (driverMarkerRef.current._prevHtml !== driverHtml) {
+        driverMarkerRef.current.setIcon(driverIcon);
+        driverMarkerRef.current._prevHtml = driverHtml;
+      }
       driverMarkerRef.current.setPopupContent(popupHtml);
     }
 
@@ -671,12 +675,11 @@ export default function ViewLocationMap({
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    if (breadcrumbTrailRef.current) {
-      try { map.removeLayer(breadcrumbTrailRef.current); } catch (_) {}
-      breadcrumbTrailRef.current = null;
-    }
-
     if (!showBreadcrumbs || !Array.isArray(trackingHistory) || trackingHistory.length < 2) {
+      if (breadcrumbTrailRef.current) {
+        try { map.removeLayer(breadcrumbTrailRef.current); } catch (_) {}
+        breadcrumbTrailRef.current = null;
+      }
       return;
     }
 
@@ -686,21 +689,23 @@ export default function ViewLocationMap({
 
     if (trailPts.length < 2) return;
 
-    const polyline = L.polyline(trailPts, {
-      color: '#0284c7',
-      weight: 4,
-      opacity: 0.8,
-      dashArray: '6, 6',
-      lineJoin: 'round',
-    });
+    const tooltipContent = `<span><i class="fas fa-history"></i> Traveled Path (${trailPts.length} GPS pings) • Avg Speed: <strong>${speedMetrics.avgSpeed} km/h</strong> • Peak: <strong>${speedMetrics.peakSpeed} km/h</strong></span>`;
 
-    polyline.bindTooltip(
-      `<span><i class="fas fa-history"></i> Traveled Path (${trailPts.length} GPS pings) • Avg Speed: <strong>${speedMetrics.avgSpeed} km/h</strong> • Peak: <strong>${speedMetrics.peakSpeed} km/h</strong></span>`,
-      { sticky: true }
-    );
-
-    polyline.addTo(map);
-    breadcrumbTrailRef.current = polyline;
+    if (!breadcrumbTrailRef.current) {
+      const polyline = L.polyline(trailPts, {
+        color: '#0284c7',
+        weight: 4,
+        opacity: 0.8,
+        dashArray: '6, 6',
+        lineJoin: 'round',
+      });
+      polyline.bindTooltip(tooltipContent, { sticky: true });
+      polyline.addTo(map);
+      breadcrumbTrailRef.current = polyline;
+    } else {
+      breadcrumbTrailRef.current.setLatLngs(trailPts);
+      breadcrumbTrailRef.current.setTooltipContent(tooltipContent);
+    }
 
     return () => {
       if (breadcrumbTrailRef.current && map) {
@@ -715,26 +720,25 @@ export default function ViewLocationMap({
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    if (trajectoryLineRef.current) {
-      try { map.removeLayer(trajectoryLineRef.current); } catch (_) {}
-      trajectoryLineRef.current = null;
-    }
-
     if (driverLocation?.lat && driverLocation?.lng && coords.dropoff) {
-      const line = L.polyline(
-        [
-          [driverLocation.lat, driverLocation.lng],
-          [coords.dropoff.lat, coords.dropoff.lng],
-        ],
-        {
+      const linePts = [
+        [driverLocation.lat, driverLocation.lng],
+        [coords.dropoff.lat, coords.dropoff.lng],
+      ];
+      if (!trajectoryLineRef.current) {
+        const line = L.polyline(linePts, {
           color: '#f59e0b',
           weight: 2.5,
           opacity: 0.55,
           dashArray: '4, 8',
-        }
-      ).addTo(map);
-
-      trajectoryLineRef.current = line;
+        }).addTo(map);
+        trajectoryLineRef.current = line;
+      } else {
+        trajectoryLineRef.current.setLatLngs(linePts);
+      }
+    } else if (trajectoryLineRef.current) {
+      try { map.removeLayer(trajectoryLineRef.current); } catch (_) {}
+      trajectoryLineRef.current = null;
     }
 
     return () => {

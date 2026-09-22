@@ -4,15 +4,23 @@ import {
     Text,
     Image,
     TouchableOpacity,
+    Platform,
+    StatusBar,
 } from "react-native";
 
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function HomeHeader() {
     const router = useRouter();
+    const insets = useSafeAreaInsets();
+    const topInset = Math.max(
+        insets.top,
+        Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0
+    );
 
     const [user, setUser] = useState(null);
 
@@ -62,42 +70,51 @@ export default function HomeHeader() {
     };
 
     return (
-        <View style={styles.header}>
+        <View
+            style={[
+                styles.header,
+                {
+                    paddingTop: topInset,
+                    height: 75 + topInset,
+                },
+            ]}
+        >
+            <StatusBar
+                barStyle="light-content"
+                backgroundColor="#8B1E1E"
+                translucent
+            />
+            <View style={styles.headerContent}>
+                <View style={styles.userContainer}>
+                    <Image
+                        source={require("../assets/images/profilepic.png")}
+                        style={styles.avatar}
+                    />
 
-            <View style={styles.userContainer}>
+                    <View>
+                        <Text style={styles.welcome}>
+                            Welcome!
+                        </Text>
 
-                <Image
-                    source={require("../assets/images/profilepic.png")}
-                    style={styles.avatar}
-                />
-
-                <View>
-
-                    <Text style={styles.welcome}>
-                        Welcome!
-                    </Text>
-
-                    <Text style={styles.name}>
-                        {getFirstName()}
-                    </Text>
-
+                        <Text style={styles.name}>
+                            {getFirstName()}
+                        </Text>
+                    </View>
                 </View>
 
+                <TouchableOpacity
+                    style={styles.settingsButton}
+                    onPress={() =>
+                        router.push("/settings")
+                    }
+                >
+                    <Ionicons
+                        name="settings-outline"
+                        size={30}
+                        color="#FFFFFF"
+                    />
+                </TouchableOpacity>
             </View>
-
-            <TouchableOpacity
-                style={styles.settingsButton}
-                onPress={() =>
-                    router.push("/settings")
-                }
-            >
-                <Ionicons
-                    name="settings-outline"
-                    size={30}
-                    color="#FFFFFF"
-                />
-            </TouchableOpacity>
-
         </View>
     );
 }
@@ -105,13 +122,17 @@ export default function HomeHeader() {
 const styles = StyleSheet.create({
     header: {
         backgroundColor: "#8B1E1E",
-        height: 105,
         paddingHorizontal: 18,
+        borderBottomLeftRadius: 15,
+        borderBottomRightRadius: 15,
+        justifyContent: "flex-end",
+    },
+
+    headerContent: {
+        height: 75,
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        borderBottomLeftRadius: 15,
-        borderBottomRightRadius: 15,
     },
 
     userContainer: {

@@ -32,10 +32,22 @@ class Delivery extends Model
         'receipt_photo',
         'payment_verification',
         'start_time',
-        'end_time'
+        'end_time',
+        'is_relief',
+        'cargo_loaded',
+        'relief_origin_address',
+        'relief_origin_lat',
+        'relief_origin_lng',
+        'stranded_driver_id',
+        'stranded_vehicle_id',
+        'relief_incident_id'
     ];
 
     protected $casts = [
+        'is_relief' => 'boolean',
+        'cargo_loaded' => 'boolean',
+        'relief_origin_lat' => 'float',
+        'relief_origin_lng' => 'float',
         'estimated_duration_days' => 'integer',
         'estimated_delivery_date' => 'datetime',
         'delay_notified_at' => 'datetime',
@@ -253,6 +265,33 @@ class Delivery extends Model
             DriverLog::class,
             'delivery_id',
             'delivery_id'
+        );
+    }
+
+    public function strandedDriver()
+    {
+        return $this->belongsTo(
+            Driver::class,
+            'stranded_driver_id',
+            'driver_id'
+        );
+    }
+
+    public function strandedVehicle()
+    {
+        return $this->belongsTo(
+            Vehicle::class,
+            'stranded_vehicle_id',
+            'vehicle_id'
+        );
+    }
+
+    public function reliefIncident()
+    {
+        return $this->belongsTo(
+            IncidentReport::class,
+            'relief_incident_id',
+            'incident_id'
         );
     }
 }

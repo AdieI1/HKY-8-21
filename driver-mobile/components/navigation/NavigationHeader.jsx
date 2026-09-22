@@ -52,11 +52,7 @@ export default function NavigationHeader({
       <TouchableOpacity
         style={styles.backButton}
         onPress={() => {
-          if (router.canGoBack()) {
-            router.back();
-          } else {
-            router.replace("/(tabs)/home");
-          }
+          router.replace("/(tabs)/home");
         }}
       >
         <Ionicons

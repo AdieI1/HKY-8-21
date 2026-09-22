@@ -63,8 +63,15 @@ export default function NavigationMap({
 
   // Extract Pickup & Dropoff coordinates
   const pickup = useMemo(() => {
-    const lat = Number(delivery?.request?.pickup_lat);
-    const lng = Number(delivery?.request?.pickup_lng);
+    const isRelief = Boolean(delivery?.is_relief);
+    const cargoLoaded = Boolean(delivery?.cargo_loaded);
+    const isTransshipment = isRelief && cargoLoaded;
+    const lat = isTransshipment && Number.isFinite(Number(delivery?.relief_origin_lat))
+      ? Number(delivery.relief_origin_lat)
+      : Number(delivery?.request?.pickup_lat);
+    const lng = isTransshipment && Number.isFinite(Number(delivery?.relief_origin_lng))
+      ? Number(delivery.relief_origin_lng)
+      : Number(delivery?.request?.pickup_lng);
     return Number.isFinite(lat) && Number.isFinite(lng) ? { latitude: lat, longitude: lng } : null;
   }, [delivery]);
 
@@ -152,12 +159,20 @@ export default function NavigationMap({
     };
   }, [onLocationChange, onHazardAlert]);
 
-  // 2. Fetch OSRM Road Route & Elevation Profile
+  // 2. Fetch OSRM Road Route & Elevation Profile (cached per leg to eliminate in-transit lag)
+  const prevLegKeyRef = useRef(null);
+
   useEffect(() => {
     let active = true;
     const waypoints = routeWaypoints.waypoints;
 
     if (!waypoints || waypoints.length < 2) return;
+
+    const currentLegKey = `${routeWaypoints.leg}_${routeWaypoints.destination?.latitude}_${routeWaypoints.destination?.longitude}`;
+    if (prevLegKeyRef.current === currentLegKey && roadCoordinates.length > 0) {
+      return;
+    }
+    prevLegKeyRef.current = currentLegKey;
 
     fetchRoadRoute(waypoints)
       .then(async (route) => {
@@ -185,26 +200,46 @@ export default function NavigationMap({
     routeWaypoints.leg,
     routeWaypoints.destination?.latitude,
     routeWaypoints.destination?.longitude,
-    currentLocation?.latitude ? Math.round(currentLocation.latitude * 200) : null,
-    currentLocation?.longitude ? Math.round(currentLocation.longitude * 200) : null,
     pickup,
     dropoff,
   ]);
 
-  // 3. GTA / FoodPanda Camera Lock Mode
+  // 3. GTA / FoodPanda Camera Lock Mode (Damped updates to eliminate frame skips)
+  const lastCameraUpdateRef = useRef({ lat: 0, lng: 0, heading: 0, time: 0 });
+
   useEffect(() => {
     if (!currentLocation || !mapRef.current) return;
 
     if (isLocked) {
-      mapRef.current.animateCamera(
-        {
-          center: currentLocation,
-          pitch: 45, // 3D tilted GTA / FoodPanda angle
-          heading: heading || 0, // Auto-rotate camera to vehicle heading
-          zoom: 17, // Navigation zoom level
-        },
-        { duration: 800 }
-      );
+      const now = Date.now();
+      const last = lastCameraUpdateRef.current;
+      const latDiff = Math.abs(currentLocation.latitude - last.lat);
+      const lngDiff = Math.abs(currentLocation.longitude - last.lng);
+      const headDiff = Math.abs((heading || 0) - last.heading);
+      const timeDiff = now - last.time;
+
+      const movedSignificantly = latDiff > 0.00003 || lngDiff > 0.00003;
+      const turnedSignificantly = headDiff > 4;
+      const timePassed = timeDiff >= 1500;
+
+      if (movedSignificantly || turnedSignificantly || timePassed || last.time === 0) {
+        lastCameraUpdateRef.current = {
+          lat: currentLocation.latitude,
+          lng: currentLocation.longitude,
+          heading: heading || 0,
+          time: now,
+        };
+
+        mapRef.current.animateCamera(
+          {
+            center: currentLocation,
+            pitch: 45, // 3D tilted GTA / FoodPanda angle
+            heading: heading || 0, // Auto-rotate camera to vehicle heading
+            zoom: 17, // Navigation zoom level
+          },
+          { duration: 900 }
+        );
+      }
     } else if (!initialZoomDone && roadCoordinates.length > 1) {
       mapRef.current.fitToCoordinates(roadCoordinates, {
         edgePadding: { top: 90, right: 40, bottom: 250, left: 40 },

@@ -1205,71 +1205,125 @@ function VehiclesPage() {
                   </div>
 
                   {/* 3 Uniform Action Buttons */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                    <button
-                      onClick={(e) => openScheduleMaintenanceModal(selectedVehicle, e)}
-                      style={{
-                        width: '100%',
-                        height: '36px',
-                        background: '#f97316',
-                        color: '#ffffff',
-                        border: 'none',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                        boxSizing: 'border-box',
-                      }}
-                    >
-                      <i className="fas fa-tools"></i> Schedule Maintenance
-                    </button>
-                    <button
-                      onClick={() => { const v = selectedVehicle; setSelectedVehicle(null); openEditModal(v); }}
-                      style={{
-                        width: '100%',
-                        height: '36px',
-                        background: '#475569',
-                        color: '#ffffff',
-                        border: 'none',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                        boxSizing: 'border-box',
-                      }}
-                    >
-                      <i className="fas fa-edit"></i> Edit Info
-                    </button>
-                    <button
-                      onClick={(e) => openDecommissionModal(selectedVehicle, e)}
-                      style={{
-                        width: '100%',
-                        height: '36px',
-                        background: '#ef4444',
-                        color: '#ffffff',
-                        border: 'none',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                        boxSizing: 'border-box',
-                      }}
-                    >
-                      <i className="fas fa-ban"></i> Decommission
-                    </button>
-                  </div>
+                  {(() => {
+                    const isAvailable = selectedVehicle.status === 'available';
+                    const isBroken = selectedVehicle.status === 'broken';
+                    const isInUse = selectedVehicle.status === 'in_use';
+                    const isMaintenance = selectedVehicle.status === 'maintenance';
+                    const canSchedule = isAvailable || isBroken;
+                    const canDecommission = isAvailable;
+                    const canEdit = isAvailable;
+
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                        <button
+                          onClick={(e) => canSchedule && openScheduleMaintenanceModal(selectedVehicle, e)}
+                          disabled={!canSchedule}
+                          title={
+                            isInUse
+                              ? 'Cannot schedule maintenance: vehicle is currently active in a delivery trip.'
+                              : isMaintenance
+                              ? 'Vehicle is already under active maintenance.'
+                              : isBroken
+                              ? 'Schedule urgent repair for broken vehicle'
+                              : 'Schedule Maintenance'
+                          }
+                          style={{
+                            width: '100%',
+                            height: '36px',
+                            background: !canSchedule ? '#cbd5e1' : (isBroken ? '#dc2626' : '#f97316'),
+                            color: !canSchedule ? '#64748b' : '#ffffff',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: !canSchedule ? 'not-allowed' : 'pointer',
+                            opacity: !canSchedule ? 0.55 : 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            boxSizing: 'border-box',
+                            boxShadow: isBroken ? '0 0 8px rgba(220, 38, 38, 0.4)' : 'none',
+                          }}
+                        >
+                          <i className={isBroken ? 'fas fa-wrench' : 'fas fa-tools'}></i>{' '}
+                          {isBroken ? 'Schedule Repair (Broken)' : 'Schedule Maintenance'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!canEdit) return;
+                            const v = selectedVehicle;
+                            setSelectedVehicle(null);
+                            openEditModal(v);
+                          }}
+                          disabled={!canEdit}
+                          title={
+                            isInUse
+                              ? 'Cannot edit vehicle info while vehicle is in use.'
+                              : isMaintenance
+                              ? 'Cannot edit vehicle info while under maintenance.'
+                              : !isAvailable
+                              ? 'Vehicle cannot be edited in current status.'
+                              : 'Edit Vehicle Info'
+                          }
+                          style={{
+                            width: '100%',
+                            height: '36px',
+                            background: !canEdit ? '#cbd5e1' : '#475569',
+                            color: !canEdit ? '#64748b' : '#ffffff',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: !canEdit ? 'not-allowed' : 'pointer',
+                            opacity: !canEdit ? 0.55 : 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          <i className="fas fa-edit"></i> Edit Info
+                        </button>
+                        <button
+                          onClick={(e) => canDecommission && openDecommissionModal(selectedVehicle, e)}
+                          disabled={!canDecommission}
+                          title={
+                            isInUse
+                              ? 'Cannot decommission vehicle while active in delivery.'
+                              : isMaintenance
+                              ? 'Cannot decommission vehicle while under maintenance.'
+                              : isBroken
+                              ? 'Vehicle must be repaired or inspected before decommissioning.'
+                              : !isAvailable
+                              ? 'Vehicle cannot be decommissioned in current status.'
+                              : 'Decommission Vehicle'
+                          }
+                          style={{
+                            width: '100%',
+                            height: '36px',
+                            background: !canDecommission ? '#cbd5e1' : '#ef4444',
+                            color: !canDecommission ? '#64748b' : '#ffffff',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: !canDecommission ? 'not-allowed' : 'pointer',
+                            opacity: !canDecommission ? 0.55 : 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          <i className="fas fa-ban"></i> Decommission
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Card 2: Vehicle Specs */}

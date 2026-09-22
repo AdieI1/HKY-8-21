@@ -31,7 +31,7 @@ export default function NotificationBell() {
       }
     });
 
-    const interval = setInterval(loadNotifications, 60000); // reduced fallback polling
+    const interval = setInterval(loadNotifications, 4000); // Responsive 4s polling ensures real-time bell updates
     return () => {
       clearInterval(interval);
       unsubscribe();

@@ -70,8 +70,11 @@ export default function Home() {
                       )
                     : null);
 
-            if (activeJob && allowRedirect && isFocusedRef.current) {
+            if (activeJob) {
                 await setActiveAcceptedDeliveryId(activeJob.delivery_id);
+            }
+
+            if (activeJob && allowRedirect && isFocusedRef.current) {
                 const hasPreTrip = activeJob?.checklists?.some(
                     (e) => e.type === "pre_trip"
                 );

@@ -24,9 +24,15 @@ export default function ActiveDeliveryCard({
   delivery,
   onViewDetails,
 }) {
-  const status =
-    STATUS_CONFIG[delivery.status] ||
-    STATUS_CONFIG.pending;
+  const isRelief = Boolean(delivery?.is_relief);
+  const cargoLoaded = Boolean(delivery?.cargo_loaded);
+
+  const status = isRelief
+    ? {
+        label: cargoLoaded ? "Relief Dispatched" : "Replacement Dispatched",
+        color: "#D97706",
+      }
+    : (STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending);
 
   return (
     <View style={styles.card}>

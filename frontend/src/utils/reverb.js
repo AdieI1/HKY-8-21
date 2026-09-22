@@ -21,6 +21,11 @@ class ReverbClient {
   }
 
   connect() {
+    // Guard against running dead socket reconnection loops unless explicitly enabled
+    if (process.env.REACT_APP_ENABLE_WEBSOCKET !== 'true') {
+      return;
+    }
+
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }

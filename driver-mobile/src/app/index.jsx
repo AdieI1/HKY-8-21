@@ -43,6 +43,7 @@ export default function Index() {
                 await clearActiveAcceptedDeliveryId();
                 return false;
             }
+            await setActiveAcceptedDeliveryId(delivery.delivery_id);
             const hasPreTrip = delivery?.checklists?.some((e) => e.type === "pre_trip");
             const hasAdvanced = delivery?.status && !["assigned", "pending"].includes(delivery.status);
 
@@ -93,13 +94,15 @@ export default function Index() {
                       )
                     : null;
 
+                await minWaitPromise;
+                if (!active) return;
+
                 const targetId = activeInProgress?.delivery_id || activeId;
                 if (targetId) {
                     const resumed = await resumeDeliveryIfActive(targetId);
                     if (resumed || !active) return;
                 }
 
-                await minWaitPromise;
                 if (active) {
                     router.replace("/(tabs)/home");
                 }

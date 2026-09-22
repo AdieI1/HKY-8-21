@@ -6,7 +6,7 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -112,7 +112,10 @@ export default function Navigation() {
       cargoDescription: request.cargo_type || "",
       clientName: customer.full_name || "",
       weight: request.weight ? `${request.weight}kg` : "",
-      pickup: request.pickup_address || "",
+      pickup:
+        backendDelivery.is_relief && backendDelivery.cargo_loaded && backendDelivery.relief_origin_address
+          ? backendDelivery.relief_origin_address
+          : request.pickup_address || "",
       dropoff: request.dropoff_address || "",
       distance: routeMetrics?.distanceKm
         ? `${routeMetrics.distanceKm} km`
@@ -159,8 +162,16 @@ export default function Navigation() {
     setBackendDelivery(updated);
   };
 
+  const lastSyncTimeRef = useRef(0);
   const handleLocationChange = useCallback(
     (coordinate) => {
+      const now = Date.now();
+      // Steady 2.2-second rhythm avoids network congestion over Ngrok
+      if (now - lastSyncTimeRef.current < 2200) {
+        return;
+      }
+      lastSyncTimeRef.current = now;
+
       updateDeliveryLocation(
         deliveryId,
         coordinate.latitude,

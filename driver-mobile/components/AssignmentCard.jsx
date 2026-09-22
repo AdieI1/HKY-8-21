@@ -97,8 +97,13 @@ export default function AssignmentCard({ assignment }) {
     // GET ADDRESSES FROM BACKEND
     // ---------------------------------------------------------
 
+    const isRelief = Boolean(delivery?.is_relief);
+    const cargoLoaded = Boolean(delivery?.cargo_loaded);
+
     const pickupAddress =
-        request?.pickup_address || "";
+        isRelief && cargoLoaded && delivery?.relief_origin_address
+            ? delivery.relief_origin_address
+            : request?.pickup_address || "";
 
     const dropoffAddress =
         request?.dropoff_address || "";
@@ -109,23 +114,73 @@ export default function AssignmentCard({ assignment }) {
     const shortDropoff =
         getShortDropoffAddress(dropoffAddress);
 
+    const status = delivery?.status || assignment?.status;
+    const isAcceptedOrActive = [
+        "accepted",
+        "arrived_pickup",
+        "loading_cargo",
+        "out_for_delivery",
+        "arrived_dropoff",
+        "unloading_cargo",
+    ].includes(status);
+
     // ---------------------------------------------------------
-    // VIEW DETAILS
+    // ACTION HANDLER (View Details vs Continue Delivery)
     // ---------------------------------------------------------
 
-    const handleViewDetails = () => {
-        router.push({
-            pathname: "/deliverydetails",
-            params: {
-                deliveryId: String(
-                    assignment?.deliveryId || ""
-                ),
-            },
-        });
+    const handleAction = () => {
+        const deliveryId = String(
+            assignment?.deliveryId || delivery?.delivery_id || ""
+        );
+        if (!deliveryId) return;
+
+        if (isAcceptedOrActive) {
+            const hasPreTrip = delivery?.checklists?.some(
+                (e) => e.type === "pre_trip"
+            );
+            if (hasPreTrip || (status && !["assigned", "pending"].includes(status))) {
+                router.push({
+                    pathname: "/navigation",
+                    params: { deliveryId },
+                });
+            } else {
+                router.push({
+                    pathname: "/pretripcheck",
+                    params: { deliveryId },
+                });
+            }
+        } else {
+            router.push({
+                pathname: "/deliverydetails",
+                params: { deliveryId },
+            });
+        }
     };
 
     return (
         <View style={styles.card}>
+
+            {/* RELIEF REASSIGNMENT BADGE */}
+            {isRelief && (
+                <View style={[
+                    styles.reliefBadge,
+                    !cargoLoaded && { backgroundColor: "#EFF6FF", borderColor: "#BFDBFE" }
+                ]}>
+                    <Ionicons
+                        name={cargoLoaded ? "warning" : "information-circle"}
+                        size={13}
+                        color={cargoLoaded ? "#92400E" : "#1D4ED8"}
+                    />
+                    <Text style={[
+                        styles.reliefBadgeText,
+                        !cargoLoaded && { color: "#1D4ED8" }
+                    ]}>
+                        {cargoLoaded
+                            ? "Relief Reassignment (Transshipment)"
+                            : "Reassigned Delivery (Direct Pick-up)"}
+                    </Text>
+                </View>
+            )}
 
             {/* CUSTOMER INFORMATION */}
             <View style={styles.topRow}>
@@ -183,24 +238,21 @@ export default function AssignmentCard({ assignment }) {
             {/* DIVIDER */}
             <View style={styles.divider} />
 
-            {/* BUTTONS */}
+            {/* ACTION BUTTON */}
             <View style={styles.buttonRow}>
                 <TouchableOpacity
-                    style={styles.declineButton}
+                    style={styles.actionButton}
+                    onPress={handleAction}
                     activeOpacity={0.8}
                 >
-                    <Text style={styles.declineText}>
-                        Decline
-                    </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={styles.viewButton}
-                    onPress={handleViewDetails}
-                    activeOpacity={0.8}
-                >
-                    <Text style={styles.viewText}>
-                        View Details
+                    <Ionicons
+                        name={isAcceptedOrActive ? "navigate-circle" : "document-text-outline"}
+                        size={18}
+                        color="#FFF"
+                        style={{ marginRight: 6 }}
+                    />
+                    <Text style={styles.actionText}>
+                        {isAcceptedOrActive ? "Continue Delivery" : "View Details"}
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -218,14 +270,34 @@ const styles = StyleSheet.create({
         elevation: 4,
     },
 
+    reliefBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#FEF3C7",
+        borderWidth: 1,
+        borderColor: "#FCD34D",
+        paddingHorizontal: 8,
+        paddingVertical: 5,
+        borderRadius: 8,
+        marginBottom: 10,
+        gap: 6,
+    },
+
+    reliefBadgeText: {
+        fontSize: 11,
+        fontWeight: "700",
+        color: "#92400E",
+    },
+
     topRow: {
         flexDirection: "row",
+        alignItems: "center",
         marginBottom: 10,
     },
 
     avatar: {
-        width: 45,
-        height: 45,
+        width: 50,
+        height: 50,
         borderRadius: 25,
         marginRight: 12,
     },
@@ -235,32 +307,34 @@ const styles = StyleSheet.create({
     },
 
     customerName: {
-        fontSize: 22,
-        fontWeight: "700",
         color: "#F24848",
+        fontSize: 20,
+        fontWeight: "700",
     },
 
     info: {
-        color: "#444",
+        color: "#464646",
         fontSize: 13,
+        marginTop: 2,
     },
 
     locationRow: {
         flexDirection: "row",
         alignItems: "center",
+        marginTop: 6,
     },
 
     location: {
         flex: 1,
-        marginLeft: 5,
-        color: "#444",
-        fontWeight: "500",
+        color: "#333",
         fontSize: 13,
+        fontWeight: "600",
+        marginLeft: 6,
     },
 
     routeLabel: {
         fontWeight: "700",
-        color: "#444",
+        color: "#1F2937",
     },
 
     distance: {
@@ -276,33 +350,22 @@ const styles = StyleSheet.create({
     },
 
     buttonRow: {
-        flexDirection: "row",
-        justifyContent: "space-between",
+        marginTop: 4,
     },
 
-    declineButton: {
-        backgroundColor: "#5F616E",
-        width: "47%",
-        paddingVertical: 10,
-        borderRadius: 10,
-        alignItems: "center",
-    },
-
-    viewButton: {
+    actionButton: {
         backgroundColor: "#F24848",
-        width: "47%",
-        paddingVertical: 10,
+        width: "100%",
+        paddingVertical: 12,
         borderRadius: 10,
+        flexDirection: "row",
         alignItems: "center",
+        justifyContent: "center",
     },
 
-    declineText: {
-        color: "#FFF",
-        fontWeight: "600",
-    },
-
-    viewText: {
+    actionText: {
         color: "#FFF",
         fontWeight: "700",
+        fontSize: 15,
     },
 });

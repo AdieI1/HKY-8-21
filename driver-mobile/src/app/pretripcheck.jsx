@@ -150,7 +150,6 @@ export default function PreTripCheck() {
 
         <TouchableOpacity
           onPress={() => {
-            clearActiveAcceptedDeliveryId().catch(() => {});
             router.replace("/(tabs)/home");
           }}
           style={styles.backButton}

@@ -102,8 +102,16 @@ export async function fetchRoadRoute(points) {
  */
 export function getRouteWaypoints(delivery, navigationState, driverLocation) {
   const request = delivery?.request || {};
-  const pickupLat = Number(request.pickup_lat);
-  const pickupLng = Number(request.pickup_lng);
+  const isRelief = Boolean(delivery?.is_relief);
+  const cargoLoaded = Boolean(delivery?.cargo_loaded);
+  const isTransshipment = isRelief && cargoLoaded;
+
+  const pickupLat = isTransshipment && Number.isFinite(Number(delivery?.relief_origin_lat))
+    ? Number(delivery.relief_origin_lat)
+    : Number(request.pickup_lat);
+  const pickupLng = isTransshipment && Number.isFinite(Number(delivery?.relief_origin_lng))
+    ? Number(delivery.relief_origin_lng)
+    : Number(request.pickup_lng);
   const dropoffLat = Number(request.dropoff_lat);
   const dropoffLng = Number(request.dropoff_lng);
 
@@ -132,7 +140,7 @@ export function getRouteWaypoints(delivery, navigationState, driverLocation) {
     case "loading_cargo":
       return {
         leg: "pickup",
-        legTitle: "Heading to Pick-up Location",
+        legTitle: isTransshipment ? "Heading to Breakdown / Pick-up Point" : "Heading to Pick-up Location",
         origin,
         destination: pickupCoord,
         waypoints: [origin, pickupCoord].filter(Boolean),

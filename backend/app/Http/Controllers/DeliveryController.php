@@ -44,6 +44,9 @@ class DeliveryController extends Controller
             'checklists',
             'reviews',
             'incidents',
+            'strandedDriver.user',
+            'strandedVehicle',
+            'reliefIncident',
         ])->get();
     }
 
@@ -108,7 +111,10 @@ class DeliveryController extends Controller
             'permit',
             'tracking',
             'checklists',
-            'incidents'
+            'incidents',
+            'strandedDriver.user',
+            'strandedVehicle',
+            'reliefIncident'
         ]);
     }
 
@@ -131,7 +137,11 @@ class DeliveryController extends Controller
                 'assignedBy',
                 'permit',
                 'tracking',
-                'checklists'
+                'checklists',
+                'incidents',
+                'strandedDriver.user',
+                'strandedVehicle',
+                'reliefIncident'
             ]);
     }
 
@@ -189,6 +199,9 @@ class DeliveryController extends Controller
             'tracking',
             'checklists',
             'reviews',
+            'strandedDriver.user',
+            'strandedVehicle',
+            'reliefIncident',
         ])
             ->where('driver_id', $driver->driver_id)
             ->orderByDesc('delivery_id')
@@ -340,8 +353,72 @@ class DeliveryController extends Controller
 
             /*
             |--------------------------------------------------------------------------
+            | Check for active breakdown incident / relief assignment
+            |--------------------------------------------------------------------------
+            */
+
+            $activeIncident = \App\Models\IncidentReport::where('delivery_id', $delivery->delivery_id)
+                ->whereNotIn('status', ['resolved', 'relief_dispatched', 'closed'])
+                ->latest('reported_at')
+                ->first();
+
+            $isReliefAssignment = false;
+            $cargoLoaded = false;
+            $strandedDriverId = $delivery->stranded_driver_id;
+            $strandedVehicleId = $delivery->stranded_vehicle_id;
+            $reliefIncidentId = $delivery->relief_incident_id;
+            $reliefOriginAddress = null;
+            $reliefOriginLat = null;
+            $reliefOriginLng = null;
+
+            if ($activeIncident || $delivery->is_relief || ($delivery->vehicle && $delivery->vehicle->status === 'broken')) {
+                $isReliefAssignment = true;
+                $strandedDriverId = $delivery->driver_id ?: $delivery->stranded_driver_id;
+                $strandedVehicleId = $delivery->vehicle_id ?: $delivery->stranded_vehicle_id;
+
+                // Scenario 2: Cargo was already loaded onboard before the breakdown occurred
+                // Scenario 1: Cargo was NOT yet loaded (driver was heading to or just arrived at pickup)
+                $wasCargoLoaded = in_array($delivery->status, ['loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo'])
+                    || ($delivery->is_relief && $delivery->cargo_loaded);
+
+                $cargoLoaded = $wasCargoLoaded;
+
+                if ($activeIncident) {
+                    $reliefIncidentId = $activeIncident->incident_id;
+
+                    if ($wasCargoLoaded) {
+                        // Cargo is inside the disabled truck -> Relief truck must navigate to breakdown site for transshipment
+                        $reliefOriginAddress = $activeIncident->location_address;
+                        $reliefOriginLat = $activeIncident->latitude;
+                        $reliefOriginLng = $activeIncident->longitude;
+                    } else {
+                        // Cargo is not loaded -> Relief truck heads directly to Customer Pickup Address
+                        $reliefOriginAddress = null;
+                        $reliefOriginLat = null;
+                        $reliefOriginLng = null;
+                    }
+
+                    $activeIncident->update([
+                        'status' => 'resolved',
+                        'resolution_action' => 'relief_dispatched',
+                        'resolution_notes' => $wasCargoLoaded
+                            ? 'Relief vehicle/driver assigned and dispatched to breakdown location for transshipment.'
+                            : 'Replacement vehicle/driver assigned and dispatched directly to customer pickup location.',
+                        'resolved_at' => now(),
+                        'resolved_by' => $dispatcherUserId,
+                    ]);
+                } else if ($delivery->is_relief && $delivery->cargo_loaded) {
+                    $reliefIncidentId = $delivery->relief_incident_id;
+                    $reliefOriginAddress = $delivery->relief_origin_address;
+                    $reliefOriginLat = $delivery->relief_origin_lat;
+                    $reliefOriginLng = $delivery->relief_origin_lng;
+                }
+            }
+
+            /*
+            |--------------------------------------------------------------------------
             | If this delivery previously had another vehicle,
-            | make that vehicle available again.
+            | make that vehicle available again unless broken.
             |--------------------------------------------------------------------------
             */
 
@@ -351,10 +428,12 @@ class DeliveryController extends Controller
             ) {
                 $oldVehicle = $delivery->vehicle;
 
-                if ($oldVehicle && !in_array($oldVehicle->status, ['broken', 'maintenance', 'decommissioned'])) {
-                    $oldVehicle->update([
-                        'status' => 'available'
-                    ]);
+                if ($oldVehicle) {
+                    if ($isReliefAssignment || $oldVehicle->status === 'broken') {
+                        $oldVehicle->update(['status' => 'broken']);
+                    } elseif (!in_array($oldVehicle->status, ['maintenance', 'decommissioned'])) {
+                        $oldVehicle->update(['status' => 'available']);
+                    }
                 }
             }
 
@@ -381,8 +460,13 @@ class DeliveryController extends Controller
                 ?? \App\Models\User::whereHas('role', fn($q) => $q->whereIn('role_name', ['Staff', 'Admin', 'Dispatcher', 'staff', 'admin']))->value('user_id')
                 ?? 2;
 
-            $wasOngoing = in_array($delivery->status, ['accepted', 'in_transit', 'out_for_delivery', 'loading_cargo', 'arrived_pickup']);
-            $newStatus = $wasOngoing ? 'out_for_delivery' : 'assigned';
+            // Relief reassignment is a fresh start for the new driver ('assigned')
+            if ($isReliefAssignment) {
+                $newStatus = 'assigned';
+            } else {
+                $wasOngoing = in_array($delivery->status, ['accepted', 'in_transit', 'out_for_delivery', 'loading_cargo', 'arrived_pickup']);
+                $newStatus = $wasOngoing ? 'out_for_delivery' : 'assigned';
+            }
 
             $delivery->update([
                 'driver_id' => $request->driver_id,
@@ -397,6 +481,14 @@ class DeliveryController extends Controller
                 'fuel_receipt_no' => $validated['fuel_receipt_no'] ?? null,
                 'remarks' => $validated['remarks'] ?? null,
                 'starting_odometer' => $odometer !== null ? $odometer : $delivery->starting_odometer,
+                'is_relief' => $isReliefAssignment,
+                'cargo_loaded' => $cargoLoaded,
+                'relief_origin_address' => $reliefOriginAddress,
+                'relief_origin_lat' => $reliefOriginLat,
+                'relief_origin_lng' => $reliefOriginLng,
+                'stranded_driver_id' => $strandedDriverId,
+                'stranded_vehicle_id' => $strandedVehicleId,
+                'relief_incident_id' => $reliefIncidentId,
             ]);
 
             if ($odometer !== null && $delivery->vehicle) {
@@ -438,7 +530,29 @@ class DeliveryController extends Controller
 
             $delCode = 'DEL' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
             $driverName = $delivery->driver?->user?->full_name ?: 'Driver';
-            AppNotification::notify('dispatch', 'Delivery Assigned', "Delivery #{$delCode} assigned to {$driverName}.", '/delivery');
+
+            if ($isReliefAssignment) {
+                $customerMsg = $cargoLoaded
+                    ? "A relief truck ({$driverName}) has been dispatched to secure cargo and complete delivery #{$delCode}."
+                    : "A replacement truck ({$driverName}) has been assigned and is heading to the pickup location for delivery #{$delCode}.";
+                AppNotification::notify('dispatch', 'Relief Truck Dispatched', $customerMsg, '/delivery');
+
+                if ($delivery->request?->customer_id) {
+                    AppNotification::create([
+                        'user_id' => $delivery->request->customer_id,
+                        'title' => 'Relief Truck Dispatched (#' . $delCode . ')',
+                        'message' => $customerMsg,
+                        'type' => 'delivery_relief',
+                        'data' => [
+                            'delivery_id' => $delivery->delivery_id,
+                            'is_relief' => true,
+                            'cargo_loaded' => $cargoLoaded,
+                        ],
+                    ]);
+                }
+            } else {
+                AppNotification::notify('dispatch', 'Delivery Assigned', "Delivery #{$delCode} assigned to {$driverName}.", '/delivery');
+            }
 
             try {
                 \App\Events\DeliveryUpdated::dispatch($delivery);
@@ -951,6 +1065,9 @@ class DeliveryController extends Controller
             'tracking',
             'checklists',
             'reviews',
+            'strandedDriver.user',
+            'strandedVehicle',
+            'reliefIncident',
         ]);
     }
 

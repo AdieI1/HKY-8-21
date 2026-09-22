@@ -73,7 +73,13 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule })
   let statusBadgeColor = status.color;
   let statusBadgeLabel = status.label;
 
-  if (isAwaiting) {
+  const isRelief = Boolean(delivery.is_relief);
+  const cargoLoaded = Boolean(delivery.cargo_loaded);
+
+  if (isRelief) {
+    statusBadgeColor = "#D97706";
+    statusBadgeLabel = cargoLoaded ? "Relief Dispatched" : "Replacement Dispatched";
+  } else if (isAwaiting) {
     if (isRescheduleProposed) {
       statusBadgeColor = "#7C3AED";
       statusBadgeLabel = "Reschedule Offered";
@@ -121,6 +127,17 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule })
           </View>
         )}
 
+        {isRelief && (
+          <View style={[styles.queueBanner, { backgroundColor: "#FFFBEB", borderColor: "#FCD34D", marginTop: 8 }]}>
+            <Ionicons name="shield-checkmark-outline" size={14} color="#B45309" />
+            <Text style={[styles.queueText, { color: "#78350F" }]}>
+              {cargoLoaded
+                ? "Relief Truck Dispatched: A replacement truck is en route to secure your cargo and complete delivery."
+                : "Replacement Dispatched: A replacement truck has been assigned and is heading to the pickup location."}
+            </Text>
+          </View>
+        )}
+
         {isRescheduleProposed && (
           <View style={styles.rescheduleBanner}>
             <View style={styles.rescheduleHeader}>
@@ -128,7 +145,7 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule })
               <Text style={styles.rescheduleTitle}>Recommended Dispatch Date</Text>
             </View>
             <Text style={styles.rescheduleText}>
-              All fleet drivers are on multi-day routes. Proposed slot:{" "}
+              Vehicle breakdown or fleet route delay. Proposed slot:{" "}
               <Text style={{ fontWeight: "700", color: "#92400E" }}>{delivery.rescheduleProposedDate}</Text> at{" "}
               <Text style={{ fontWeight: "700", color: "#92400E" }}>{delivery.rescheduleProposedTimeSlot || "09:00 AM"}</Text>.
             </Text>
