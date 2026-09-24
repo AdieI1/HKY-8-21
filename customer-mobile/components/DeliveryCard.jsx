@@ -127,6 +127,25 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule })
           </View>
         )}
 
+        {Boolean(delivery.delay_reason) && !isRelief && (
+          <View style={[styles.queueBanner, { backgroundColor: "#FEF2F2", borderColor: "#FCA5A5", marginTop: 8 }]}>
+            <Ionicons name="alert-circle" size={15} color="#DC2626" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 11.5, fontWeight: "700", color: "#991B1B" }}>
+                Delivery Delay Notice
+              </Text>
+              <Text style={[styles.queueText, { color: "#7F1D1D", marginTop: 1 }]}>
+                {delivery.delay_reason}
+              </Text>
+              {Boolean(delivery.estimated_delivery_date) && (
+                <Text style={{ fontSize: 10.5, fontWeight: "600", color: "#B91C1C", marginTop: 2 }}>
+                  Revised ETA: {new Date(delivery.estimated_delivery_date).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+
         {isRelief && (
           <View style={[styles.queueBanner, { backgroundColor: "#FFFBEB", borderColor: "#FCD34D", marginTop: 8 }]}>
             <Ionicons name="shield-checkmark-outline" size={14} color="#B45309" />

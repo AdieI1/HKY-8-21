@@ -18,20 +18,33 @@ class NotificationController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
+        $isCustomer = strtolower($user?->role?->role_name ?? '') === 'customer';
 
-        // If table is completely empty, populate initial historical activity
-        if (AppNotification::count() === 0) {
-            $this->seedInitialNotifications();
+        if ($isCustomer) {
+            $query = AppNotification::where('user_id', $user->user_id)->orderByDesc('created_at');
+            $unreadCount = AppNotification::where('user_id', $user->user_id)->where('is_read', false)->count();
+        } else {
+            // If table is completely empty, populate initial historical activity
+            if (AppNotification::count() === 0) {
+                $this->seedInitialNotifications();
+            }
+
+            $query = AppNotification::where(function ($q) use ($user) {
+                $q->whereNull('user_id');
+                if ($user) {
+                    $q->orWhere('user_id', $user->user_id);
+                }
+            })->orderByDesc('created_at');
+
+            $unreadCount = AppNotification::where(function ($q) use ($user) {
+                $q->whereNull('user_id');
+                if ($user) {
+                    $q->orWhere('user_id', $user->user_id);
+                }
+            })->where('is_read', false)->count();
         }
 
-        $query = AppNotification::where(function ($q) use ($user) {
-            $q->whereNull('user_id');
-            if ($user) {
-                $q->orWhere('user_id', $user->user_id);
-            }
-        })->orderByDesc('created_at');
-
-        $notifications = $query->take(30)->get()->map(function ($n) {
+        $notifications = $query->take(40)->get()->map(function ($n) {
             return [
                 'id' => $n->notification_id,
                 'type' => $n->type,
@@ -44,13 +57,6 @@ class NotificationController extends Controller
                 'is_read' => (bool)$n->is_read,
             ];
         });
-
-        $unreadCount = AppNotification::where(function ($q) use ($user) {
-            $q->whereNull('user_id');
-            if ($user) {
-                $q->orWhere('user_id', $user->user_id);
-            }
-        })->where('is_read', false)->count();
 
         return response()->json([
             'unread_count' => $unreadCount,
@@ -77,12 +83,18 @@ class NotificationController extends Controller
     public function markAllAsRead(Request $request)
     {
         $user = $request->user();
-        AppNotification::where(function ($q) use ($user) {
-            $q->whereNull('user_id');
-            if ($user) {
-                $q->orWhere('user_id', $user->user_id);
-            }
-        })->update(['is_read' => true]);
+        $isCustomer = strtolower($user?->role?->role_name ?? '') === 'customer';
+
+        if ($isCustomer) {
+            AppNotification::where('user_id', $user->user_id)->update(['is_read' => true]);
+        } else {
+            AppNotification::where(function ($q) use ($user) {
+                $q->whereNull('user_id');
+                if ($user) {
+                    $q->orWhere('user_id', $user->user_id);
+                }
+            })->update(['is_read' => true]);
+        }
 
         return response()->json(['message' => 'All notifications marked as read.']);
     }

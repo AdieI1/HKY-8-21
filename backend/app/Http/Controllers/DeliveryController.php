@@ -552,6 +552,16 @@ class DeliveryController extends Controller
                 }
             } else {
                 AppNotification::notify('dispatch', 'Delivery Assigned', "Delivery #{$delCode} assigned to {$driverName}.", '/delivery');
+
+                if ($delivery->request?->customer_id) {
+                    AppNotification::notify(
+                        'delivery_status',
+                        "Driver Dispatched (#{$delCode})",
+                        "Driver {$driverName} has been assigned to your shipment #{$delCode} and is preparing for dispatch.",
+                        '/deliveries',
+                        $delivery->request->customer_id
+                    );
+                }
             }
 
             try {
@@ -1036,6 +1046,16 @@ class DeliveryController extends Controller
             $driverName = $delivery->driver?->user?->full_name ?: 'Driver';
             AppNotification::notify('delivery', "Delivery {$statusStr}", "Delivery #{$delCode} ({$driverName}) is now {$statusStr}.", '/delivery');
 
+            if ($delivery->request?->customer_id) {
+                AppNotification::notify(
+                    'delivery_status',
+                    "Delivery {$statusStr} (#{$delCode})",
+                    "Your delivery #{$delCode} is now {$statusStr}.",
+                    '/deliveries',
+                    $delivery->request->customer_id
+                );
+            }
+
             try {
                 \App\Events\DeliveryUpdated::dispatch($delivery);
             } catch (\Throwable $e) {
@@ -1138,6 +1158,15 @@ class DeliveryController extends Controller
             'scheduled_time_slot' => $selectedSlot,
             'reschedule_status' => 'accepted',
         ]);
+
+        $customerName = $deliveryRequest->customer?->full_name ?: 'Customer';
+        $delCode = 'DLV' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+        AppNotification::notify(
+            'dispatch',
+            'Reschedule Confirmed by Customer',
+            "{$customerName} accepted proposed reschedule for #{$delCode} on {$selectedDate} ({$selectedSlot}). Ready for dispatch.",
+            '/dispatch'
+        );
 
         return response()->json([
             'message' => 'Delivery schedule confirmed successfully.',

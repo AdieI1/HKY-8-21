@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "http://192.168.254.109:8000/api";
+const API_URL = "https://lather-venue-bony.ngrok-free.dev/api";
 const TOKEN_KEY = "auth_token";
 const USER_KEY = "auth_user";
 
@@ -299,5 +299,22 @@ export const acceptDeliveryReschedule = async (deliveryId, payload = {}) => {
     },
   });
 };
+
+export const getCustomerNotifications = async () => {
+  return request("/notifications");
+};
+
+export const markNotificationRead = async (id) => {
+  return request(`/notifications/${id}/read`, {
+    method: "POST",
+  });
+};
+
+export const markAllNotificationsRead = async () => {
+  return request("/notifications/mark-all-read", {
+    method: "POST",
+  });
+};
+
 
 

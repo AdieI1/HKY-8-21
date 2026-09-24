@@ -283,6 +283,18 @@ class DeliveryRequestController extends Controller
 
         AppNotification::notify('dispatch', 'Request Approved for Dispatch', 'Delivery Request #REQ' . str_pad($deliveryRequest->request_id, 4, '0', STR_PAD_LEFT) . ' was approved and is ready for dispatch.', '/dispatch');
 
+        if ($deliveryRequest->customer_id) {
+            $reqCode = '#REQ' . str_pad($deliveryRequest->request_id, 4, '0', STR_PAD_LEFT);
+            $cargo = $deliveryRequest->cargo_type ?: 'Cargo';
+            AppNotification::notify(
+                'request_approved',
+                "Request Approved ({$reqCode})",
+                "Your delivery request {$reqCode} ({$cargo}) has been approved and is queued for driver assignment.",
+                '/deliveries',
+                $deliveryRequest->customer_id
+            );
+        }
+
         return response()->json([
             'request' => $deliveryRequest->fresh()->load('customer'),
             'delivery' => $delivery,

@@ -52,6 +52,14 @@ export const formatDeliveryRequest = (request) => {
     driverId: delivery?.driver_id || null,
     hasReviewed: Boolean(delivery?.reviews && delivery.reviews.length > 0),
     reviews: delivery?.reviews || [],
+    is_relief: Boolean(delivery?.is_relief),
+    cargo_loaded: Boolean(delivery?.cargo_loaded),
+    delay_reason: delivery?.delay_reason || null,
+    delay_notified_at: delivery?.delay_notified_at || null,
+    estimated_delivery_date: delivery?.estimated_delivery_date || null,
+    is_delayed: Boolean(delivery?.is_delayed),
+    pickup_address: request.pickup_address || "",
+    dropoff_address: request.dropoff_address || "",
   };
 };
 
