@@ -61,6 +61,7 @@ export default function PrintableIncidentModal({ incident, onClose }) {
         }
       : null
   );
+  const [feedbackModal, setFeedbackModal] = useState(null);
 
   const incidentTypes = Array.isArray(incident?.incident_types) && incident?.incident_types.length > 0
     ? incident.incident_types
@@ -160,7 +161,17 @@ export default function PrintableIncidentModal({ incident, onClose }) {
       });
       setShowReliefModal(true);
     } catch (err) {
-      alert('Failed to load available fleet for relief dispatch: ' + (err?.response?.data?.message || err.message));
+      setFeedbackModal({
+        type: 'error',
+        icon: 'fa-exclamation-circle',
+        iconColor: '#DC2626',
+        iconBg: '#FEE2E2',
+        title: 'Fleet Load Failed',
+        subtitle: 'Unable to retrieve available vehicles and drivers',
+        items: [err?.response?.data?.message || err.message || 'Please check your connection and try again.'],
+        buttonText: 'Dismiss',
+        btnBg: '#475569',
+      });
     } finally {
       setActionLoading(false);
     }
@@ -169,7 +180,17 @@ export default function PrintableIncidentModal({ incident, onClose }) {
   const handleConfirmRelief = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (!reliefForm.relief_vehicle_id) {
-      alert('Please select an available relief vehicle.');
+      setFeedbackModal({
+        type: 'warning',
+        icon: 'fa-exclamation-triangle',
+        iconColor: '#D97706',
+        iconBg: '#FEF3C7',
+        title: 'Vehicle Selection Required',
+        subtitle: 'Relief dispatch incomplete',
+        items: ['Please select an available relief vehicle from the depot fleet.'],
+        buttonText: 'Review Form',
+        btnBg: '#D97706',
+      });
       return;
     }
 
@@ -192,9 +213,41 @@ export default function PrintableIncidentModal({ incident, onClose }) {
         dispatchedAt: new Date(),
       });
       setShowReliefModal(false);
-      alert('✅ Relief Truck dispatched successfully!\n\n• Disabled vehicle has been set to Maintenance Hold.\n• Relief truck & driver assigned to continue the delivery.');
+      setFeedbackModal({
+        type: 'success',
+        icon: 'fa-truck-pickup',
+        iconColor: '#2563EB',
+        iconBg: '#DBEAFE',
+        title: 'Relief Truck Dispatched',
+        subtitle: 'Relief unit and driver assigned to continue the delivery',
+        badge: 'Relief Dispatched',
+        badgeColor: '#1D4ED8',
+        badgeBg: '#DBEAFE',
+        highlight: {
+          label: 'Assigned Relief Unit',
+          value: chosenVeh ? `${chosenVeh.plate_number} (${chosenVeh.model})` : 'Relief Truck',
+          sub: `Driver: ${chosenDrv ? (chosenDrv.user?.full_name || chosenDrv.full_name || 'Standby Driver') : 'Standby Driver'}`,
+        },
+        items: [
+          'Relief vehicle and driver successfully scheduled.',
+          'Disabled vehicle moved to Maintenance Hold.',
+          'Cargo transshipment and roadside instructions recorded.',
+        ],
+        buttonText: 'Acknowledge Dispatch',
+        btnBg: '#2563EB',
+      });
     } catch (err) {
-      alert('Failed to dispatch relief truck: ' + (err?.response?.data?.message || err.message));
+      setFeedbackModal({
+        type: 'error',
+        icon: 'fa-exclamation-circle',
+        iconColor: '#DC2626',
+        iconBg: '#FEE2E2',
+        title: 'Dispatch Failed',
+        subtitle: 'Unable to dispatch relief truck',
+        items: [err?.response?.data?.message || err.message || 'Server error occurred during dispatch assignment.'],
+        buttonText: 'Dismiss',
+        btnBg: '#475569',
+      });
     } finally {
       setReliefLoading(false);
     }
@@ -203,7 +256,17 @@ export default function PrintableIncidentModal({ incident, onClose }) {
   const handleConfirmRefund = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (refundForm.refund_amount === '' || Number(refundForm.refund_amount) < 0) {
-      alert('Please enter a valid refund / claim amount.');
+      setFeedbackModal({
+        type: 'warning',
+        icon: 'fa-exclamation-triangle',
+        iconColor: '#D97706',
+        iconBg: '#FEF3C7',
+        title: 'Invalid Claim Amount',
+        subtitle: 'Input verification required',
+        items: ['Please enter a valid refund / cargo compensation claim amount.'],
+        buttonText: 'Review Amount',
+        btnBg: '#D97706',
+      });
       return;
     }
 
@@ -224,9 +287,41 @@ export default function PrintableIncidentModal({ incident, onClose }) {
         status: 'pending_review',
       });
       setShowRefundModal(false);
-      alert('✅ Incident successfully flagged for Customer Refund & Cargo Compensation review!\n\n• Claim recorded.\n• Executive Analytics updated.');
+      setFeedbackModal({
+        type: 'success',
+        icon: 'fa-hand-holding-usd',
+        iconColor: '#DC2626',
+        iconBg: '#FEE2E2',
+        title: 'Claim Successfully Flagged',
+        subtitle: 'Incident flagged for Customer Refund & Cargo Compensation review',
+        badge: 'Pending Review',
+        badgeColor: '#B45309',
+        badgeBg: '#FEF3C7',
+        highlight: {
+          label: 'Proposed Claim Amount',
+          value: `₱${Number(refundForm.refund_amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+          sub: refundForm.refund_reason,
+        },
+        items: [
+          'Claim recorded in the official incident case file.',
+          'Dispatched to Executive Analytics and financial compensation queue.',
+          'Refund status is set to Pending Review.',
+        ],
+        buttonText: 'Acknowledge & Continue',
+        btnBg: '#DC2626',
+      });
     } catch (err) {
-      alert('Failed to flag for refund: ' + (err?.response?.data?.message || err.message));
+      setFeedbackModal({
+        type: 'error',
+        icon: 'fa-exclamation-circle',
+        iconColor: '#DC2626',
+        iconBg: '#FEE2E2',
+        title: 'Refund Claim Failed',
+        subtitle: 'Unable to flag incident for refund',
+        items: [err?.response?.data?.message || err.message || 'An unexpected error occurred.'],
+        buttonText: 'Dismiss',
+        btnBg: '#475569',
+      });
     } finally {
       setRefundLoading(false);
     }
@@ -235,7 +330,17 @@ export default function PrintableIncidentModal({ incident, onClose }) {
   const handleSubmitResolution = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (!resolveForm.notes.trim()) {
-      alert('Please provide official resolution findings and corrective actions taken.');
+      setFeedbackModal({
+        type: 'warning',
+        icon: 'fa-exclamation-triangle',
+        iconColor: '#D97706',
+        iconBg: '#FEF3C7',
+        title: 'Findings Required',
+        subtitle: 'Resolution form incomplete',
+        items: ['Please provide official resolution findings and corrective actions taken.'],
+        buttonText: 'Back to Form',
+        btnBg: '#D97706',
+      });
       return;
     }
 
@@ -259,9 +364,41 @@ export default function PrintableIncidentModal({ incident, onClose }) {
         resolver: updated.resolver || authUser,
       });
       setShowResolveModal(false);
-      alert('Incident Case File successfully resolved and officially closed.');
+      setFeedbackModal({
+        type: 'success',
+        icon: 'fa-check-circle',
+        iconColor: '#059669',
+        iconBg: '#D1FAE5',
+        title: 'Case File Officially Closed',
+        subtitle: 'Official incident investigation concluded and signed off',
+        badge: 'Case Resolved',
+        badgeColor: '#047857',
+        badgeBg: '#D1FAE5',
+        highlight: {
+          label: 'Vehicle Status After Incident',
+          value: resolveForm.vehicle_status_after === 'available' ? 'Cleared → Available for Dispatch' : 'Maintenance Hold Required',
+          sub: resolveForm.police_report_no ? `Police Blotter / Report: ${resolveForm.police_report_no}` : 'Internal Operations Resolution',
+        },
+        items: [
+          'Investigation findings and corrective actions recorded.',
+          'Official incident record closed by authorized staff.',
+          `Vehicle operational status updated to ${resolveForm.vehicle_status_after === 'available' ? 'Available' : 'Maintenance'}.`,
+        ],
+        buttonText: 'Case File Closed',
+        btnBg: '#059669',
+      });
     } catch (err) {
-      alert('Failed to resolve incident: ' + (err?.response?.data?.message || err.message));
+      setFeedbackModal({
+        type: 'error',
+        icon: 'fa-exclamation-circle',
+        iconColor: '#DC2626',
+        iconBg: '#FEE2E2',
+        title: 'Resolution Failed',
+        subtitle: 'Unable to close incident report',
+        items: [err?.response?.data?.message || err.message || 'Server error occurred while resolving incident.'],
+        buttonText: 'Dismiss',
+        btnBg: '#475569',
+      });
     } finally {
       setActionLoading(false);
     }
@@ -1214,6 +1351,110 @@ export default function PrintableIncidentModal({ incident, onClose }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Incident Feedback Confirmation Modal */}
+      {feedbackModal && (
+        <div
+          className="incident-feedback-modal-overlay"
+          onClick={() => setFeedbackModal(null)}
+        >
+          <div
+            className="incident-feedback-modal-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="incident-feedback-header">
+              <div
+                className="incident-feedback-icon-box"
+                style={{
+                  backgroundColor: feedbackModal.iconBg || '#DCFCE7',
+                  color: feedbackModal.iconColor || '#16A34A',
+                }}
+              >
+                <i className={`fas ${feedbackModal.icon || 'fa-check-circle'}`}></i>
+              </div>
+              <div style={{ flex: 1, paddingRight: '22px' }}>
+                <h3 className="incident-feedback-title">{feedbackModal.title}</h3>
+                {feedbackModal.subtitle && (
+                  <p className="incident-feedback-subtitle">{feedbackModal.subtitle}</p>
+                )}
+                {feedbackModal.badge && (
+                  <span
+                    className="incident-feedback-badge"
+                    style={{
+                      backgroundColor: feedbackModal.badgeBg || '#FEF3C7',
+                      color: feedbackModal.badgeColor || '#92400E',
+                    }}
+                  >
+                    <i className="fas fa-circle" style={{ fontSize: 7 }}></i>
+                    {feedbackModal.badge}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                className="incident-feedback-close-btn"
+                onClick={() => setFeedbackModal(null)}
+                aria-label="Close"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="incident-feedback-body">
+              {/* Optional Highlight Box */}
+              {feedbackModal.highlight && (
+                <div className="incident-feedback-highlight-box">
+                  <div>
+                    <div className="incident-feedback-highlight-label">
+                      {feedbackModal.highlight.label}
+                    </div>
+                    <div className="incident-feedback-highlight-val">
+                      {feedbackModal.highlight.value}
+                    </div>
+                    {feedbackModal.highlight.sub && (
+                      <div className="incident-feedback-highlight-sub">
+                        {feedbackModal.highlight.sub}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ opacity: 0.18, fontSize: 32, color: feedbackModal.iconColor || '#0f172a' }}>
+                    <i className={`fas ${feedbackModal.icon || 'fa-shield-alt'}`}></i>
+                  </div>
+                </div>
+              )}
+
+              {/* Items / Bullets */}
+              {feedbackModal.items && feedbackModal.items.length > 0 && (
+                <ul className="incident-feedback-list">
+                  {feedbackModal.items.map((item, idx) => (
+                    <li key={idx} className="incident-feedback-item">
+                      <i
+                        className={`fas ${feedbackModal.type === 'error' ? 'fa-times-circle' : feedbackModal.type === 'warning' ? 'fa-exclamation-triangle' : 'fa-check-circle'}`}
+                        style={{ color: feedbackModal.iconColor || '#16A34A' }}
+                      ></i>
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="incident-feedback-footer">
+              <button
+                type="button"
+                className="incident-feedback-btn"
+                style={{ backgroundColor: feedbackModal.btnBg || '#0f172a' }}
+                onClick={() => setFeedbackModal(null)}
+              >
+                {feedbackModal.buttonText || 'OK'}
+              </button>
+            </div>
           </div>
         </div>
       )}

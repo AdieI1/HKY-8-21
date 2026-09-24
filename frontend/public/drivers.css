@@ -2943,6 +2943,210 @@
     color: #9ca3af;
 }
 
+/* ── Incident Feedback Confirmation Modal ── */
+.incident-feedback-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.72);
+    backdrop-filter: blur(4px);
+    z-index: 10005;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: feedbackFadeIn 0.22s ease-out;
+}
+
+@keyframes feedbackFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.incident-feedback-modal-card {
+    background: #ffffff;
+    border-radius: 18px;
+    width: 100%;
+    max-width: 490px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+    animation: feedbackPopIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+}
+
+@keyframes feedbackPopIn {
+    from {
+        opacity: 0;
+        transform: scale(0.92) translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.incident-feedback-header {
+    padding: 24px 24px 16px 24px;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    position: relative;
+}
+
+.incident-feedback-icon-box {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+}
+
+.incident-feedback-close-btn {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    background: #f1f5f9;
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s ease;
+}
+
+.incident-feedback-close-btn:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+
+.incident-feedback-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0 0 4px 0;
+    line-height: 1.3;
+}
+
+.incident-feedback-subtitle {
+    font-size: 13px;
+    color: #64748b;
+    margin: 0 0 8px 0;
+}
+
+.incident-feedback-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11.5px;
+    font-weight: 600;
+}
+
+.incident-feedback-body {
+    padding: 0 24px 20px 24px;
+}
+
+.incident-feedback-highlight-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.incident-feedback-highlight-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: #64748b;
+    margin-bottom: 3px;
+}
+
+.incident-feedback-highlight-val {
+    font-size: 20px;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.2;
+}
+
+.incident-feedback-highlight-sub {
+    font-size: 12px;
+    color: #475569;
+    margin-top: 3px;
+}
+
+.incident-feedback-list {
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 0;
+    margin: 0 0 16px 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.incident-feedback-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+    color: #334155;
+    line-height: 1.45;
+}
+
+.incident-feedback-item i {
+    margin-top: 3px;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.incident-feedback-footer {
+    padding: 16px 24px;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.incident-feedback-btn {
+    padding: 10px 24px;
+    border-radius: 10px;
+    border: none;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #ffffff;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+
+.incident-feedback-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+    filter: brightness(1.05);
+}
+
+.incident-feedback-btn:active {
+    transform: translateY(0);
+}
+
+
 /* ── Print Media Query ── */
 @media print {
     body * {

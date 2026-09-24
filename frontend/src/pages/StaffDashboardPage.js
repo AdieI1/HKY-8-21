@@ -7,6 +7,7 @@ import reverb from '../utils/reverb';
 
 function cellClass(type) {
   if (type === 'accident' || type === 'broken') return 'adm-fleet-cell accident';
+  if (type === 'delayed') return 'adm-fleet-cell delayed';
   if (type === 'scheduled') return 'adm-fleet-cell scheduled';
   if (type === 'delivery') return 'adm-fleet-cell delivery';
   if (type === 'completed') return 'adm-fleet-cell completed';
@@ -96,14 +97,121 @@ function formatTime12(timeStr) {
   return `${hour % 12 || 12}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
 }
 
+function cleanCityName(addr) {
+  if (!addr) return { short: 'CDO', area: '', city: 'Cagayan de Oro' };
+  const rawParts = String(addr).split(',').map((s) => s.trim()).filter(Boolean);
+  if (rawParts.length === 0) return { short: 'CDO', area: '', city: 'Cagayan de Oro' };
+
+  const regionRegex = /^(Northern Mindanao|Davao Region|Soccsksargen|Caraga|Zamboanga Peninsula|Central Visayas|Eastern Visayas|Western Visayas|Bicol Region|Mimaropa|Calabarzon|Central Luzon|Cagayan Valley|Ilocos Region|Cordillera Administrative Region|Bangsamoro|BARMM|Region [IVXLCDM0-9]+|Mindanao|Visayas|Luzon)$/i;
+  const provinceRegex = /^(Misamis Oriental|Misamis Occidental|Bukidnon|Camiguin|Lanao del Norte|Lanao del Sur|Davao del Norte|Davao del Sur|Davao Oriental|Davao Occidental|Davao de Oro|South Cotabato|North Cotabato|Sultan Kudarat|Sarangani|Agusan del Norte|Agusan del Sur|Surigao del Norte|Surigao del Sur|Zamboanga del Norte|Zamboanga del Sur|Zamboanga Sibugay)$/i;
+
+  const meaningful = rawParts.filter((s) => {
+    if (/^philippines$/i.test(s) || /^ph$/i.test(s) || /^pilipinas$/i.test(s)) return false;
+    if (/^\d{4,5}$/.test(s)) return false;
+    if (regionRegex.test(s)) return false;
+    return true;
+  });
+
+  if (meaningful.length === 0) return { short: 'CDO', area: '', city: 'Cagayan de Oro' };
+
+  const candidates = [...meaningful];
+  let city = '';
+  if (candidates.length >= 2 && provinceRegex.test(candidates[candidates.length - 1])) {
+    candidates.pop();
+    city = candidates[candidates.length - 1];
+  } else {
+    city = candidates[candidates.length - 1];
+  }
+
+  const cityIndex = meaningful.lastIndexOf(city);
+  let area = '';
+  if (cityIndex > 0) {
+    area = meaningful[cityIndex - 1].replace(/^(Barangay|Brgy\.?|Bgy\.?)\s*/i, '');
+  }
+
+  let short = city;
+  if (/cagayan de oro/i.test(city)) short = 'CDO';
+  else if (/davao city/i.test(city) || /^davao$/i.test(city)) short = 'Davao';
+  else if (/general santos/i.test(city) || /gensan/i.test(city)) short = 'GenSan';
+  else if (/iligan/i.test(city)) short = 'Iligan';
+  else if (/butuan/i.test(city)) short = 'Butuan';
+  else if (/tagum/i.test(city)) short = 'Tagum';
+  else if (/malaybalay/i.test(city)) short = 'Malaybalay';
+  else if (/valencia/i.test(city)) short = 'Valencia';
+
+  return { short, area, city };
+}
+
 function shortCity(addr) {
-  if (!addr) return 'CDO';
-  const parts = addr
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s && !/^\d+$/.test(s) && !/^philippines$/i.test(s) && !/^ph$/i.test(s));
-  if (parts.length === 0) return 'CDO';
-  return parts.length >= 2 ? parts[parts.length - 1] : parts[0];
+  return cleanCityName(addr).short;
+}
+
+function formatRoute(fromAddr, toAddr) {
+  const p = cleanCityName(fromAddr);
+  const d = cleanCityName(toAddr);
+  if (p.short === d.short && (p.area || d.area)) {
+    const fromLoc = p.area || p.short;
+    const toLoc = d.area || d.short;
+    if (fromLoc !== toLoc) return `${fromLoc} → ${toLoc}`;
+    return `${p.short} (Local)`;
+  }
+  return `${p.short || 'CDO'} → ${d.short || 'Davao'}`;
+}
+
+function formatShortDriver(fullName) {
+  if (!fullName) return '';
+  const parts = String(fullName).trim().split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
+}
+
+function getTodayIso() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getDeliveryDateRange(d) {
+  let startDate = '';
+  if (d.request?.scheduled_date) {
+    startDate = String(d.request.scheduled_date).slice(0, 10);
+  } else if (d.trip_date) {
+    startDate = String(d.trip_date).slice(0, 10);
+  } else if (d.start_time) {
+    startDate = String(d.start_time).slice(0, 10);
+  } else if (d.created_at) {
+    startDate = String(d.created_at).slice(0, 10);
+  }
+
+  if (!startDate) return null;
+
+  let endDate = startDate;
+  const isCompleted = ['completed', 'delivered'].includes(d.status);
+  const isInTransit = ['out_for_delivery', 'in_transit'].includes(d.status);
+  const isScheduled = Boolean(d.request?.is_scheduled || d.request?.scheduled_date);
+
+  if (isCompleted) {
+    if (d.end_time) {
+      endDate = String(d.end_time).slice(0, 10);
+    } else if (d.updated_at) {
+      endDate = String(d.updated_at).slice(0, 10);
+    }
+    if (endDate < startDate) endDate = startDate;
+  } else if (isScheduled && !isInTransit) {
+    // Scheduled deliveries that have NOT physically departed yet are strictly anchored to their scheduled date
+    endDate = startDate;
+  } else if (isInTransit) {
+    // Active in-transit trips on the road span from start date up to today (local time)
+    const todayIso = getTodayIso();
+    endDate = todayIso >= startDate ? todayIso : startDate;
+  } else {
+    // Standard assigned / accepted deliveries stay on their trip/start date until in transit
+    endDate = startDate;
+  }
+
+  return { startDate, endDate, isCompleted, isActive: isInTransit || ['assigned', 'accepted', 'loading_cargo', 'arrived_pickup'].includes(d.status) };
 }
 
 function StaffDashboardPage() {
@@ -178,45 +286,38 @@ function StaffDashboardPage() {
       const vehId = `VCL${String(v.vehicle_id || idx + 1).padStart(3, '0')}`;
       const model = v.model || v.brand || 'Truck';
       const plate = v.plate_number || 'XYZ 1213';
+      const vehicleType = v.vehicle_type || 'Active Fleet';
 
       const vehicleDeliveries = (deliveriesList || []).filter((d) => Number(d.vehicle_id) === Number(v.vehicle_id));
-      const activeDelivery = vehicleDeliveries.find((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit'].includes(d.status))
-        || vehicleDeliveries[vehicleDeliveries.length - 1];
-
-      const driverObj = activeDelivery?.driver || (driversList || []).find((dr) => Number(dr.driver_id) === Number(activeDelivery?.driver_id));
-      const rawDriverName = driverObj?.user?.full_name || activeDelivery?.driver?.user?.full_name || 'Driver';
-      const nameParts = rawDriverName.split(' ').filter(Boolean);
-      const shortDriver = nameParts.length > 1 ? `${nameParts[0]} ${nameParts[nameParts.length - 1][0].toUpperCase()}.` : rawDriverName;
 
       const schedule = days.map((day) => {
+        // Multi-day date span matching: A delivery is active across all days in [startDate, endDate]
         const dayDeliveries = vehicleDeliveries.filter((d) => {
-          // 1. If it's a scheduled delivery, match by request's scheduled_date!
-          const schedDate = d.request?.scheduled_date ? String(d.request.scheduled_date).slice(0, 10) : null;
-          if (schedDate) {
-            return schedDate === day.iso;
-          }
-
-          // 2. Otherwise regular trip_date or created_at:
-          const dateStr = d.trip_date || (d.created_at ? d.created_at.slice(0, 10) : '');
-          if (dateStr === day.iso) return true;
-
-          // 3. If delivery is active (assigned, in transit, etc.) and this day is today:
-          const isActive = ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status);
-          if (isActive && day.highlight) return true;
-          return false;
+          const range = getDeliveryDateRange(d);
+          if (!range) return false;
+          return day.iso >= range.startDate && day.iso <= range.endDate;
         });
 
         // Check if there is an accident or breakdown report for this vehicle/day
+        const todayIso = getTodayIso();
         const dayIncident = (incidentsList || []).find((inc) => {
           const vehMatch = Number(inc.vehicle_id) === Number(v.vehicle_id) || Number(inc.delivery?.vehicle_id) === Number(v.vehicle_id);
           if (!vehMatch) return false;
-          // Check if delivery matches one of today's deliveries
-          if (dayDeliveries.some((d) => Number(d.delivery_id) === Number(inc.delivery_id))) return true;
-          // Check incident date or created date
-          const incDate = inc.incident_date ? String(inc.incident_date).slice(0, 10) : (inc.created_at ? String(inc.created_at).slice(0, 10) : '');
+
+          // Accidents never occur on future days
+          if (day.iso > todayIso) return false;
+
+          const incDate = inc.incident_date
+            ? String(inc.incident_date).slice(0, 10)
+            : (inc.reported_at ? String(inc.reported_at).slice(0, 10) : (inc.created_at ? String(inc.created_at).slice(0, 10) : ''));
+
+          // 1. Matches the specific date of the accident report
           if (incDate === day.iso) return true;
-          // If vehicle is broken and today is highlighted
-          if (v.status === 'broken' && day.highlight) return true;
+
+          // 2. Or the vehicle is currently broken today and the incident is still under investigation/unresolved
+          const isUnresolved = !inc.status || inc.status === 'investigating' || inc.status === 'pending';
+          if (day.highlight && v.status === 'broken' && isUnresolved) return true;
+
           return false;
         });
 
@@ -232,63 +333,116 @@ function StaffDashboardPage() {
         });
 
         let cellType = 'available';
-        let cellLabel = 'Available';
+        let statusText = 'Available';
+        let driverName = '';
+        let routeText = '';
+        let extraText = '';
 
         if (dayIncident && (v.status === 'broken' || ['accident', 'vehicle_breakdown', 'breakdown', 'damage', 'mechanical'].some((t) => (dayIncident.incident_type || '').toLowerCase().includes(t)))) {
           cellType = 'accident';
-          const from = shortCity(dayDeliveries[0]?.request?.pickup_address || dayIncident.delivery?.request?.pickup_address);
-          const to = shortCity(dayDeliveries[0]?.request?.dropoff_address || dayIncident.delivery?.request?.dropoff_address);
-          if (from && to && from !== 'CDO') {
-            cellLabel = `⚠️ Accident Reported\n${from} → ${to}`;
-          } else {
-            cellLabel = `⚠️ Accident Reported\n${dayIncident.incident_type ? dayIncident.incident_type.replace(/_/g, ' ') : 'Disabled'}`;
-          }
+          statusText = '⚠️ Accident Reported';
+          const incDriver = dayIncident.driver?.user?.full_name || dayDeliveries[0]?.driver?.user?.full_name;
+          driverName = formatShortDriver(incDriver);
+          const pAddr = dayDeliveries[0]?.request?.pickup_address || dayIncident.delivery?.request?.pickup_address;
+          const dAddr = dayDeliveries[0]?.request?.dropoff_address || dayIncident.delivery?.request?.dropoff_address;
+          routeText = formatRoute(pAddr, dAddr);
         } else if (dayDeliveries.length > 0) {
           const activeDel = dayDeliveries.find((d) =>
             ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status)
           );
+          const scheduledDel = dayDeliveries.find((d) =>
+            d.request?.is_scheduled || (d.request?.scheduled_date && String(d.request.scheduled_date).slice(0, 10) === day.iso)
+          );
 
           if (activeDel) {
             const isScheduledTrip = activeDel.request?.is_scheduled || (activeDel.request?.scheduled_date && String(activeDel.request.scheduled_date).slice(0, 10) === day.iso);
-            cellType = isScheduledTrip ? 'scheduled' : 'delivery';
-            const from = shortCity(activeDel.request?.pickup_address);
-            const to = shortCity(activeDel.request?.dropoff_address);
-            const statusText = isScheduledTrip
-              ? 'Scheduled'
-              : activeDel.status === 'in_transit'
-                ? 'In Transit'
-                : activeDel.status === 'assigned'
-                  ? 'Assigned'
-                  : 'Delivery';
+            const isInTransit = ['out_for_delivery', 'in_transit'].includes(activeDel.status);
+            const isDelayedOrOverdue = isScheduledTrip && (
+              activeDel.is_delayed ||
+              (activeDel.request?.scheduled_date && String(activeDel.request.scheduled_date).slice(0, 10) < todayIso && ['assigned', 'accepted'].includes(activeDel.status))
+            );
+
+            if (isDelayedOrOverdue) {
+              cellType = 'delayed';
+            } else if (isScheduledTrip && !isInTransit) {
+              cellType = 'scheduled';
+            } else {
+              cellType = 'delivery';
+            }
+
             const rawSlot = activeDel.request?.scheduled_time_slot || '';
-            const timeSlot = isScheduledTrip && rawSlot
-              ? ` (${rawSlot.includes('(') ? rawSlot.split(' ')[0] : rawSlot})`
-              : '';
-            const moreText = dayDeliveries.length > 1 ? ` (+${dayDeliveries.length - 1} more)` : '';
-            cellLabel = `${statusText}${timeSlot}${moreText}\n${from} → ${to}`;
+            const timeOnly = rawSlot.includes('(') ? rawSlot.split(' ')[0] : rawSlot;
+
+            if (isDelayedOrOverdue) {
+              statusText = timeOnly ? `Delayed (${timeOnly})` : '⚠️ Delayed';
+            } else if (isScheduledTrip && !isInTransit) {
+              statusText = timeOnly ? `Scheduled (${timeOnly})` : 'Scheduled';
+            } else {
+              const range = getDeliveryDateRange(activeDel);
+              const isContinuation = range && range.startDate !== day.iso;
+              statusText = isContinuation
+                ? 'In Transit (En Route)'
+                : activeDel.status === 'in_transit'
+                  ? 'In Transit'
+                  : activeDel.status === 'assigned'
+                    ? 'Assigned'
+                    : 'Delivery';
+            }
+
+            driverName = formatShortDriver(activeDel.driver?.user?.full_name);
+            routeText = formatRoute(activeDel.request?.pickup_address, activeDel.request?.dropoff_address);
+            if (dayDeliveries.length > 1) {
+              extraText = `+${dayDeliveries.length - 1} more trip`;
+            }
+          } else if (scheduledDel) {
+            const isDelayedOrOverdue = scheduledDel.is_delayed || (scheduledDel.request?.scheduled_date && String(scheduledDel.request.scheduled_date).slice(0, 10) < todayIso);
+            cellType = isDelayedOrOverdue ? 'delayed' : 'scheduled';
+            const rawSlot = scheduledDel.request?.scheduled_time_slot || '';
+            const timeOnly = rawSlot.includes('(') ? rawSlot.split(' ')[0] : rawSlot;
+            statusText = isDelayedOrOverdue
+              ? (timeOnly ? `Delayed (${timeOnly})` : '⚠️ Delayed')
+              : (timeOnly ? `Scheduled (${timeOnly})` : 'Scheduled');
+            driverName = formatShortDriver(scheduledDel.driver?.user?.full_name);
+            routeText = formatRoute(scheduledDel.request?.pickup_address, scheduledDel.request?.dropoff_address);
+            if (dayDeliveries.length > 1) {
+              extraText = `+${dayDeliveries.length - 1} more trip`;
+            }
           } else {
             cellType = 'completed';
             const firstDel = dayDeliveries[0];
-            const from = shortCity(firstDel.request?.pickup_address);
-            const to = shortCity(firstDel.request?.dropoff_address);
-            const countText = dayDeliveries.length > 1 ? `${dayDeliveries.length} Trips Done` : 'Trip Done';
-            cellLabel = `${countText}\n${from} → ${to}`;
+            const range = getDeliveryDateRange(firstDel);
+            const isFinalDay = range && range.endDate === day.iso;
+            statusText = isFinalDay ? 'Trip Completed' : 'In Transit';
+            driverName = formatShortDriver(firstDel.driver?.user?.full_name);
+            routeText = formatRoute(firstDel.request?.pickup_address, firstDel.request?.dropoff_address);
+            if (dayDeliveries.length > 1) {
+              extraText = `${dayDeliveries.length} Trips Done`;
+            }
           }
         } else if (dayMaintenance) {
           cellType = 'break';
-          const typeName = dayMaintenance.maintenance_type || dayMaintenance.service_type || 'Under Maintenance';
-          cellLabel = `Under Maintenance\n${typeName}`;
+          statusText = 'Under Maintenance';
+          routeText = dayMaintenance.maintenance_type || dayMaintenance.service_type || 'Preventive Service';
         } else if (day.key === 'sat' || day.key === 'sun') {
           cellType = 'empty';
-          cellLabel = '–';
+          statusText = '–';
         } else {
           cellType = 'available';
-          cellLabel = 'Available';
+          statusText = 'Available';
         }
+
+        let cellLabel = statusText;
+        if (driverName) cellLabel += `\n👤 ${driverName}`;
+        if (routeText) cellLabel += `\n${routeText}`;
+        if (extraText) cellLabel += `\n${extraText}`;
 
         return {
           day: day.key,
           label: cellLabel,
+          statusText,
+          driverName,
+          routeText,
+          extraText,
           type: cellType,
           deliveries: dayDeliveries,
           incident: dayIncident,
@@ -296,7 +450,7 @@ function StaffDashboardPage() {
         };
       });
 
-      return { id: vehId, model, plate, driver: shortDriver, schedule, photo_url: v.photo_url, rawVehicle: v };
+      return { id: vehId, model, plate, vehicleType, schedule, photo_url: v.photo_url, rawVehicle: v };
     });
 
     setFleetList(mappedFleet);
@@ -380,23 +534,7 @@ function StaffDashboardPage() {
         })
         .sort((a, b) => (a.overdue !== b.overdue ? (a.overdue ? -1 : 1) : a.createdTime - b.createdTime));
 
-      if (pendingRequestsList.length > 0) {
-        setPriorityRequests(pendingRequestsList.slice(0, 5));
-      } else {
-        // Fallback: if 0 pending, show recent requests so the dashboard shows real activity
-        const recentReqs = requests.slice(-5).reverse().map((r) => {
-          const created = new Date(r.created_at);
-          return {
-            id: `REQ${String(r.request_id).padStart(4, '0')}`,
-            customer: r.customer?.full_name || 'Customer',
-            date: created.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }),
-            status: (r.status || 'pending').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-            overdue: false,
-            createdTime: created.getTime(),
-          };
-        });
-        setPriorityRequests(recentReqs);
-      }
+      setPriorityRequests(pendingRequestsList.slice(0, 5));
 
       // ── Connected Dynamic Vehicles Summary ──
       const activeDeliveryVehIds = new Set(
@@ -445,7 +583,7 @@ function StaffDashboardPage() {
             icon: 'fas fa-truck',
             color: '#C53030',
             title: `Driver ${d.driver?.user?.full_name || 'Driver'} is now In Transit.`,
-            sub: `${shortCity(d.request?.pickup_address)} → ${shortCity(d.request?.dropoff_address)}`,
+            sub: formatRoute(d.request?.pickup_address, d.request?.dropoff_address),
             time: timeAgo(rawTime),
             timeMs,
           });
@@ -458,7 +596,7 @@ function StaffDashboardPage() {
             title: isScheduled
               ? `Delivery DLV${String(d.delivery_id).padStart(4, '0')} scheduled & dispatched to Driver ${d.driver?.user?.full_name || 'Driver'}${schedDate}.`
               : `Delivery DLV${String(d.delivery_id).padStart(4, '0')} dispatched to Driver ${d.driver?.user?.full_name || 'Driver'}.`,
-            sub: `${shortCity(d.request?.pickup_address)} → ${shortCity(d.request?.dropoff_address)} • Dispatched`,
+            sub: `${formatRoute(d.request?.pickup_address, d.request?.dropoff_address)} • Dispatched`,
             time: timeAgo(rawTime),
             timeMs,
           });
@@ -848,7 +986,6 @@ function StaffDashboardPage() {
                             <div>
                               <div className="adm-veh-model">{row.model}</div>
                               <div className="adm-veh-plate">{row.plate}</div>
-                              <div className="adm-veh-driver"><i className="fas fa-user-circle"></i> {row.driver}</div>
                             </div>
                           </div>
                         </td>
@@ -859,9 +996,33 @@ function StaffDashboardPage() {
                             onClick={() => setSelectedCell({ cell, row, day: weekDays[ci] })}
                             title="Click to view trips and location details"
                           >
-                            {cell.label.split('\n').map((line, li) => (
-                              <span key={li} style={{ display: 'block' }}>{line}</span>
-                            ))}
+                            {cell.type === 'available' ? (
+                              <span style={{ fontWeight: 600 }}>Available</span>
+                            ) : cell.type === 'empty' ? (
+                              <span>–</span>
+                            ) : (
+                              <>
+                                <span style={{ fontWeight: 700, display: 'block', lineHeight: 1.25 }}>
+                                  {cell.statusText || cell.label}
+                                </span>
+                                {cell.driverName && (
+                                  <span style={{ fontSize: '10px', color: '#1e293b', fontWeight: 600, display: 'block', marginTop: '2px' }}>
+                                    <i className="fas fa-user-circle" style={{ fontSize: '9px', marginRight: '3px', opacity: 0.75 }}></i>
+                                    {cell.driverName}
+                                  </span>
+                                )}
+                                {cell.routeText && (
+                                  <span style={{ fontSize: '9.5px', opacity: 0.85, display: 'block', marginTop: '1px' }}>
+                                    {cell.routeText}
+                                  </span>
+                                )}
+                                {cell.extraText && (
+                                  <span style={{ fontSize: '9px', opacity: 0.75, display: 'block', marginTop: '1px' }}>
+                                    {cell.extraText}
+                                  </span>
+                                )}
+                              </>
+                            )}
                             {cell.deliveries && cell.deliveries.length > 0 && (
                               <span style={{ fontSize: '9px', marginTop: '3px', opacity: 0.85, display: 'inline-flex', alignItems: 'center', gap: '3px', fontWeight: 600 }}>
                                 <i className="fas fa-search-location"></i> Details
@@ -877,6 +1038,7 @@ function StaffDashboardPage() {
             </div>
             <div className="adm-fleet-legend">
               <span className="adm-legend-dot scheduled"></span> Scheduled Delivery
+              <span className="adm-legend-dot delayed"></span> Delayed / Overdue
               <span className="adm-legend-dot delivery"></span> Delivery / In Transit
               <span className="adm-legend-dot completed"></span> Completed Trip
               <span className="adm-legend-dot available"></span> Available
@@ -925,7 +1087,7 @@ function StaffDashboardPage() {
               <span className="adm-card-title">
                 <i className="far fa-clock" style={{ marginRight: '6px' }}></i>
                 Priority Requests
-                <span className="adm-priority-badge">{priorityRequests.length}</span>
+                <span className={`adm-priority-badge ${priorityRequests.length === 0 ? 'zero' : ''}`}>{priorityRequests.length}</span>
               </span>
               <Link to="/requests" className="adm-view-all">View all</Link>
             </div>
@@ -941,8 +1103,9 @@ function StaffDashboardPage() {
               <tbody>
                 {priorityRequests.length === 0 ? (
                   <tr>
-                    <td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: '#888', fontSize: '13px' }}>
-                      No pending priority requests.
+                    <td colSpan={4} style={{ textAlign: 'center', padding: '32px 16px', color: '#6B7280', fontSize: '13px' }}>
+                      <i className="far fa-check-circle" style={{ fontSize: '22px', color: '#10B981', display: 'block', marginBottom: '8px' }}></i>
+                      You currently don't have any overdue requests.
                     </td>
                   </tr>
                 ) : (
@@ -1200,7 +1363,7 @@ function StaffDashboardPage() {
                     </span>
                   </div>
                   <div style={{ fontSize: '13px', color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: '10px', marginTop: '3px' }}>
-                    <span><i className="fas fa-user-circle" style={{ marginRight: '4px' }}></i> {selectedCell.row.driver}</span>
+                    <span><i className="fas fa-truck" style={{ marginRight: '4px' }}></i> {selectedCell.row.vehicleType || 'Active Unit'}</span>
                     <span>•</span>
                     <span style={{ color: '#38bdf8', fontWeight: 600 }}>
                       <i className="far fa-calendar-alt" style={{ marginRight: '4px' }}></i>
@@ -1389,6 +1552,12 @@ function StaffDashboardPage() {
                     const customer = req.customer || {};
                     const isCompleted = ['completed', 'delivered'].includes(del.status);
                     const isActive = ['assigned', 'accepted', 'out_for_delivery', 'in_transit'].includes(del.status);
+                    const isDelOverdue = del.is_delayed || (
+                      req.is_scheduled &&
+                      req.scheduled_date &&
+                      String(req.scheduled_date).slice(0, 10) < getTodayIso() &&
+                      ['assigned', 'accepted'].includes(del.status)
+                    );
                     const startTime = formatTime12(del.start_time || del.created_at);
                     const endTime = formatTime12(del.end_time);
 
@@ -1418,24 +1587,161 @@ function StaffDashboardPage() {
                             <span style={{ fontSize: '15px', fontWeight: 800, color: '#0f172a' }}>
                               Trip #{idx + 1} • DLV{String(del.delivery_id).padStart(4, '0')}
                             </span>
-                            <span
-                              style={{
-                                fontSize: '11px',
-                                fontWeight: 700,
-                                textTransform: 'uppercase',
-                                padding: '3px 9px',
-                                borderRadius: '12px',
-                                background: isCompleted ? '#dcfce7' : isActive ? '#fee2e2' : '#f1f5f9',
-                                color: isCompleted ? '#16a34a' : isActive ? '#dc2626' : '#64748b',
-                              }}
-                            >
-                              {del.status?.replace(/_/g, ' ')}
-                            </span>
+                            {isDelOverdue ? (
+                              <span
+                                style={{
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                  padding: '3px 9px',
+                                  borderRadius: '12px',
+                                  background: '#ffedd5',
+                                  color: '#c2410c',
+                                  border: '1px solid #fed7aa',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                              >
+                                <i className="fas fa-exclamation-triangle"></i> Delayed / Overdue
+                              </span>
+                            ) : (
+                              <span
+                                style={{
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                  padding: '3px 9px',
+                                  borderRadius: '12px',
+                                  background: isCompleted ? '#dcfce7' : isActive ? '#fee2e2' : '#f1f5f9',
+                                  color: isCompleted ? '#16a34a' : isActive ? '#dc2626' : '#64748b',
+                                }}
+                              >
+                                {del.status?.replace(/_/g, ' ')}
+                              </span>
+                            )}
                           </div>
                           <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
                             <i className="far fa-clock" style={{ marginRight: '4px' }}></i>
                             {startTime ? `${startTime}${endTime ? ` – ${endTime}` : ''}` : 'Time N/A'}
                           </div>
+                        </div>
+
+                        {/* Overdue Stalled Dispatch Warning Notice */}
+                        {isDelOverdue && (
+                          <div
+                            style={{
+                              background: '#fff7ed',
+                              border: '1px solid #fdba74',
+                              borderRadius: '8px',
+                              padding: '10px 14px',
+                              marginBottom: '14px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              fontSize: '12px',
+                              color: '#9a3412',
+                              gap: '10px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <i className="fas fa-clock" style={{ fontSize: '14px', color: '#ea580c', flexShrink: 0 }}></i>
+                              <span>
+                                <strong>Departure Overdue:</strong> Scheduled for {req.scheduled_date ? String(req.scheduled_date).slice(0, 10) : 'Sep 23'} at {req.scheduled_time_slot || '09:30 AM'}, but vehicle has not departed.
+                              </span>
+                            </div>
+                            <Link
+                              to="/deliveries"
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                color: '#c2410c',
+                                textDecoration: 'none',
+                                background: '#ffedd5',
+                                padding: '4px 8px',
+                                borderRadius: '6px',
+                                border: '1px solid #fed7aa',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              Manage in Deliveries →
+                            </Link>
+                          </div>
+                        )}
+
+                        {/* Driver Assigned for this specific Trip */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            background: '#f8fafc',
+                            padding: '10px 14px',
+                            borderRadius: '10px',
+                            border: '1px solid #e2e8f0',
+                            marginBottom: '14px',
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: '36px',
+                              height: '36px',
+                              borderRadius: '50%',
+                              background: '#e2e8f0',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#475569',
+                              fontSize: '15px',
+                              overflow: 'hidden',
+                              flexShrink: 0,
+                              border: '1px solid #cbd5e1',
+                            }}
+                          >
+                            {del.driver?.user?.profile_photo_url ? (
+                              <img
+                                src={del.driver.user.profile_photo_url}
+                                alt="Driver"
+                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              />
+                            ) : (
+                              <i className="fas fa-user"></i>
+                            )}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '10px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                              ASSIGNED DRIVER
+                            </div>
+                            <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <span>{del.driver?.user?.full_name || 'Driver Not Assigned'}</span>
+                              {del.driver?.license_number && (
+                                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 500 }}>
+                                  • Lic: {del.driver.license_number}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {del.driver?.user?.phone && (
+                            <a
+                              href={`tel:${del.driver.user.phone}`}
+                              style={{
+                                fontSize: '11.5px',
+                                color: '#2563eb',
+                                textDecoration: 'none',
+                                fontWeight: 600,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '4px 9px',
+                                background: '#eff6ff',
+                                borderRadius: '6px',
+                                border: '1px solid #bfdbfe',
+                              }}
+                            >
+                              <i className="fas fa-phone-alt" style={{ fontSize: '10px' }}></i> {del.driver.user.phone}
+                            </a>
+                          )}
                         </div>
 
                         {/* Location Details Section */}

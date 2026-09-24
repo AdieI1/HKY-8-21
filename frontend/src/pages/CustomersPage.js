@@ -400,18 +400,18 @@ function CustomersPage() {
   }, [customers, showBlacklistedOnly, search, sortBy, spendFor]);
 
   // Pagination states
-  const PAGE_SIZE = 10;
+  const [pageSize, setPageSize] = useState(5);
   const [customerPage, setCustomerPage] = useState(1);
 
   useEffect(() => {
     setCustomerPage(1);
   }, [search, sortBy, showBlacklistedOnly]);
 
-  const totalCustomerPages = Math.ceil(filteredCustomers.length / PAGE_SIZE) || 1;
+  const totalCustomerPages = Math.ceil(filteredCustomers.length / pageSize) || 1;
   const paginatedCustomers = useMemo(() => {
-    const start = (customerPage - 1) * PAGE_SIZE;
-    return filteredCustomers.slice(start, start + PAGE_SIZE);
-  }, [filteredCustomers, customerPage]);
+    const start = (customerPage - 1) * pageSize;
+    return filteredCustomers.slice(start, start + pageSize);
+  }, [filteredCustomers, customerPage, pageSize]);
 
   const openConfirm = (customer) => {
     const nextStatus = customer.status === 'blocked' ? 'active' : 'blocked';
@@ -600,6 +600,19 @@ function CustomersPage() {
                   <option value="date">Date Joined</option>
                   <option value="id">Customer ID</option>
                 </select>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCustomerPage(1);
+                  }}
+                  className="sort-btn"
+                  title="Rows per page"
+                >
+                  <option value={5}>5 / page</option>
+                  <option value={10}>10 / page</option>
+                  <option value={20}>20 / page</option>
+                </select>
                 <button
                   className={`blacklist-btn${showBlacklistedOnly ? ' active' : ''}`}
                   onClick={() => setShowBlacklistedOnly((v) => !v)}
@@ -682,8 +695,9 @@ function CustomersPage() {
               currentPage={customerPage}
               totalPages={totalCustomerPages}
               totalItems={filteredCustomers.length}
-              pageSize={PAGE_SIZE}
+              pageSize={pageSize}
               onPageChange={setCustomerPage}
+              showAlways={true}
             />
           </section>
         </div>

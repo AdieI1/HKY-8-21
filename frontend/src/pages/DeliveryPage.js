@@ -18,12 +18,33 @@ const STATUS_STEPS = [
   { key: 'accepted', label: 'On Route' },
   { key: 'arrived_pickup', label: 'Arrived at Pickup' },
   { key: 'loading_cargo', label: 'Loading Cargo' },
-  { key: 'out_for_delivery', label: 'On Route' },
+  { key: 'out_for_delivery', label: 'On Delivery' },
   { key: 'arrived_dropoff', label: 'Arrived at Drop-off' },
   { key: 'unloading_cargo', label: 'Unloading Cargo' },
   { key: 'returning_to_hq', label: 'Returning to HQ' },
   { key: 'completed', label: 'Complete' },
 ];
+
+export function getScheduledAppointmentMs(d) {
+  const req = d?.request;
+  if (!req?.scheduled_date && !req?.is_scheduled) return null;
+  const dateStr = req.scheduled_date ? String(req.scheduled_date).slice(0, 10) : null;
+  if (!dateStr) return null;
+
+  const rawSlot = req.scheduled_time_slot || '';
+  let timeStr = '08:00:00';
+  const match = rawSlot.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+  if (match) {
+    let h = parseInt(match[1], 10);
+    const m = match[2];
+    const ampm = (match[3] || '').toUpperCase();
+    if (ampm === 'PM' && h < 12) h += 12;
+    if (ampm === 'AM' && h === 12) h = 0;
+    timeStr = `${String(h).padStart(2, '0')}:${m}:00`;
+  }
+  const appt = new Date(`${dateStr}T${timeStr}`);
+  return isNaN(appt.getTime()) ? new Date(`${dateStr}T08:00:00`).getTime() : appt.getTime();
+}
 
 export function getTargetEtaMs(d) {
   if (!d || typeof d !== 'object') return null;
@@ -31,12 +52,17 @@ export function getTargetEtaMs(d) {
     const ms = new Date(d.estimated_delivery_date).getTime();
     if (!isNaN(ms)) return ms;
   }
+  const durationDays = Number(d.estimated_duration_days) || 2;
+  const scheduledMs = getScheduledAppointmentMs(d);
+  if (scheduledMs) {
+    return scheduledMs + durationDays * 86400000;
+  }
+
   const baseTimeStr = d.start_time || d.trip_date || d.created_at;
   if (!baseTimeStr) return null;
   const baseMs = new Date(baseTimeStr).getTime();
   if (isNaN(baseMs)) return null;
 
-  const durationDays = Number(d.estimated_duration_days) || 2;
   return baseMs + durationDays * 86400000;
 }
 
@@ -44,10 +70,22 @@ export function isDeliveryDelayed(d) {
   if (!d || typeof d !== 'object') return false;
   if (d.status === 'completed' || d.status === 'rejected') return false;
 
-  // 1. Stalled dispatch check: assigned for >= 3 hours without moving
-  if (d.status === 'assigned' && d.start_time) {
-    const diffHours = (Date.now() - new Date(d.start_time).getTime()) / 3600000;
-    if (diffHours >= 3) return true;
+  const isScheduled = Boolean(d.request?.is_scheduled || d.request?.scheduled_date);
+  const scheduledMs = getScheduledAppointmentMs(d);
+
+  // Future scheduled delivery is NEVER delayed before its scheduled time arrives
+  if (isScheduled && scheduledMs && Date.now() < scheduledMs) {
+    return false;
+  }
+
+  // 1. Stalled dispatch check:
+  if (['assigned', 'accepted'].includes(d.status)) {
+    if (isScheduled && scheduledMs) {
+      if (Date.now() > scheduledMs) return true;
+    } else if (d.start_time) {
+      const diffHours = (Date.now() - new Date(d.start_time).getTime()) / 3600000;
+      if (diffHours >= 3) return true;
+    }
   }
 
   // 2. Ongoing transit exceeding estimated ETA (e.g. 2 days ETA, ongoing in 3 days)
@@ -62,14 +100,16 @@ export function isDeliveryDelayed(d) {
 export function getDelayDetails(d) {
   if (!isDeliveryDelayed(d)) return null;
 
+  const isScheduled = Boolean(d.request?.is_scheduled || d.request?.scheduled_date);
+  const scheduledMs = getScheduledAppointmentMs(d);
   const targetEtaMs = getTargetEtaMs(d);
   let diffMs = 0;
   let isDispatchStalled = false;
 
-  if (d.status === 'assigned' && (!targetEtaMs || Date.now() <= targetEtaMs)) {
+  if (['assigned', 'accepted'].includes(d.status) && (!targetEtaMs || Date.now() <= targetEtaMs)) {
     isDispatchStalled = true;
-    const startMs = new Date(d.start_time).getTime();
-    diffMs = Math.max(0, Date.now() - startMs);
+    const baseMs = (isScheduled && scheduledMs) ? scheduledMs : (d.start_time ? new Date(d.start_time).getTime() : Date.now());
+    diffMs = Math.max(0, Date.now() - baseMs);
   } else if (targetEtaMs) {
     diffMs = Math.max(0, Date.now() - targetEtaMs);
   } else if (d.start_time) {

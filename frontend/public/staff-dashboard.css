@@ -153,7 +153,7 @@
 }
 
 .adm-fleet-veh-col { width: 160px; text-align: left !important; padding-left: 14px !important; }
-.adm-fleet-day-col { min-width: 80px; }
+.adm-fleet-day-col { min-width: 96px; }
 .adm-fleet-day-col.highlight { background: #FFF5F5; color: #C53030; }
 
 .adm-day-label { font-weight: 700; font-size: 11px; }
@@ -200,9 +200,10 @@
 }
 
 .adm-fleet-cell.scheduled { background: #FEF3C7; color: #B45309; font-weight: 600; border-radius: 6px; border: 1px solid #FDE68A; }
+.adm-fleet-cell.delayed   { background: #FFF7ED; color: #C2410C; font-weight: 700; border-radius: 6px; border: 1px solid #FDBA74; }
 .adm-fleet-cell.delivery  { background: #FFF1F1; color: #C53030; font-weight: 600; border-radius: 6px; }
 .adm-fleet-cell.accident  { background: #FEF2F2; color: #991B1B; font-weight: 700; border-radius: 6px; border: 1px solid #FCA5A5; }
-.adm-fleet-cell.completed { background: #EFF6FF; color: #1D4ED8; font-weight: 600; border-radius: 6px; border: 1px solid #DBEAFE; }
+.adm-fleet-cell.completed { background: #DCFCE7; color: #15803D; font-weight: 700; border-radius: 6px; border: 1px solid #86EFAC; }
 .adm-fleet-cell.available { background: #F0FDF4; color: #16A34A; font-weight: 600; border-radius: 6px; }
 .adm-fleet-cell.on-break  { background: #FFFBEB; color: #D97706; font-weight: 600; border-radius: 6px; }
 .adm-fleet-cell.empty     { color: #bbb; }
@@ -227,9 +228,10 @@
 }
 
 .adm-legend-dot.scheduled   { background: #D97706; }
+.adm-legend-dot.delayed     { background: #EA580C; }
 .adm-legend-dot.delivery    { background: #EF4444; }
 .adm-legend-dot.accident    { background: #DC2626; }
-.adm-legend-dot.completed   { background: #3B82F6; }
+.adm-legend-dot.completed   { background: #16A34A; }
 .adm-legend-dot.available   { background: #22C55E; }
 .adm-legend-dot.break       { background: #F59E0B; }
 .adm-legend-dot.maintenance { background: #94A3B8; }
@@ -289,6 +291,11 @@
   width: 18px;
   height: 18px;
   margin-left: 6px;
+}
+
+.adm-priority-badge.zero {
+  background: #E5E7EB;
+  color: #6B7280;
 }
 
 .adm-priority-table {

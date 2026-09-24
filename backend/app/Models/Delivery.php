@@ -63,8 +63,14 @@ class Delivery extends Model
         if ($this->estimated_delivery_date) {
             return $this->estimated_delivery_date->toIso8601String();
         }
+        $days = $this->estimated_duration_days ?: 2;
+        if (($this->request?->is_scheduled || $this->request?->scheduled_date) && $this->request?->scheduled_date) {
+            $dateStr = substr((string)$this->request->scheduled_date, 0, 10);
+            try {
+                return \Carbon\Carbon::parse($dateStr)->addDays($days)->toIso8601String();
+            } catch (\Exception $e) {}
+        }
         if ($this->start_time) {
-            $days = $this->estimated_duration_days ?: 2;
             return $this->start_time->copy()->addDays($days)->toIso8601String();
         }
         return null;
@@ -76,10 +82,48 @@ class Delivery extends Model
             return false;
         }
 
+        $isScheduled = (bool)($this->request?->is_scheduled || $this->request?->scheduled_date);
+        $scheduledDateTime = null;
+
+        if ($isScheduled && $this->request?->scheduled_date) {
+            $dateStr = substr((string)$this->request->scheduled_date, 0, 10);
+            $rawSlot = (string)($this->request->scheduled_time_slot ?? '');
+            $timeStr = '08:00:00';
+            if (preg_match('/(\d{1,2}):(\d{2})\s*(AM|PM)?/i', $rawSlot, $matches)) {
+                $h = (int)$matches[1];
+                $m = $matches[2];
+                $ampm = strtoupper($matches[3] ?? '');
+                if ($ampm === 'PM' && $h < 12) $h += 12;
+                if ($ampm === 'AM' && $h === 12) $h = 0;
+                $timeStr = sprintf('%02d:%s:00', $h, $m);
+            }
+            try {
+                $scheduledDateTime = \Carbon\Carbon::parse("{$dateStr} {$timeStr}");
+            } catch (\Exception $e) {
+                try {
+                    $scheduledDateTime = \Carbon\Carbon::parse($dateStr)->startOfDay();
+                } catch (\Exception $e2) {
+                    $scheduledDateTime = null;
+                }
+            }
+        }
+
+        // If this is a future scheduled booking, it CANNOT be delayed yet!
+        if ($isScheduled && $scheduledDateTime && now()->lt($scheduledDateTime)) {
+            return false;
+        }
+
         // Stalled dispatch check
-        if ($this->status === 'assigned' && $this->start_time) {
-            if (now()->diffInHours($this->start_time) >= 3) {
-                return true;
+        if (in_array($this->status, ['assigned', 'accepted'])) {
+            if ($isScheduled && $scheduledDateTime) {
+                // If scheduled time has passed and vehicle has not departed
+                if (now()->gt($scheduledDateTime)) {
+                    return true;
+                }
+            } elseif ($this->start_time) {
+                if (now()->diffInHours($this->start_time) >= 3) {
+                    return true;
+                }
             }
         }
 

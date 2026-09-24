@@ -6,8 +6,9 @@ export default function Pagination({
   onPageChange,
   totalItems,
   pageSize = 10,
+  showAlways = false,
 }) {
-  if (totalPages <= 1 && (!totalItems || totalItems <= pageSize)) {
+  if (!showAlways && totalPages <= 1 && (!totalItems || totalItems <= pageSize)) {
     return null;
   }
 

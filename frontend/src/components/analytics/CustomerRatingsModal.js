@@ -235,7 +235,7 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
                             <div className="score-bar-track">
                               <div className="score-bar-fill blue" style={{ width: `${pct}%` }}></div>
                             </div>
-                            <span style={{ fontSize: 9, color: '#64748b', minWidth: 14, textAlign: 'right' }}>
+                            <span className="score-bar-count">
                               {stats.distribution[s]}
                             </span>
                           </div>
@@ -260,7 +260,7 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
                             <div className="score-bar-track">
                               <div className="score-bar-fill green" style={{ width: `${pct}%` }}></div>
                             </div>
-                            <span style={{ fontSize: 9, color: '#64748b', minWidth: 14, textAlign: 'right' }}>
+                            <span className="score-bar-count">
                               {countForDriver}
                             </span>
                           </div>

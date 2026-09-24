@@ -1028,46 +1028,79 @@ body {
 
 /* Admin Accounts */
 .btn-view-inactive {
-    background: #C53030;
-    color: white;
-    border: none;
-    padding: 8px 16px;
+    background: #f8fafc;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    padding: 7px 14px;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: 12.5px;
+    font-weight: 600;
     cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-view-inactive:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+    border-color: #94a3b8;
 }
 
 .btn-add-admin {
-    background: #47A129;
+    background: #16a34a;
     color: white;
     border: none;
-    padding: 8px 16px;
+    padding: 7px 14px;
     border-radius: 6px;
-    font-size: 13px;
+    font-size: 12.5px;
+    font-weight: 600;
     cursor: pointer;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
+    transition: background 0.2s ease;
+}
+
+.btn-add-admin:hover {
+    background: #15803d;
 }
 
 .status-badge {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 12px;
+    padding: 4px 12px;
     border-radius: 20px;
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
+    white-space: nowrap;
+    line-height: 1.4;
 }
 
 .status-badge.active {
-    background: #47A129;
-    color: white;
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
 }
 
 .status-badge.active i {
-    font-size: 8px;
+    font-size: 7px;
+    color: #16a34a;
 }
+
+.status-badge.inactive {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+.status-badge.inactive i {
+    font-size: 7px;
+    color: #dc2626;
+}
+
 .action-cell {
     display: flex;
     gap: 8px;
@@ -1089,33 +1122,88 @@ th.action-cell {
     white-space: nowrap;
 }
 
+.action-buttons-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .btn-edit {
-    background: #3A3A3B;
+    background: #334155;
     color: white;
     border: none;
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
+    transition: all 0.15s ease;
+}
+
+.btn-edit:hover {
+    background: #1e293b;
 }
 
 .btn-edit i {
-    font-size: 12px;
+    font-size: 11px;
 }
 
 .btn-deactivate {
-    background: #C53030;
+    background: #dc2626;
     color: white;
     border: none;
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.15s ease;
+}
+
+.btn-deactivate:hover {
+    background: #b91c1c;
+}
+
+.btn-restore {
+    background: #2563eb;
+    color: white;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.15s ease;
+}
+
+.btn-restore:hover {
+    background: #1d4ed8;
+}
+
+.caret-chevron {
+    display: inline-block;
+    font-size: 11px;
+    color: #64748b;
+    margin-right: 8px;
+    transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.admin-row:hover .caret-chevron {
+    color: #C53030;
+}
+
+.caret-chevron.rotate-down {
+    transform: rotate(90deg);
+    color: #C53030;
 }
 
 .admin-table th:last-child,
@@ -2532,6 +2620,13 @@ body.dark-theme .hjy-skeleton-avatar {
     font-family: inherit;
 }
 
+.table-panel .hjy-pagination {
+    margin: 0;
+    padding: 14px 18px 16px 18px;
+    border-top: 1px solid #f1f5f9;
+    background: #ffffff;
+}
+
 .hjy-pagination-info {
     font-size: 13px;
     color: #64748b;
@@ -2559,6 +2654,13 @@ body.dark-theme .hjy-skeleton-avatar {
     align-items: center;
     justify-content: center;
     transition: all 0.15s ease-in-out;
+    outline: none !important;
+}
+
+.hjy-page-btn:focus,
+.hjy-page-btn:focus-visible {
+    outline: none !important;
+    border-color: #9E1E21;
 }
 
 .hjy-page-btn:hover:not(:disabled) {
@@ -2573,6 +2675,7 @@ body.dark-theme .hjy-skeleton-avatar {
     color: #ffffff !important;
     font-weight: 700;
     box-shadow: 0 2px 4px rgba(158, 30, 33, 0.25);
+    outline: none !important;
 }
 
 .hjy-page-btn:disabled {
@@ -3091,4 +3194,400 @@ body.dark-theme .hjy-steepness-popup .leaflet-popup-content-wrapper {
     background: #1e293b;
     border-color: #334155;
     color: #f8fafc;
+}
+
+/* ================================================================
+   Admin Overview Enhanced Styles (Executive KPI, Operations Health, Pagination, Modals)
+   ================================================================ */
+
+/* Amber KPI Card */
+.card-amber .card-header i {
+    background: rgba(217, 119, 6, 0.12);
+    color: #D97706;
+}
+.card-amber .card-title {
+    color: #D97706;
+    font-size: 14px;
+    font-weight: 600;
+}
+.card-number.amber {
+    color: #D97706;
+}
+
+/* Operations Health & Readiness Bar */
+.operations-health-card {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 16px 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    margin-bottom: 22px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid #e2e8f0;
+}
+
+.operations-health-card:hover {
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.09);
+    border-color: #cbd5e1;
+    transform: translateY(-1px);
+}
+
+.operations-health-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.operations-health-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14.5px;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.operations-health-title i {
+    font-size: 17px;
+    color: #10B981;
+}
+
+.operations-health-badge {
+    background: #dcfce7;
+    color: #15803d;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.btn-view-breakdown {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-view-breakdown:hover {
+    background: #1e293b;
+    color: #ffffff;
+    border-color: #1e293b;
+}
+
+.health-progress-bar {
+    display: flex;
+    height: 14px;
+    border-radius: 7px;
+    overflow: hidden;
+    background: #f1f5f9;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 12px;
+}
+
+.health-segment {
+    height: 100%;
+    transition: width 0.4s ease;
+}
+
+.health-segment.active-segment {
+    background: #10B981;
+}
+
+.health-segment.available-segment {
+    background: #3B82F6;
+}
+
+.health-segment.maintenance-segment {
+    background: #F59E0B;
+}
+
+.health-legend-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 20px;
+    font-size: 12px;
+    color: #475569;
+}
+
+.health-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.health-legend-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.health-legend-dot.active-dot { background: #10B981; }
+.health-legend-dot.available-dot { background: #3B82F6; }
+.health-legend-dot.maintenance-dot { background: #F59E0B; }
+
+/* Enhanced Table Pagination */
+.table-pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 12px;
+    margin-top: 12px;
+    border-top: 1px solid #f1f5f9;
+}
+
+.pagination-info {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 500;
+}
+
+.pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pagination-btn {
+    padding: 4px 10px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #334155;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    background: #f8fafc;
+    border-color: #94a3b8;
+}
+
+.pagination-btn.active {
+    background: #C53030;
+    color: #ffffff;
+    border-color: #C53030;
+}
+
+.pagination-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* Modals Enhancement */
+.modal-wide {
+    width: 860px !important;
+    max-width: 95% !important;
+}
+
+.modal-header-with-close {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.btn-modal-close {
+    background: transparent;
+    border: none;
+    color: #ffffff;
+    font-size: 20px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.15s ease;
+}
+
+.btn-modal-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.modal-pill-tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+
+.modal-pill-tab {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.modal-pill-tab:hover {
+    background: #f8fafc;
+}
+
+.modal-pill-tab.active {
+    background: #1e293b;
+    color: #ffffff;
+    border-color: #1e293b;
+}
+
+.modal-search-input {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s ease;
+    margin-bottom: 14px;
+}
+
+.modal-search-input:focus {
+    border-color: #C53030;
+}
+
+/* Dark Theme Adjustments */
+body.dark-theme .operations-health-card {
+    background: #1e293b;
+    border-color: #334155;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-theme .operations-health-title {
+    color: #f8fafc;
+}
+
+body.dark-theme .btn-view-breakdown {
+    background: #0f172a;
+    border-color: #334155;
+    color: #cbd5e1;
+}
+
+body.dark-theme .health-progress-bar {
+    background: #334155;
+}
+
+body.dark-theme .health-legend-row {
+    color: #94a3b8;
+}
+
+body.dark-theme .table-pagination {
+    border-top-color: #334155;
+}
+
+body.dark-theme .pagination-info {
+    color: #94a3b8;
+}
+
+body.dark-theme .pagination-btn {
+    background: #1e293b;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+body.dark-theme .pagination-btn:hover:not(:disabled) {
+    background: #334155;
+}
+
+body.dark-theme .pagination-btn.active {
+    background: #C53030;
+    color: #ffffff;
+    border-color: #C53030;
+}
+
+body.dark-theme .modal-pill-tab {
+    background: #1e293b;
+    border-color: #334155;
+    color: #cbd5e1;
+}
+
+body.dark-theme .modal-pill-tab.active {
+    background: #C53030;
+    color: #ffffff;
+    border-color: #C53030;
+}
+
+body.dark-theme .modal-search-input {
+    background: #0f172a;
+    border-color: #334155;
+    color: #f8fafc;
+}
+
+/* ==========================================================================
+   Delivery Operations Horizontal Status Stepper
+   ========================================================================== */
+.delivery-status-stepper-container {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid #e2e8f0;
+    width: 100%;
+    overflow-x: auto;
+}
+
+.delivery-status-stepper {
+    display: flex;
+    align-items: center;
+    min-width: 760px;
+    padding: 4px 2px;
+}
+
+.stepper-pill {
+    padding: 5px 11px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.stepper-line {
+    flex: 1;
+    height: 2px;
+    min-width: 8px;
+    transition: background 0.2s ease;
+}
+
+body.dark-theme .delivery-status-stepper-container {
+    border-top-color: #334155;
+}
+
+body.dark-theme .stepper-pill.upcoming {
+    background: #1e293b !important;
+    color: #64748b !important;
+    border-color: #334155 !important;
+}
+
+body.dark-theme .stepper-line {
+    background: #334155 !important;
+}
+
+.delivery-status-pill {
+    transition: all 0.2s ease;
+}
+
+body.dark-theme .delivery-status-pill {
+    filter: brightness(0.92);
 }
