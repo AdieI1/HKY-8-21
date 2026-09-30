@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
     StyleSheet,
     View,
@@ -6,11 +6,16 @@ import {
     Image,
     TouchableOpacity,
 } from "react-native";
-
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
+import { useTheme } from "../src/context/ThemeContext";
+import { resolveAvatarUrl } from "../services/api";
+
+const defaultAvatar = require("../assets/images/defaultavatar.png");
 
 export default function AssignmentCard({ assignment }) {
+    const { theme, darkMode } = useTheme();
+    const [imgError, setImgError] = useState(false);
     const delivery = assignment?.delivery;
     const request = delivery?.request;
     const customer = request?.customer;
@@ -157,23 +162,38 @@ export default function AssignmentCard({ assignment }) {
         }
     };
 
+    const customerPhoto = !imgError && (customer?.profile_photo_url || customer?.profile_photo_path)
+        ? resolveAvatarUrl(customer.profile_photo_url || customer.profile_photo_path)
+        : null;
+
     return (
-        <View style={styles.card}>
+        <View style={[
+            styles.card,
+            {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                borderWidth: darkMode ? 1 : 0,
+            }
+        ]}>
 
             {/* RELIEF REASSIGNMENT BADGE */}
             {isRelief && (
                 <View style={[
                     styles.reliefBadge,
-                    !cargoLoaded && { backgroundColor: "#EFF6FF", borderColor: "#BFDBFE" }
+                    darkMode
+                        ? (cargoLoaded ? { backgroundColor: "#451a03", borderColor: "#78350f" } : { backgroundColor: "#1e293b", borderColor: "#334155" })
+                        : (!cargoLoaded && { backgroundColor: "#EFF6FF", borderColor: "#BFDBFE" })
                 ]}>
                     <Ionicons
                         name={cargoLoaded ? "warning" : "information-circle"}
                         size={13}
-                        color={cargoLoaded ? "#92400E" : "#1D4ED8"}
+                        color={cargoLoaded ? (darkMode ? "#FCD34D" : "#92400E") : (darkMode ? "#60A5FA" : "#1D4ED8")}
                     />
                     <Text style={[
                         styles.reliefBadgeText,
-                        !cargoLoaded && { color: "#1D4ED8" }
+                        darkMode
+                            ? { color: cargoLoaded ? "#FCD34D" : "#93C5FD" }
+                            : (!cargoLoaded && { color: "#1D4ED8" })
                     ]}>
                         {cargoLoaded
                             ? "Relief Reassignment (Transshipment)"
@@ -185,25 +205,33 @@ export default function AssignmentCard({ assignment }) {
             {/* CUSTOMER INFORMATION */}
             <View style={styles.topRow}>
                 <Image
-                    source={require("../assets/images/profilepic.png")}
+                    source={
+                        customerPhoto
+                            ? {
+                                  uri: customerPhoto,
+                                  headers: { "ngrok-skip-browser-warning": "true" },
+                              }
+                            : defaultAvatar
+                    }
                     style={styles.avatar}
+                    onError={() => setImgError(true)}
                 />
 
                 <View style={styles.customerContainer}>
                     <Text
-                        style={styles.customerName}
+                        style={[styles.customerName, { color: theme.primary }]}
                         numberOfLines={1}
                         ellipsizeMode="tail"
                     >
                         {getCustomerName()}
                     </Text>
 
-                    <Text style={styles.info}>
+                    <Text style={[styles.info, { color: theme.secondaryText }]}>
                         Itemname:{" "}
                         {request?.item_name || assignment?.item || "Not provided"}
                     </Text>
 
-                    <Text style={styles.info}>
+                    <Text style={[styles.info, { color: theme.secondaryText }]}>
                         Cargotype:{" "}
                         {request?.cargo_type || assignment?.cargo || "Not provided"}
                     </Text>
@@ -219,29 +247,29 @@ export default function AssignmentCard({ assignment }) {
                 />
 
                 <Text
-                    style={styles.location}
+                    style={[styles.location, { color: theme.secondaryText }]}
                     numberOfLines={1}
                     ellipsizeMode="tail"
                 >
-                    <Text style={styles.routeLabel}>
+                    <Text style={[styles.routeLabel, { color: theme.text }]}>
                         Delivery Route:{" "}
                     </Text>
 
                     {shortPickup} → {shortDropoff}
                 </Text>
 
-                <Text style={styles.distance}>
+                <Text style={[styles.distance, { color: theme.secondaryText }]}>
                     {assignment?.distance || ""}
                 </Text>
             </View>
 
             {/* DIVIDER */}
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
             {/* ACTION BUTTON */}
             <View style={styles.buttonRow}>
                 <TouchableOpacity
-                    style={styles.actionButton}
+                    style={[styles.actionButton, { backgroundColor: theme.primary }]}
                     onPress={handleAction}
                     activeOpacity={0.8}
                 >
@@ -300,6 +328,7 @@ const styles = StyleSheet.create({
         height: 50,
         borderRadius: 25,
         marginRight: 12,
+        backgroundColor: "#E2E4EE",
     },
 
     customerContainer: {

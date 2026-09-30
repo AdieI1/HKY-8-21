@@ -6,11 +6,14 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { getMyNotifications } from "../../../services/api";
 
+import { useTheme } from "../../context/ThemeContext";
+
 const READ_STORAGE_KEY = "@driver_read_notifications";
 const SEEN_STORAGE_KEY = "@driver_seen_notifications";
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
+  const { theme } = useTheme();
   const [unreadCount, setUnreadCount] = useState(0);
 
   const checkNotifications = async () => {
@@ -51,18 +54,19 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: "#E53935",
-        tabBarInactiveTintColor: "#767A8C",
+        tabBarActiveTintColor: theme.primary,
+        tabBarInactiveTintColor: theme.icon,
         tabBarStyle: {
           position: "absolute",
           left: 0,
           right: 0,
           bottom: 0,
           height: 60 + insets.bottom,
-          backgroundColor: "#FFFFFF",
-          borderTopWidth: 0,
+          backgroundColor: theme.tabBar,
+          borderTopWidth: 1,
+          borderTopColor: theme.border,
           elevation: 12,
-          shadowColor: "#14103C",
+          shadowColor: "#000",
           shadowOpacity: 0.15,
           shadowOffset: { width: 0, height: -3 },
           shadowRadius: 10,
@@ -71,7 +75,7 @@ export default function TabsLayout() {
           fontSize: 12,
         },
         sceneContainerStyle: {
-          backgroundColor: "#EDEDED",
+          backgroundColor: theme.background,
         },
       }}
     >

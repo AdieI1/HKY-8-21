@@ -15,10 +15,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import HomeHeader from "../../../components/HomeHeader";
 import NotificationCard from "../../../components/NotificationCard";
 import { getMyNotifications } from "../../../services/api";
+import { useTheme } from "../../context/ThemeContext";
 
 const READ_STORAGE_KEY = "@driver_read_notifications";
 
 export default function Notifications() {
+  const { theme, darkMode } = useTheme();
   const [filter, setFilter] = useState("All");
   const [rawNotifications, setRawNotifications] = useState([]);
   const [readIds, setReadIds] = useState(new Set());
@@ -143,28 +145,28 @@ export default function Notifications() {
     groupedNotifications.Yesterday.length > 0;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <HomeHeader />
 
-      <View style={styles.titleRow}>
-        <Text style={styles.title}>Notifications</Text>
+      <View style={[styles.titleRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+        <Text style={[styles.title, { color: theme.primary }]}>Notifications</Text>
       </View>
 
-      <View style={styles.filterRow}>
+      <View style={[styles.filterRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <TouchableOpacity
-          style={filter === "All" ? styles.activeFilter : styles.filterButton}
+          style={filter === "All" ? [styles.activeFilter, { backgroundColor: theme.primary }] : styles.filterButton}
           onPress={() => setFilter("All")}
         >
-          <Text style={filter === "All" ? styles.activeFilterText : styles.filterText}>
+          <Text style={filter === "All" ? styles.activeFilterText : [styles.filterText, { color: theme.secondaryText }]}>
             All
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={filter === "Unread" ? styles.activeFilter : styles.filterButton}
+          style={filter === "Unread" ? [styles.activeFilter, { backgroundColor: theme.primary }] : styles.filterButton}
           onPress={() => setFilter("Unread")}
         >
-          <Text style={filter === "Unread" ? styles.activeFilterText : styles.filterText}>
+          <Text style={filter === "Unread" ? styles.activeFilterText : [styles.filterText, { color: theme.secondaryText }]}>
             Unread
           </Text>
         </TouchableOpacity>
@@ -172,8 +174,8 @@ export default function Notifications() {
 
       {loading && !refreshing ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#B91F27" />
-          <Text style={styles.loadingText}>Loading notifications...</Text>
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={[styles.loadingText, { color: theme.secondaryText }]}>Loading notifications...</Text>
         </View>
       ) : (
         <ScrollView
@@ -183,14 +185,14 @@ export default function Notifications() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={() => loadNotifications(true)}
-              tintColor="#B91F27"
-              colors={["#B91F27"]}
+              tintColor={theme.primary}
+              colors={[theme.primary]}
             />
           }
         >
           {groupedNotifications.Today.length > 0 && (
             <>
-              <Text style={styles.dateTitle}>Today</Text>
+              <Text style={[styles.dateTitle, { color: theme.primary }]}>Today</Text>
               {groupedNotifications.Today.map((n) => (
                 <NotificationCard key={n.id} notification={n} />
               ))}
@@ -199,7 +201,7 @@ export default function Notifications() {
 
           {groupedNotifications.Earlier.length > 0 && (
             <>
-              <Text style={styles.dateTitle}>Earlier</Text>
+              <Text style={[styles.dateTitle, { color: theme.primary }]}>Earlier</Text>
               {groupedNotifications.Earlier.map((n) => (
                 <NotificationCard key={n.id} notification={n} />
               ))}
@@ -208,7 +210,7 @@ export default function Notifications() {
 
           {groupedNotifications.Yesterday.length > 0 && (
             <>
-              <Text style={styles.dateTitle}>Yesterday</Text>
+              <Text style={[styles.dateTitle, { color: theme.primary }]}>Yesterday</Text>
               {groupedNotifications.Yesterday.map((n) => (
                 <NotificationCard key={n.id} notification={n} />
               ))}
@@ -220,9 +222,9 @@ export default function Notifications() {
               <Ionicons
                 name="notifications-off-outline"
                 size={40}
-                color="#999BA5"
+                color={theme.secondaryText}
               />
-              <Text style={styles.emptyText}>No notifications</Text>
+              <Text style={[styles.emptyText, { color: theme.secondaryText }]}>No notifications</Text>
             </View>
           )}
         </ScrollView>
@@ -234,46 +236,42 @@ export default function Notifications() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#DDE0EE",
   },
   titleRow: {
     height: 50,
-    backgroundColor: "#F4F5FC",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 18,
+    borderBottomWidth: 1,
   },
   title: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#D62B2B",
   },
   filterRow: {
-    height: 35,
-    backgroundColor: "#F4F5FC",
+    height: 38,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 18,
+    borderBottomWidth: 1,
   },
   activeFilter: {
-    backgroundColor: "#F24848",
-    paddingHorizontal: 10,
-    paddingVertical: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     borderRadius: 8,
     marginRight: 15,
   },
   activeFilterText: {
     color: "#FFFFFF",
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "700",
   },
   filterButton: {
-    paddingVertical: 3,
+    paddingVertical: 4,
     marginRight: 15,
   },
   filterText: {
-    color: "#D62B2B",
     fontSize: 12,
     fontWeight: "600",
   },
@@ -285,8 +283,7 @@ const styles = StyleSheet.create({
   dateTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#D62B2B",
-    marginTop: 5,
+    marginTop: 8,
     marginBottom: 7,
   },
   loadingContainer: {
@@ -297,7 +294,6 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
-    color: "#555",
     fontSize: 14,
   },
   empty: {
@@ -306,7 +302,6 @@ const styles = StyleSheet.create({
     paddingTop: 80,
   },
   emptyText: {
-    color: "#999BA5",
     fontSize: 14,
     marginTop: 8,
   },

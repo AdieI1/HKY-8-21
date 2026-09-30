@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\AppNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
@@ -75,14 +76,33 @@ class UserController extends Controller
             }
         }
 
+        $photoUpdated = $request->hasFile('photo') || $request->hasFile('profile_photo');
+        $phoneUpdated = isset($data['phone']) && $data['phone'] !== $user->phone;
+
         $user->update($data);
+
+        $isDriver = strtolower($user->role?->role_name ?? '') === 'driver' || $user->driver()->exists();
+        if ($isDriver && ($photoUpdated || $phoneUpdated)) {
+            $driverName = $user->full_name ?: 'Driver';
+            $changedItems = [];
+            if ($photoUpdated) $changedItems[] = 'profile picture';
+            if ($phoneUpdated) $changedItems[] = 'contact number (' . $data['phone'] . ')';
+
+            $changedText = implode(' and ', $changedItems);
+            AppNotification::notify(
+                'driver',
+                'Driver Profile Updated',
+                "Driver {$driverName} updated their {$changedText}.",
+                '/drivers'
+            );
+        }
 
         if (!empty($request->password)) {
             $user->password = Hash::make($request->password);
             $user->save();
         }
 
-        return $user->refresh()->load('role');
+        return $user->refresh()->load(['role', 'driver']);
     }
 
     public function destroy(User $user)

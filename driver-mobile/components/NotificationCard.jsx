@@ -4,56 +4,66 @@ import {
   Text,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { useTheme } from "../src/context/ThemeContext";
 
 export default function NotificationCard({
   notification,
 }) {
+  const { theme, darkMode } = useTheme();
+
   return (
-    <View style={styles.card}>
+    <View style={[
+      styles.card,
+      {
+        backgroundColor: theme.card,
+        borderColor: theme.border,
+        borderWidth: darkMode ? 1 : 0,
+      }
+    ]}>
       <View style={styles.topRow}>
         <View style={styles.assignmentRow}>
           <Ionicons
             name={notification.isRating ? "star" : "bus-outline"}
             size={17}
-            color="#F24848"
+            color={theme.primary}
           />
 
-          <Text style={styles.assignmentText}>
+          <Text style={[styles.assignmentText, { color: theme.primary }]}>
             {notification.type}
           </Text>
         </View>
 
-        <Text style={styles.time}>
+        <Text style={[styles.time, { color: theme.secondaryText }]}>
           {notification.time}
         </Text>
       </View>
 
-      <Text style={styles.driverName}>
+      <Text style={[styles.driverName, { color: theme.primary }]}>
         {notification.driver}
       </Text>
 
-      <Text style={styles.details}>
+      <Text style={[styles.details, { color: theme.secondaryText }]}>
         {notification.isRating
           ? notification.cargo
           : `Cargo type: ${notification.cargo}`}
       </Text>
 
-      <Text style={styles.details}>
+      <Text style={[styles.details, { color: theme.secondaryText }]}>
         {notification.isRating
           ? `Comments: ${notification.weight}`
           : `Weight: ${notification.weight}`}
       </Text>
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
       <View style={styles.locationRow}>
         <Ionicons
           name="location"
           size={17}
-          color="#F24848"
+          color={theme.primary}
         />
 
-        <Text style={styles.location}>
+        <Text style={[styles.location, { color: theme.text }]}>
           {notification.isRating
             ? `Delivery location: ${notification.location}`
             : `Pick-up location: ${notification.location}`}

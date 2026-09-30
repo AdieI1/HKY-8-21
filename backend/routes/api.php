@@ -121,6 +121,10 @@ Route::middleware('auth:sanctum')->group(function () {
         'users',
         UserController::class
     );
+    Route::post(
+        'users/{user}',
+        [UserController::class, 'update']
+    );
 
     Route::apiResource(
         'drivers',

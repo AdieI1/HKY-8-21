@@ -7,14 +7,29 @@ use Illuminate\Http\Request;
 
 class ReviewController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return Review::with([
+        $query = Review::with([
             'delivery.request.customer',
             'delivery.driver.user',
             'delivery.vehicle',
             'customer'
-        ])->get();
+        ]);
+
+        if ($request->has('driver_id')) {
+            $query->whereHas('delivery', function ($q) use ($request) {
+                $q->where('driver_id', $request->query('driver_id'));
+            });
+        } elseif ($request->user() && strtolower($request->user()->role?->role_name ?? '') === 'driver') {
+            $driverId = $request->user()->driver?->driver_id;
+            if ($driverId) {
+                $query->whereHas('delivery', function ($q) use ($driverId) {
+                    $q->where('driver_id', $driverId);
+                });
+            }
+        }
+
+        return $query->orderByDesc('review_id')->get();
     }
 
     public function store(Request $request)

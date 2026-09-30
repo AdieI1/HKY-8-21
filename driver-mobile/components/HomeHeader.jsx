@@ -7,73 +7,70 @@ import {
     Platform,
     StatusBar,
 } from "react-native";
-
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useIsFocused } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useTheme } from "../src/context/ThemeContext";
+import { resolveAvatarUrl, getCurrentUser, getSavedUser } from "../services/api";
+
+const defaultAvatar = require("../assets/images/defaultavatar.png");
 
 export default function HomeHeader() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const isFocused = useIsFocused();
+    const { theme } = useTheme();
+
     const topInset = Math.max(
         insets.top,
         Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0
     );
 
     const [user, setUser] = useState(null);
+    const [imgError, setImgError] = useState(false);
 
-    useEffect(() => {
-        loadUser();
-    }, []);
-
-    const loadUser = async () => {
+    const loadUser = useCallback(async () => {
         try {
-            const savedUser = await AsyncStorage.getItem(
-                "auth_user"
-            );
+            const saved = await getSavedUser();
+            if (saved) {
+                setUser(saved);
+                setImgError(false);
+            }
 
-            if (savedUser) {
-                const parsedUser = JSON.parse(savedUser);
-
-                console.log(
-                    "HEADER SAVED USER:",
-                    parsedUser
-                );
-
-                setUser(parsedUser);
+            const fresh = await getCurrentUser().catch(() => null);
+            if (fresh) {
+                setUser(fresh);
+                setImgError(false);
             }
         } catch (error) {
-            console.log(
-                "HEADER USER ERROR:",
-                error
-            );
+            console.log("HEADER USER ERROR:", error);
         }
-    };
+    }, []);
 
-    /*
-     * Example:
-     *
-     * "Alec Jude Jaraula"
-     *
-     * becomes:
-     *
-     * "Alec"
-     */
+    useEffect(() => {
+        if (isFocused) {
+            loadUser();
+        }
+    }, [isFocused, loadUser]);
+
     const getFirstName = () => {
         if (!user?.full_name) {
             return "Driver";
         }
-
         return user.full_name.trim().split(" ")[0];
     };
+
+    const avatarUri = !imgError && user?.profile_photo_url ? resolveAvatarUrl(user.profile_photo_url) : null;
 
     return (
         <View
             style={[
                 styles.header,
                 {
+                    backgroundColor: theme.header,
                     paddingTop: topInset,
                     height: 75 + topInset,
                 },
@@ -81,14 +78,22 @@ export default function HomeHeader() {
         >
             <StatusBar
                 barStyle="light-content"
-                backgroundColor="#8B1E1E"
+                backgroundColor={theme.header}
                 translucent
             />
             <View style={styles.headerContent}>
                 <View style={styles.userContainer}>
                     <Image
-                        source={require("../assets/images/profilepic.png")}
+                        source={
+                            avatarUri
+                                ? {
+                                      uri: avatarUri,
+                                      headers: { "ngrok-skip-browser-warning": "true" },
+                                  }
+                                : defaultAvatar
+                        }
                         style={styles.avatar}
+                        onError={() => setImgError(true)}
                     />
 
                     <View>
@@ -104,13 +109,12 @@ export default function HomeHeader() {
 
                 <TouchableOpacity
                     style={styles.settingsButton}
-                    onPress={() =>
-                        router.push("/settings")
-                    }
+                    onPress={() => router.push("/settings")}
+                    activeOpacity={0.7}
                 >
                     <Ionicons
                         name="settings-outline"
-                        size={30}
+                        size={28}
                         color="#FFFFFF"
                     />
                 </TouchableOpacity>
@@ -121,7 +125,6 @@ export default function HomeHeader() {
 
 const styles = StyleSheet.create({
     header: {
-        backgroundColor: "#8B1E1E",
         paddingHorizontal: 18,
         borderBottomLeftRadius: 15,
         borderBottomRightRadius: 15,
@@ -145,6 +148,7 @@ const styles = StyleSheet.create({
         height: 46,
         borderRadius: 23,
         marginRight: 12,
+        backgroundColor: "#E2E4EE",
     },
 
     welcome: {
@@ -160,6 +164,6 @@ const styles = StyleSheet.create({
     },
 
     settingsButton: {
-        position: "relative",
+        padding: 4,
     },
 });

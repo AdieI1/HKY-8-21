@@ -277,3 +277,103 @@ export const logout = async () => {
         await AsyncStorage.removeItem(ACTIVE_DELIVERY_KEY);
     }
 };
+
+/* =========================================================
+   DRIVER PROFILE & REVIEWS
+========================================================= */
+
+export const updateDriverProfile = async (userId, payload) => {
+    const token = await getToken();
+    const headers = {
+        Accept: "application/json",
+    };
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    if (payload.photo?.uri) {
+        const formData = new FormData();
+        formData.append("_method", "PUT");
+        if (payload.full_name) formData.append("full_name", payload.full_name);
+        if (payload.phone) formData.append("phone", payload.phone);
+        if (payload.gender) formData.append("gender", payload.gender);
+        if (payload.date_of_birth) formData.append("date_of_birth", payload.date_of_birth);
+
+        formData.append("photo", {
+            uri: payload.photo.uri,
+            name: payload.photo.fileName || "profile-photo.jpg",
+            type: payload.photo.mimeType || "image/jpeg",
+        });
+
+        const response = await fetch(`${API_URL}/users/${userId}`, {
+            method: "POST",
+            headers,
+            body: formData,
+        });
+
+        const data = await safeJson(response);
+        if (!response.ok) {
+            throw new Error(data?.message || Object.values(data?.errors || {})?.[0]?.[0] || "Failed to update profile photo.");
+        }
+        if (data) {
+            await AsyncStorage.setItem(USER_KEY, JSON.stringify(data));
+        }
+        return data;
+    } else {
+        headers["Content-Type"] = "application/json";
+        const response = await fetch(`${API_URL}/users/${userId}`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify(payload),
+        });
+
+        const data = await safeJson(response);
+        if (!response.ok) {
+            throw new Error(data?.message || Object.values(data?.errors || {})?.[0]?.[0] || "Failed to update profile.");
+        }
+        if (data) {
+            await AsyncStorage.setItem(USER_KEY, JSON.stringify(data));
+        }
+        return data;
+    }
+};
+
+export const getDriverReviews = async () => {
+    const token = await getToken();
+    const headers = {
+        Accept: "application/json",
+    };
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_URL}/reviews`, {
+        method: "GET",
+        headers,
+    });
+
+    const data = await safeJson(response);
+    if (!response.ok) {
+        throw new Error(data?.message || "Failed to fetch driver reviews.");
+    }
+    return Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+};
+
+export const resolveAvatarUrl = (urlOrPath) => {
+    if (!urlOrPath) return null;
+    let url = String(urlOrPath).trim();
+    if (!url) return null;
+
+    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        const base = API_URL.replace(/\/api\/?$/, "");
+        const cleanPath = url.startsWith("/") ? url : `/${url}`;
+        return cleanPath.startsWith("/storage") ? `${base}${cleanPath}` : `${base}/storage${cleanPath}`;
+    }
+
+    if (url.includes("localhost") || url.includes("127.0.0.1")) {
+        const base = API_URL.replace(/\/api\/?$/, "");
+        url = url.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, base);
+    }
+
+    return url;
+};

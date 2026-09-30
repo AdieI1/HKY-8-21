@@ -15,6 +15,7 @@ import HomeHeader from "../../../components/HomeHeader";
 import AssignmentCard from "../../../components/AssignmentCard";
 import EmptyAssignment from "../../../components/EmptyAssignment";
 import SuccessMessage from "../../../components/SuccessMessage";
+import { useTheme } from "../../context/ThemeContext";
 import {
     getSavedUser,
     getMyDeliveries,
@@ -25,6 +26,7 @@ import {
 } from "../../../services/api";
 
 export default function Home() {
+    const { theme, darkMode } = useTheme();
     const [showSuccess, setShowSuccess] = useState(false);
     const [assignments, setAssignments] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -161,16 +163,22 @@ export default function Home() {
     };
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
             <HomeHeader />
 
             {showSuccess && (
                 <SuccessMessage onHide={() => setShowSuccess(false)} />
             )}
 
-            <View style={styles.assignmentHeader}>
-                <Ionicons name="document-text" size={28} color="#F24848" />
-                <Text style={styles.assignmentTitle}>Assignments</Text>
+            <View style={[
+                styles.assignmentHeader,
+                {
+                    backgroundColor: theme.card,
+                    borderBottomColor: theme.border,
+                }
+            ]}>
+                <Ionicons name="document-text" size={26} color={theme.primary} />
+                <Text style={[styles.assignmentTitle, { color: theme.primary }]}>Assignments</Text>
             </View>
 
             <ImageBackground
@@ -178,12 +186,19 @@ export default function Home() {
                 style={styles.body}
                 imageStyle={styles.image}
             >
-                <View style={styles.overlay} />
+                <View style={[
+                    styles.overlay,
+                    {
+                        backgroundColor: darkMode
+                            ? "rgba(28,29,35,0.92)"
+                            : "rgba(236,238,245,0.88)"
+                    }
+                ]} />
 
                 {loading && !refreshing ? (
                     <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="large" color="#F24848" />
-                        <Text style={styles.loadingText}>
+                        <ActivityIndicator size="large" color={theme.primary} />
+                        <Text style={[styles.loadingText, { color: theme.secondaryText }]}>
                             Loading assignments...
                         </Text>
                     </View>
@@ -201,8 +216,8 @@ export default function Home() {
                             <RefreshControl
                                 refreshing={refreshing}
                                 onRefresh={handleRefresh}
-                                tintColor="#F24848"
-                                colors={["#F24848"]}
+                                tintColor={theme.primary}
+                                colors={[theme.primary]}
                             />
                         }
                     />
@@ -215,21 +230,17 @@ export default function Home() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: "#FFFFFF",
     },
     assignmentHeader: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: "#F5F5F5",
         paddingHorizontal: 20,
         paddingVertical: 14,
         borderBottomWidth: 1,
-        borderBottomColor: "#E8E8E8",
     },
     assignmentTitle: {
-        fontSize: 24,
+        fontSize: 22,
         fontWeight: "700",
-        color: "#F24848",
         marginLeft: 10,
     },
     body: {
@@ -240,7 +251,6 @@ const styles = StyleSheet.create({
     },
     overlay: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: "rgba(236,238,245,0.88)",
     },
     list: {
         padding: 16,
@@ -254,7 +264,6 @@ const styles = StyleSheet.create({
     },
     loadingText: {
         marginTop: 12,
-        color: "#555",
         fontSize: 15,
     },
 });

@@ -30,10 +30,6 @@ export default function PrintableIncidentModal({ incident, onClose }) {
   const printContentRef = useRef(null);
   const authUser = JSON.parse(localStorage.getItem('auth_user') || '{}');
   const [actionLoading, setActionLoading] = useState(false);
-  const [currentStatus, setCurrentStatus] = useState(incident?.status || 'pending');
-  const [currentResolution, setCurrentResolution] = useState(incident?.resolution_action || null);
-  const [resolvedRecord, setResolvedRecord] = useState(incident);
-  const [showResolveModal, setShowResolveModal] = useState(false);
   const [showReliefModal, setShowReliefModal] = useState(false);
   const [availableVehicles, setAvailableVehicles] = useState([]);
   const [availableDrivers, setAvailableDrivers] = useState([]);
@@ -43,7 +39,37 @@ export default function PrintableIncidentModal({ incident, onClose }) {
     notes: '',
   });
   const [reliefLoading, setReliefLoading] = useState(false);
-  const [reliefSuccessInfo, setReliefSuccessInfo] = useState(null);
+  const [reliefSuccessInfo, setReliefSuccessInfo] = useState(
+    incident?.resolution_action === 'dispatch_relief'
+      ? {
+          vehicle: 'Relief Truck Dispatched',
+          driver: 'Standby Driver',
+          dispatchedAt: incident.reported_at,
+        }
+      : null
+  );
+
+  const delivery = incident?.delivery || {};
+  const request = delivery?.request || {};
+  const customer = request?.customer || {};
+
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [rescheduleDate, setRescheduleDate] = useState(
+    request.scheduled_date || request.reschedule_proposed_date || new Date(Date.now() + 86400000).toISOString().split('T')[0]
+  );
+  const [rescheduleSlot, setRescheduleSlot] = useState(
+    request.scheduled_time_slot || request.reschedule_proposed_time_slot || '09:00 AM'
+  );
+  const [rescheduleLoading, setRescheduleLoading] = useState(false);
+  const [rescheduleSuccessInfo, setRescheduleSuccessInfo] = useState(
+    request.reschedule_status === 'proposed'
+      ? {
+          date: request.reschedule_proposed_date,
+          slot: request.reschedule_proposed_time_slot,
+        }
+      : null
+  );
+
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [refundForm, setRefundForm] = useState({
     refund_amount: incident?.refund_amount ? String(incident.refund_amount) : (incident?.delivery?.trip_cost ? String(incident.delivery.trip_cost) : ''),
@@ -76,19 +102,8 @@ export default function PrintableIncidentModal({ incident, onClose }) {
         })()
       : [incident?.incident_type || 'other'];
 
-  const [resolveForm, setResolveForm] = useState({
-    police_report_no: incident?.police_report_no || '',
-    vehicle_towed_to: incident?.vehicle_towed_to || '',
-    cargo_condition: incident?.cargo_condition || (incidentTypes.includes('cargo_damage') ? 'partial_damage' : 'intact'),
-    vehicle_status_after: 'maintenance',
-    notes: incident?.resolution_notes || '',
-  });
-
   if (!incident) return null;
 
-  const delivery = incident.delivery || {};
-  const request = delivery.request || {};
-  const customer = request.customer || {};
   const driver = delivery.driver || {};
   const driverUser = driver.user || {};
   const vehicle = delivery.vehicle || {};
@@ -206,7 +221,6 @@ export default function PrintableIncidentModal({ incident, onClose }) {
       const chosenVeh = availableVehicles.find((v) => String(v.vehicle_id) === String(reliefForm.relief_vehicle_id));
       const chosenDrv = availableDrivers.find((d) => String(d.driver_id) === String(reliefForm.relief_driver_id));
 
-      setCurrentResolution('dispatch_relief');
       setReliefSuccessInfo({
         vehicle: chosenVeh ? `${chosenVeh.plate_number} (${chosenVeh.model})` : 'Relief Truck',
         driver: chosenDrv ? (chosenDrv.user?.full_name || chosenDrv.full_name || 'Standby Driver') : 'Standby Driver',
@@ -280,7 +294,6 @@ export default function PrintableIncidentModal({ incident, onClose }) {
         notes: refundForm.notes.trim(),
       });
 
-      setCurrentResolution('flag_refund');
       setRefundSuccessInfo({
         amount: refundForm.refund_amount,
         reason: refundForm.refund_reason,
@@ -327,65 +340,57 @@ export default function PrintableIncidentModal({ incident, onClose }) {
     }
   };
 
-  const handleSubmitResolution = async (e) => {
+  const handleConfirmReschedule = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    if (!resolveForm.notes.trim()) {
+    if (!rescheduleDate) {
       setFeedbackModal({
         type: 'warning',
         icon: 'fa-exclamation-triangle',
         iconColor: '#D97706',
         iconBg: '#FEF3C7',
-        title: 'Findings Required',
-        subtitle: 'Resolution form incomplete',
-        items: ['Please provide official resolution findings and corrective actions taken.'],
-        buttonText: 'Back to Form',
+        title: 'Date Required',
+        subtitle: 'Reschedule proposal incomplete',
+        items: ['Please select a proposed date for delivery rescheduling.'],
+        buttonText: 'Review Form',
         btnBg: '#D97706',
       });
       return;
     }
 
-    setActionLoading(true);
+    setRescheduleLoading(true);
     try {
-      const res = await api.post(`/incident-reports/${incident.incident_id}/resolve`, {
-        action: 'mark_resolved',
-        notes: resolveForm.notes.trim(),
-        police_report_no: resolveForm.police_report_no.trim() || null,
-        vehicle_towed_to: resolveForm.vehicle_towed_to.trim() || null,
-        cargo_condition: resolveForm.cargo_condition,
-        vehicle_status_after: resolveForm.vehicle_status_after,
+      await api.post(`/deliveries/${delivery.delivery_id}/propose-reschedule`, {
+        proposed_date: rescheduleDate,
+        proposed_time_slot: rescheduleSlot || '09:00 AM',
       });
 
-      const updated = res.data?.incident || {};
-      setCurrentStatus('resolved');
-      setCurrentResolution('mark_resolved');
-      setResolvedRecord({
-        ...incident,
-        ...updated,
-        resolver: updated.resolver || authUser,
+      setRescheduleSuccessInfo({
+        date: rescheduleDate,
+        slot: rescheduleSlot || '09:00 AM',
       });
-      setShowResolveModal(false);
+      setShowRescheduleModal(false);
       setFeedbackModal({
         type: 'success',
-        icon: 'fa-check-circle',
-        iconColor: '#059669',
-        iconBg: '#D1FAE5',
-        title: 'Case File Officially Closed',
-        subtitle: 'Official incident investigation concluded and signed off',
-        badge: 'Case Resolved',
-        badgeColor: '#047857',
-        badgeBg: '#D1FAE5',
+        icon: 'fa-calendar-check',
+        iconColor: '#EA580C',
+        iconBg: '#FFEDD5',
+        title: 'Reschedule Proposed',
+        subtitle: 'Customer notified of new proposed delivery schedule',
+        badge: 'Reschedule Proposed',
+        badgeColor: '#C2410C',
+        badgeBg: '#FFEDD5',
         highlight: {
-          label: 'Vehicle Status After Incident',
-          value: resolveForm.vehicle_status_after === 'available' ? 'Cleared → Available for Dispatch' : 'Maintenance Hold Required',
-          sub: resolveForm.police_report_no ? `Police Blotter / Report: ${resolveForm.police_report_no}` : 'Internal Operations Resolution',
+          label: 'Proposed Dispatch Date',
+          value: formatDate(rescheduleDate),
+          sub: `Time Slot: ${rescheduleSlot || '09:00 AM'} • Recipient: ${customer.full_name || 'Customer'}`,
         },
         items: [
-          'Investigation findings and corrective actions recorded.',
-          'Official incident record closed by authorized staff.',
-          `Vehicle operational status updated to ${resolveForm.vehicle_status_after === 'available' ? 'Available' : 'Maintenance'}.`,
+          'Proposed reschedule window transmitted to customer.',
+          'Driver and fleet schedule updated with new timeline.',
+          'Incident case audit synchronized.',
         ],
-        buttonText: 'Case File Closed',
-        btnBg: '#059669',
+        buttonText: 'Acknowledge',
+        btnBg: '#EA580C',
       });
     } catch (err) {
       setFeedbackModal({
@@ -393,14 +398,14 @@ export default function PrintableIncidentModal({ incident, onClose }) {
         icon: 'fa-exclamation-circle',
         iconColor: '#DC2626',
         iconBg: '#FEE2E2',
-        title: 'Resolution Failed',
-        subtitle: 'Unable to close incident report',
-        items: [err?.response?.data?.message || err.message || 'Server error occurred while resolving incident.'],
+        title: 'Reschedule Proposal Failed',
+        subtitle: 'Unable to send reschedule notification',
+        items: [err?.response?.data?.message || err.message || 'Server error occurred during reschedule request.'],
         buttonText: 'Dismiss',
         btnBg: '#475569',
       });
     } finally {
-      setActionLoading(false);
+      setRescheduleLoading(false);
     }
   };
 
@@ -413,51 +418,34 @@ export default function PrintableIncidentModal({ incident, onClose }) {
         <div className="incident-modal-action-bar no-print">
           <div className="incident-modal-title">
             <i className="fas fa-file-invoice text-red-600"></i>
-            <span>Official Incident Report &middot; {incidentCode}</span>
+            <span>Internal Incident Report &middot; {incidentCode}</span>
           </div>
           <div className="incident-modal-actions">
             <button
               className="btn-relief-action"
               onClick={handleOpenReliefModal}
-              disabled={actionLoading || currentResolution === 'dispatch_relief'}
-              title="Assign an idle relief truck to the incident GPS coordinates"
+              disabled={actionLoading || !!reliefSuccessInfo}
+              title="Assign an idle relief truck to the incident site or cargo transshipment"
             >
-              <i className="fas fa-truck-pickup"></i> {currentResolution === 'dispatch_relief' ? 'Relief Dispatched' : 'Dispatch Relief'}
+              <i className="fas fa-truck-pickup"></i> {reliefSuccessInfo ? 'Relief Dispatched' : 'Re-assign / Relief Unit'}
+            </button>
+            <button
+              className="btn-reschedule-action"
+              onClick={() => setShowRescheduleModal(true)}
+              disabled={actionLoading || !!rescheduleSuccessInfo}
+              title="Propose a new delivery date and time slot to the customer"
+            >
+              <i className="far fa-calendar-alt"></i> {rescheduleSuccessInfo ? 'Reschedule Proposed' : 'Re-schedule'}
             </button>
             <button
               className="btn-refund-action"
               onClick={() => setShowRefundModal(true)}
-              disabled={actionLoading || currentResolution === 'flag_refund' || incident.resolution_action === 'flag_refund'}
-              style={(currentResolution === 'flag_refund' || incident.resolution_action === 'flag_refund') ? { backgroundColor: '#DC2626', color: '#fff', cursor: 'default' } : {}}
+              disabled={actionLoading || !!refundSuccessInfo || incident.resolution_action === 'flag_refund'}
+              style={(refundSuccessInfo || incident.resolution_action === 'flag_refund') ? { backgroundColor: '#DC2626', color: '#fff', cursor: 'default' } : {}}
               title="Flag this incident for customer refund / cargo compensation review"
             >
-              <i className="fas fa-hand-holding-usd"></i> {(currentResolution === 'flag_refund' || incident.resolution_action === 'flag_refund') ? 'Refund Flagged' : 'Flag Refund'}
+              <i className="fas fa-hand-holding-usd"></i> {(refundSuccessInfo || incident.resolution_action === 'flag_refund') ? 'Refund Flagged' : 'Flag Refund'}
             </button>
-            {currentStatus !== 'resolved' ? (
-              <button
-                className="btn-resolve-action"
-                onClick={() => setShowResolveModal(true)}
-                disabled={actionLoading}
-                title="Open structured case file resolution and audit sign-off"
-              >
-                <i className="fas fa-clipboard-check"></i> Resolve Case
-              </button>
-            ) : (
-              <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                borderRadius: '6px',
-                backgroundColor: '#DCFCE7',
-                color: '#166534',
-                fontSize: '12px',
-                fontWeight: '700',
-                border: '1px solid #86EFAC'
-              }}>
-                <i className="fas fa-check-circle"></i> Resolved &amp; Audited
-              </span>
-            )}
             <button className="btn-print-action" onClick={handlePrint}>
               <i className="fas fa-print"></i> Print
             </button>
@@ -477,9 +465,9 @@ export default function PrintableIncidentModal({ incident, onClose }) {
               <div className="company-subtext">Tel: (088) 856-1234 &middot; safety@hjytrucking.ph</div>
             </div>
             <div className="document-badge">
-              <div className="doc-title-main">INCIDENT & ACCIDENT REPORT</div>
+              <div className="doc-title-main">INTERNAL INCIDENT REPORT</div>
               <div className="doc-ref-id">{incidentCode}</div>
-              <div className="doc-confidential">CONFIDENTIAL INVESTIGATION DOCUMENT</div>
+              <div className="doc-confidential">COMPANY INTERNAL RECORD</div>
             </div>
           </div>
 
@@ -488,8 +476,12 @@ export default function PrintableIncidentModal({ incident, onClose }) {
           {/* Incident Meta Summary Row */}
           <div className="meta-summary-grid">
             <div className="meta-cell">
-              <span className="cell-label">Date & Time Filed</span>
-              <span className="cell-value">{formatDateTime(incident.reported_at)}</span>
+              <span className="cell-label">Incident Reference</span>
+              <span className="cell-value font-bold text-red">{incidentCode}</span>
+            </div>
+            <div className="meta-cell">
+              <span className="cell-label">Date &amp; Time Incident Took Place</span>
+              <span className="cell-value font-bold" style={{ color: '#1E293B' }}>{formatDateTime(incident.reported_at)}</span>
             </div>
             <div className="meta-cell">
               <span className="cell-label">Incident Classification</span>
@@ -499,12 +491,6 @@ export default function PrintableIncidentModal({ incident, onClose }) {
               <span className="cell-label">Severity Level</span>
               <span className={`cell-badge severity-${incident.severity || 'medium'}`}>
                 {(incident.severity || 'Medium').toUpperCase()}
-              </span>
-            </div>
-            <div className="meta-cell">
-              <span className="cell-label">Status</span>
-              <span className={`cell-badge status-${currentStatus || 'pending'}`}>
-                {(currentStatus || 'Pending').toUpperCase()}
               </span>
             </div>
           </div>
@@ -545,22 +531,6 @@ export default function PrintableIncidentModal({ incident, onClose }) {
                 <span style={{ fontWeight: '800', fontSize: '13px', color: '#1F2937', letterSpacing: '0.3px' }}>
                   SMART LOGISTICS ADVISORY: {incident.recommendation_title || 'Multi-Issue System Evaluation'}
                 </span>
-                {currentResolution && (
-                  <span
-                    style={{
-                      marginLeft: 'auto',
-                      backgroundColor: currentResolution === 'dispatch_relief' ? '#16A34A' : '#DC2626',
-                      color: '#FFF',
-                      fontSize: '10px',
-                      padding: '2px 8px',
-                      borderRadius: '10px',
-                      fontWeight: '700',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Action: {currentResolution.replace(/_/g, ' ')}
-                  </span>
-                )}
               </div>
               <p style={{ margin: 0, fontSize: '12px', color: '#374151', lineHeight: 1.5 }}>
                 {incident.recommendation_notes ||
@@ -568,14 +538,19 @@ export default function PrintableIncidentModal({ incident, onClose }) {
               </p>
               {reliefSuccessInfo && (
                 <div style={{ marginTop: '10px', padding: '10px 14px', borderRadius: '8px', backgroundColor: '#ECFDF5', border: '1px solid #6EE7B7', color: '#065F46', fontSize: '12px' }}>
-                  <strong><i className="fas fa-check-circle"></i> Relief Truck Dispatched:</strong> {reliefSuccessInfo.vehicle} with Driver <strong>{reliefSuccessInfo.driver}</strong>. Disabled vehicle placed on Maintenance Hold.
+                  <strong><i className="fas fa-check-circle"></i> Relief Truck Re-assigned &amp; Dispatched:</strong> {reliefSuccessInfo.vehicle} with Driver <strong>{reliefSuccessInfo.driver}</strong>. Disabled vehicle moved to Maintenance Hold.
+                </div>
+              )}
+              {(rescheduleSuccessInfo || request.reschedule_status === 'proposed') && (
+                <div style={{ marginTop: '10px', padding: '10px 14px', borderRadius: '8px', backgroundColor: '#FFF7ED', border: '1px solid #FDBA74', color: '#9A3412', fontSize: '12px' }}>
+                  <strong><i className="far fa-calendar-check"></i> Reschedule Proposed to Customer:</strong> Dispatch window proposed for <strong>{formatDate(rescheduleSuccessInfo?.date || request.reschedule_proposed_date)}</strong> at <strong>{rescheduleSuccessInfo?.slot || request.reschedule_proposed_time_slot || '09:00 AM'}</strong>.
                 </div>
               )}
             </div>
           )}
 
           {/* Customer Refund & Compensation Claim Banner */}
-          {(refundSuccessInfo || currentResolution === 'flag_refund' || incident.resolution_action === 'flag_refund') && (
+          {(refundSuccessInfo || incident.resolution_action === 'flag_refund') && (
             <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '8px', backgroundColor: '#FEF2F2', border: '1.5px solid #FCA5A5', color: '#991B1B', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <i className="fas fa-hand-holding-usd" style={{ fontSize: '20px', color: '#DC2626' }}></i>
@@ -736,6 +711,12 @@ export default function PrintableIncidentModal({ incident, onClose }) {
                 </span>
               </div>
               <div className="field-box">
+                <span className="field-label">Date &amp; Time Incident Took Place</span>
+                <span className="field-value font-semibold">
+                  {formatDateTime(incident.reported_at)}
+                </span>
+              </div>
+              <div className="field-box">
                 <span className="field-label">Driver Heading / Current Leg</span>
                 <span className="field-value">
                   Towards {request.delivery_address ? request.delivery_address.slice(0, 45) + '...' : 'Destination Point'}
@@ -802,11 +783,11 @@ export default function PrintableIncidentModal({ incident, onClose }) {
             </div>
           )}
 
-          {/* Section 6: Official Sign-Off Block */}
+          {/* Section 6: Internal Incident Sign-Off Block */}
           <div className="paper-section signature-section">
             <div className="section-heading">
               <span className="section-num">6</span>
-              <span className="section-title">OFFICIAL INVESTIGATION SIGN-OFF &amp; CERTIFICATION</span>
+              <span className="section-title">INTERNAL INCIDENT SIGN-OFF &amp; VERIFICATION</span>
             </div>
             <div className="signature-grid">
               <div className="signature-box">
@@ -823,45 +804,41 @@ export default function PrintableIncidentModal({ incident, onClose }) {
               </div>
               <div className="signature-box">
                 <div className="sig-line"></div>
-                <div className="sig-name">{resolvedRecord?.resolver?.full_name || dispatcherName}</div>
-                <div className="sig-title">Fleet Operations Manager</div>
-                <div className="sig-date">Date: {formatDate(resolvedRecord?.resolved_at || incident.reported_at)}</div>
+                <div className="sig-name">{dispatcherName}</div>
+                <div className="sig-title">Authorized Dispatch Officer</div>
+                <div className="sig-date">Date: {formatDate(incident.reported_at)}</div>
               </div>
             </div>
           </div>
 
           {/* Footer Notice */}
           <div className="paper-footer">
-            <span>HJY Trucking Services &bull; Official Incident Form &bull; System Generated Record &bull; Page 1 of 1</span>
+            <span>HJY Trucking Services &bull; Internal Company Incident Record &bull; System Generated Record &bull; Page 1 of 1</span>
           </div>
         </div>
       </div>
 
-      {/* Structured Case File Resolution Modal */}
-      {showResolveModal && (
+      {/* Customer Reschedule Proposal Modal */}
+      {showRescheduleModal && (
         <div
-          className="incident-resolve-submodal-overlay"
           style={{
             position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.75)',
-            zIndex: 10000,
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            zIndex: 9999,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             padding: '20px',
           }}
-          onClick={() => setShowResolveModal(false)}
+          onClick={() => setShowRescheduleModal(false)}
         >
           <div
             style={{
               backgroundColor: '#FFFFFF',
               borderRadius: '16px',
               width: '100%',
-              maxWidth: '560px',
+              maxWidth: '520px',
               boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
               overflow: 'hidden',
               border: '1px solid #E2E8F0',
@@ -869,141 +846,82 @@ export default function PrintableIncidentModal({ incident, onClose }) {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div style={{ backgroundColor: '#1E293B', padding: '16px 20px', color: '#FFFFFF', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ backgroundColor: '#C2410C', padding: '16px 20px', color: '#FFFFFF', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: 34, height: 34, borderRadius: '8px', backgroundColor: '#DC2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <i className="fas fa-clipboard-check" style={{ color: '#fff', fontSize: 16 }}></i>
+                <div style={{ width: 34, height: 34, borderRadius: '8px', backgroundColor: '#EA580C', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <i className="far fa-calendar-alt" style={{ color: '#fff', fontSize: 16 }}></i>
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700' }}>Incident Case File Resolution</h3>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#94A3B8' }}>{incidentCode} &bull; Official Audit Sign-off</p>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700' }}>Propose Delivery Reschedule</h3>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#FED7AA' }}>{incidentCode} &bull; Customer Notification</p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setShowResolveModal(false)}
-                style={{ background: 'none', border: 'none', color: '#94A3B8', fontSize: '18px', cursor: 'pointer' }}
+                onClick={() => setShowRescheduleModal(false)}
+                style={{ background: 'none', border: 'none', color: '#FED7AA', fontSize: '18px', cursor: 'pointer' }}
               >
                 <i className="fas fa-times"></i>
               </button>
             </div>
 
             {/* Form Body */}
-            <form onSubmit={handleSubmitResolution} style={{ padding: '20px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+            <form onSubmit={handleConfirmReschedule} style={{ padding: '20px' }}>
+              <div style={{ backgroundColor: '#FFF7ED', border: '1px solid #FFEDD5', borderRadius: '8px', padding: '12px 14px', marginBottom: '16px', fontSize: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
-                    Police Blotter / Reference #
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. PNP-BLOTTER-2026-098"
-                    value={resolveForm.police_report_no}
-                    onChange={(e) => setResolveForm({ ...resolveForm, police_report_no: e.target.value })}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px' }}
-                  />
+                  <span style={{ color: '#C2410C', display: 'block' }}>Customer:</span>
+                  <strong style={{ color: '#1E293B' }}>{customer.full_name || 'Customer'}</strong>
                 </div>
-
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
-                    Vehicle Towing / Depot Location
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. HJY Yard 2 / Apex Shop"
-                    value={resolveForm.vehicle_towed_to}
-                    onChange={(e) => setResolveForm({ ...resolveForm, vehicle_towed_to: e.target.value })}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px' }}
-                  />
+                  <span style={{ color: '#C2410C', display: 'block' }}>Delivery Code:</span>
+                  <strong style={{ color: '#1E293B' }}>{requestCode}</strong>
+                </div>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <span style={{ color: '#C2410C', display: 'block' }}>Drop-off Location:</span>
+                  <strong style={{ color: '#1E293B' }}>{request.delivery_address || 'Destination'}</strong>
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
-                    Cargo Condition Assessment <span style={{ color: '#DC2626' }}>*</span>
-                  </label>
-                  <select
-                    value={resolveForm.cargo_condition}
-                    onChange={(e) => setResolveForm({ ...resolveForm, cargo_condition: e.target.value })}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#fff' }}
-                  >
-                    <option value="intact">Intact &amp; Verified Undamaged</option>
-                    <option value="partial_damage">Partially Damaged</option>
-                    <option value="total_loss">Total Loss (Destroyed)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
-                    Vehicle Post-Incident Status
-                  </label>
-                  <select
-                    value={resolveForm.vehicle_status_after}
-                    onChange={(e) => setResolveForm({ ...resolveForm, vehicle_status_after: e.target.value })}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', backgroundColor: '#fff' }}
-                  >
-                    <option value="maintenance">Keep in Maintenance Hold</option>
-                    <option value="available">Cleared &amp; Return to Available</option>
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
-                  Official Resolution Findings &amp; Actions Taken <span style={{ color: '#DC2626' }}>*</span>
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '4px' }}>
+                  Proposed Delivery Date <span style={{ color: '#DC2626' }}>*</span>
                 </label>
-                <textarea
-                  rows={3}
-                  placeholder="Document root cause, investigation outcome, driver medical check, and corrective measures taken..."
-                  value={resolveForm.notes}
-                  onChange={(e) => setResolveForm({ ...resolveForm, notes: e.target.value })}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', resize: 'vertical' }}
+                <input
+                  type="date"
+                  value={rescheduleDate}
+                  onChange={(e) => setRescheduleDate(e.target.value)}
+                  style={{ width: '100%', padding: '9px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', boxSizing: 'border-box' }}
                   required
                 />
               </div>
 
-              {/* Staff Sign-off confirmation */}
-              <div style={{ backgroundColor: '#F8FAFC', padding: '10px 14px', borderRadius: '8px', border: '1px solid #E2E8F0', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <span style={{ fontSize: '11px', color: '#64748B', display: 'block' }}>Authorizing Operations Officer:</span>
-                  <span style={{ fontSize: '13px', fontWeight: '700', color: '#1E293B' }}>{authUser?.full_name || 'Authorized Staff'}</span>
-                </div>
-                <span style={{ fontSize: '11px', color: '#16A34A', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <i className="fas fa-shield-alt"></i> Verified Session
-                </span>
+              <div style={{ marginBottom: '18px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#334155', marginBottom: '4px' }}>
+                  Preferred Time Slot
+                </label>
+                <input
+                  type="text"
+                  value={rescheduleSlot}
+                  onChange={(e) => setRescheduleSlot(e.target.value)}
+                  placeholder="e.g. 09:00 AM or 02:00 PM"
+                  style={{ width: '100%', padding: '9px 10px', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '13px', boxSizing: 'border-box' }}
+                />
               </div>
 
-              {/* Footer Buttons */}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                 <button
                   type="button"
-                  onClick={() => setShowResolveModal(false)}
-                  disabled={actionLoading}
-                  style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#475569', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+                  onClick={() => setShowRescheduleModal(false)}
+                  style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #CBD5E1', backgroundColor: '#F1F5F9', color: '#475569', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={actionLoading}
-                  style={{
-                    padding: '9px 18px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    background: '#16A34A',
-                    color: '#FFFFFF',
-                    fontSize: '13px',
-                    fontWeight: '700',
-                    cursor: actionLoading ? 'not-allowed' : 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    opacity: actionLoading ? 0.7 : 1,
-                  }}
+                  disabled={rescheduleLoading}
+                  style={{ padding: '8px 18px', borderRadius: '6px', border: 'none', backgroundColor: '#EA580C', color: '#FFFFFF', fontSize: '13px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                 >
-                  {actionLoading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check-circle"></i>}
-                  Confirm &amp; Close Case File
+                  <i className="far fa-calendar-alt"></i> {rescheduleLoading ? 'Submitting...' : 'Send Reschedule Proposal'}
                 </button>
               </div>
             </form>

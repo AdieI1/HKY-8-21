@@ -15,10 +15,12 @@ import HomeHeader from "../../../components/HomeHeader";
 import HistoryCard from "../../../components/HistoryCard";
 import EmptyAssignment from "../../../components/EmptyAssignment";
 import { getMyDeliveries } from "../../../services/api";
+import { useTheme } from "../../context/ThemeContext";
 
 const SORT_OPTIONS = ["Newest", "Oldest", "A-Z", "Z-A"];
 
 export default function History() {
+  const { theme, darkMode } = useTheme();
   const [sortOption, setSortOption] = useState("Newest");
   const [sortVisible, setSortVisible] = useState(false);
   const [completedDeliveries, setCompletedDeliveries] = useState([]);
@@ -58,6 +60,7 @@ export default function History() {
         return {
           id: String(delivery.delivery_id),
           customer: customer.full_name || "Customer",
+          customerPhoto: customer.profile_photo_url || customer.profile_photo_path || null,
           cargo: req.cargo_type || "Cargo",
           weight: req.weight != null ? `${req.weight}kg` : "—",
           pickup: req.pickup_address || "—",
@@ -111,28 +114,35 @@ export default function History() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <HomeHeader />
 
-      <View style={styles.titleRow}>
-        <Text style={styles.title}>Delivery History</Text>
+      <View style={[styles.titleRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+        <Text style={[styles.title, { color: theme.primary }]}>Delivery History</Text>
 
         <TouchableOpacity
-          style={styles.sortButton}
+          style={[styles.sortButton, { backgroundColor: theme.cardSecondary }]}
           activeOpacity={0.7}
           onPress={() => setSortVisible(!sortVisible)}
         >
-          <Text style={styles.sortText}>Sort</Text>
+          <Text style={[styles.sortText, { color: theme.text }]}>Sort</Text>
           <Ionicons
             name={sortVisible ? "chevron-up" : "chevron-down"}
             size={15}
-            color="#53629B"
+            color={theme.icon}
           />
         </TouchableOpacity>
 
         {sortVisible && (
-          <View style={styles.sortMenu}>
-            <Text style={styles.menuTitle}>Sort by</Text>
+          <View style={[
+            styles.sortMenu,
+            {
+              backgroundColor: theme.card,
+              borderColor: theme.border,
+              borderWidth: darkMode ? 1 : 0,
+            }
+          ]}>
+            <Text style={[styles.menuTitle, { color: theme.text }]}>Sort by</Text>
             {SORT_OPTIONS.map((opt) => (
               <TouchableOpacity
                 key={opt}
@@ -143,13 +153,14 @@ export default function History() {
                 <Text
                   style={[
                     styles.optionText,
-                    sortOption === opt && styles.selectedText,
+                    { color: theme.text },
+                    sortOption === opt && [styles.selectedText, { color: theme.primary }],
                   ]}
                 >
                   {opt}
                 </Text>
                 {sortOption === opt && (
-                  <Ionicons name="checkmark" size={18} color="#F24848" />
+                  <Ionicons name="checkmark" size={18} color={theme.primary} />
                 )}
               </TouchableOpacity>
             ))}
@@ -159,8 +170,8 @@ export default function History() {
 
       {loading && !refreshing ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#B91F27" />
-          <Text style={styles.loadingText}>Loading history...</Text>
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={[styles.loadingText, { color: theme.secondaryText }]}>Loading history...</Text>
         </View>
       ) : (
         <ScrollView
@@ -170,8 +181,8 @@ export default function History() {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={() => fetchHistory(true)}
-              tintColor="#B91F27"
-              colors={["#B91F27"]}
+              tintColor={theme.primary}
+              colors={[theme.primary]}
             />
           }
         >
@@ -191,27 +202,24 @@ export default function History() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#DDE0EE",
   },
   titleRow: {
     height: 51,
-    backgroundColor: "#F4F5FC",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 12,
     position: "relative",
     zIndex: 10,
+    borderBottomWidth: 1,
   },
   title: {
     fontSize: 21,
     fontWeight: "800",
-    color: "#D62B2B",
   },
   sortButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#D8DDF5",
     paddingHorizontal: 11,
     paddingVertical: 6,
     borderRadius: 6,
@@ -220,7 +228,6 @@ const styles = StyleSheet.create({
   sortText: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#53629B",
     marginRight: 4,
   },
   sortMenu: {
@@ -228,7 +235,6 @@ const styles = StyleSheet.create({
     top: 44,
     right: 12,
     width: 170,
-    backgroundColor: "#F4F5FC",
     borderRadius: 9,
     paddingVertical: 7,
     elevation: 8,
@@ -241,7 +247,6 @@ const styles = StyleSheet.create({
   menuTitle: {
     fontSize: 14,
     fontWeight: "800",
-    color: "#292A32",
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
@@ -254,10 +259,8 @@ const styles = StyleSheet.create({
   },
   optionText: {
     fontSize: 14,
-    color: "#44454C",
   },
   selectedText: {
-    color: "#F24848",
     fontWeight: "700",
   },
   content: {
@@ -273,7 +276,6 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
-    color: "#555",
     fontSize: 14,
   },
 });

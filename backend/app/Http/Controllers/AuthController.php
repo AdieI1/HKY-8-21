@@ -40,7 +40,7 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        $user->load('role');
+        $user->load(['role', 'driver']);
 
         // Automatically record login system log
         SystemLog::create([
@@ -63,7 +63,7 @@ class AuthController extends Controller
      */
     public function me(Request $request)
     {
-        return $request->user()->load('role');
+        return $request->user()->load(['role', 'driver']);
     }
 
     /**

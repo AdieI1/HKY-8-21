@@ -57,7 +57,7 @@ class IncidentReportController extends Controller
             return [
                 'action' => 'emergency_escalation',
                 'title' => 'Emergency Protocol & Safety Investigation',
-                'notes' => 'Accident reported. Prioritize driver/public safety and emergency services. Halt all cargo movement pending formal inspection and police/insurance clearance.',
+                'notes' => 'Accident reported. Prioritize driver safety and cargo protection. Halt all cargo movement pending formal internal safety inspection and fleet clearance.',
                 'severity' => 'high',
                 'can_dispatch_relief' => false,
                 'requires_refund_check' => $hasCargoDamage,

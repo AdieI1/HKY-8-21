@@ -21,6 +21,20 @@ function formatDate(dateString) {
   return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' });
 }
 
+function formatDateTime(dateString) {
+  if (!dateString) return '—';
+  const d = new Date(dateString);
+  if (isNaN(d)) return '—';
+  return d.toLocaleString('en-US', {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
 function driverCode(id) {
   return `DR${String(id).padStart(3, '0')}`;
 }
@@ -110,7 +124,6 @@ function DriversPage() {
   const [incidentSearch, setIncidentSearch] = useState('');
   const [incidentType, setIncidentType] = useState('All');
   const [incidentDriverFilter, setIncidentDriverFilter] = useState('All Drivers');
-  const [incidentStatusFilter, setIncidentStatusFilter] = useState('All Status');
   const [selectedPrintIncident, setSelectedPrintIncident] = useState(null);
 
   useEffect(() => {
@@ -270,10 +283,9 @@ function DriversPage() {
       }
 
       const inDriver = incidentDriverFilter === 'All Drivers' || driverName === incidentDriverFilter;
-      const inStatus = incidentStatusFilter === 'All Status' || inc.status === incidentStatusFilter;
-      return inSearch && inType && inDriver && inStatus;
+      return inSearch && inType && inDriver;
     });
-  }, [incidents, incidentSearch, incidentType, incidentDriverFilter, incidentStatusFilter]);
+  }, [incidents, incidentSearch, incidentType, incidentDriverFilter]);
 
   const incidentDriverNames = useMemo(() => {
     const names = new Set(incidents.map((i) => i.delivery?.driver?.user?.full_name).filter(Boolean));
@@ -292,7 +304,7 @@ function DriversPage() {
 
   useEffect(() => {
     setIncidentPage(1);
-  }, [incidentSearch, incidentType, incidentDriverFilter, incidentStatusFilter]);
+  }, [incidentSearch, incidentType, incidentDriverFilter]);
 
   const totalDriverPages = Math.ceil(filteredDrivers.length / PAGE_SIZE) || 1;
   const paginatedDrivers = useMemo(() => {
@@ -759,16 +771,6 @@ function DriversPage() {
                       <option key={name}>{name}</option>
                     ))}
                   </select>
-                  <select
-                    className="sort-select"
-                    value={incidentStatusFilter}
-                    onChange={(e) => setIncidentStatusFilter(e.target.value)}
-                  >
-                    <option>All Status</option>
-                    <option value="pending">Pending</option>
-                    <option value="investigating">Investigating</option>
-                    <option value="resolved">Resolved</option>
-                  </select>
                 </div>
               </div>
 
@@ -778,13 +780,13 @@ function DriversPage() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Date</th>
+                      <th>Incident #</th>
+                      <th>Date &amp; Time Incident Took Place</th>
                       <th>Driver</th>
                       <th>Request / Route</th>
                       <th>Type</th>
                       <th>Severity</th>
-                      <th>Location & Details</th>
-                      <th>Status</th>
+                      <th>Location &amp; Details</th>
                       <th>Action</th>
                     </tr>
                   </thead>
@@ -801,9 +803,17 @@ function DriversPage() {
                       paginatedIncidents.map((inc) => {
                         const req = inc.delivery?.request;
                         const reqId = req?.request_id ? `REQ${String(req.request_id).padStart(4, '0')}` : '—';
+                        const incCode = `INC-${String(inc.incident_id).padStart(5, '0')}`;
                         return (
                           <tr key={inc.incident_id}>
-                            <td>{formatDate(inc.reported_at)}</td>
+                            <td>
+                              <span style={{ fontWeight: 700, color: '#DC2626' }}>{incCode}</span>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600, color: '#1F2937', fontSize: 13 }}>
+                                {formatDateTime(inc.reported_at)}
+                              </div>
+                            </td>
                             <td>
                               <strong>{inc.delivery?.driver?.user?.full_name || 'Unassigned'}</strong>
                             </td>
@@ -830,11 +840,6 @@ function DriversPage() {
                               <div style={{ fontSize: 11.5, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {inc.description || '—'}
                               </div>
-                            </td>
-                            <td>
-                              <span className={`cell-badge status-${inc.status || 'pending'}`}>
-                                {(inc.status || 'pending').toUpperCase()}
-                              </span>
                             </td>
                             <td>
                               <button

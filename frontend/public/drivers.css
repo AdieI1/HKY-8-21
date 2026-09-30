@@ -2593,8 +2593,8 @@
     background: #b45309;
 }
 
-.btn-resolve-action {
-    background: #059669;
+.btn-reschedule-action {
+    background: #ea580c;
     color: #fff;
     border: none;
     padding: 8px 14px;
@@ -2608,8 +2608,13 @@
     transition: background 0.15s ease;
 }
 
-.btn-resolve-action:hover {
-    background: #047857;
+.btn-reschedule-action:hover {
+    background: #c2410c;
+}
+
+.btn-reschedule-action:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 .btn-close-action {
