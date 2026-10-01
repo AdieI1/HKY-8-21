@@ -15,6 +15,10 @@ import {
   DEFAULT_HQ_COORDINATES,
   fetchRoadRoute,
   getRouteWaypoints,
+  precomputeCumulativeDistances,
+  calculateRemainingRouteProgress,
+  formatRemainingDistance,
+  formatRemainingETA,
 } from "../../src/utils/routeService";
 import {
   DEFAULT_DANGER_ZONES,
@@ -61,6 +65,28 @@ export default function NavigationMap({
 
   const prevLocationRef = useRef(null);
 
+  // Synchronized callback refs
+  const onLocationChangeRef = useRef(onLocationChange);
+  const onHazardAlertRef = useRef(onHazardAlert);
+  const onRouteMetricsRef = useRef(onRouteMetrics);
+  useEffect(() => {
+    onLocationChangeRef.current = onLocationChange;
+    onHazardAlertRef.current = onHazardAlert;
+    onRouteMetricsRef.current = onRouteMetrics;
+  });
+
+  // Tracking refs for zero-latency local calculations (O(1) in memory)
+  const roadCoordinatesRef = useRef([]);
+  const cumulativeDistancesRef = useRef([]);
+  const totalRouteDistanceRef = useRef(0);
+  const totalRouteDurationRef = useRef(0);
+  const destinationRef = useRef(null);
+  const lastProgressIndexRef = useRef(0);
+  const lastSmoothedKmRef = useRef(null);
+  const lastEmittedMetricsRef = useRef(null);
+  const offRouteCountRef = useRef(0);
+  const lastRerouteTimeRef = useRef(0);
+
   // Extract Pickup & Dropoff coordinates
   const pickup = useMemo(() => {
     const isRelief = Boolean(delivery?.is_relief);
@@ -86,6 +112,56 @@ export default function NavigationMap({
     return getRouteWaypoints(delivery, navigationState, currentLocation);
   }, [delivery, navigationState, currentLocation]);
 
+  useEffect(() => {
+    destinationRef.current = routeWaypoints.destination;
+  }, [routeWaypoints.destination]);
+
+  // Re-route handler (triggered cleanly in background only if driver deviates >90m for 3+ consecutive GPS ticks)
+  const handleReroute = useCallback(async (currLoc, dest) => {
+    if (!dest) return;
+    try {
+      const newRoute = await fetchRoadRoute([currLoc, dest]);
+      if (newRoute?.coordinates?.length >= 2) {
+        const cumDist = precomputeCumulativeDistances(newRoute.coordinates);
+        roadCoordinatesRef.current = newRoute.coordinates;
+        cumulativeDistancesRef.current = cumDist;
+        totalRouteDistanceRef.current = newRoute.distanceKm;
+        totalRouteDurationRef.current = newRoute.durationMins;
+        lastProgressIndexRef.current = 0;
+        lastSmoothedKmRef.current = newRoute.distanceKm;
+
+        setRoadCoordinates(newRoute.coordinates);
+        setRouteInfo({ distanceKm: newRoute.distanceKm, durationMins: newRoute.durationMins });
+
+        const distFormatted = formatRemainingDistance(newRoute.distanceKm);
+        const etaFormatted = formatRemainingETA(newRoute.durationMins, newRoute.distanceKm);
+        const metrics = {
+          ...newRoute,
+          distanceFormatted: distFormatted,
+          etaFormatted: etaFormatted,
+        };
+        lastEmittedMetricsRef.current = metrics;
+        onRouteMetricsRef.current?.(metrics);
+
+        // Update elevation profile in background
+        fetchRouteSteepnessMobile(newRoute.coordinates)
+          .then((steepnessData) => {
+            if (steepnessData?.segments?.length > 0) {
+              setSteepnessSegments(steepnessData.segments);
+            }
+          })
+          .catch(() => {});
+      }
+    } catch (err) {
+      console.warn("Background re-route error:", err?.message);
+    }
+  }, []);
+
+  const handleRerouteRef = useRef(handleReroute);
+  useEffect(() => {
+    handleRerouteRef.current = handleReroute;
+  }, [handleReroute]);
+
   // 1. High-Frequency, Low-Latency Real-Time GPS Tracker (1.5s / 3m)
   useEffect(() => {
     let subscription;
@@ -106,7 +182,7 @@ export default function NavigationMap({
             longitude: initialLoc.coords.longitude,
           };
           setCurrentLocation(coord);
-          onLocationChange?.(coord);
+          onLocationChangeRef.current?.(coord);
         }
       } catch (_) {}
 
@@ -140,11 +216,87 @@ export default function NavigationMap({
           prevLocationRef.current = newCoord;
           setHeading(calculatedHeading);
           setCurrentLocation(newCoord);
-          onLocationChange?.(newCoord);
+          onLocationChangeRef.current?.(newCoord);
 
           // Check proximity to upcoming danger zones
           const nearbyHazard = findNearestUpcomingHazard(newCoord, DEFAULT_DANGER_ZONES, 1.8);
-          onHazardAlert?.(nearbyHazard);
+          onHazardAlertRef.current?.(nearbyHazard);
+
+          // -------------------------------------------------------------
+          // Real-time local route distance & ETA countdown (< 0.1ms execution)
+          // Zero network requests to prevent OSRM rate limits or UI lag
+          // -------------------------------------------------------------
+          if (
+            roadCoordinatesRef.current &&
+            roadCoordinatesRef.current.length >= 2 &&
+            cumulativeDistancesRef.current &&
+            cumulativeDistancesRef.current.length > 0
+          ) {
+            const progress = calculateRemainingRouteProgress(
+              newCoord,
+              roadCoordinatesRef.current,
+              cumulativeDistancesRef.current,
+              lastProgressIndexRef.current
+            );
+
+            if (progress.isOffRoute) {
+              offRouteCountRef.current += 1;
+              if (
+                offRouteCountRef.current >= 3 &&
+                Date.now() - lastRerouteTimeRef.current > 12000
+              ) {
+                lastRerouteTimeRef.current = Date.now();
+                offRouteCountRef.current = 0;
+                handleRerouteRef.current(newCoord, destinationRef.current);
+              }
+            } else {
+              offRouteCountRef.current = 0;
+              lastProgressIndexRef.current = progress.closestIndex;
+
+              let smoothedKm = progress.remainingKm;
+              if (lastSmoothedKmRef.current != null) {
+                // Monotonic dampening: suppress micro GPS jitter backwards (< 40m)
+                if (
+                  smoothedKm > lastSmoothedKmRef.current &&
+                  smoothedKm - lastSmoothedKmRef.current < 0.04
+                ) {
+                  smoothedKm = lastSmoothedKmRef.current;
+                } else {
+                  lastSmoothedKmRef.current = smoothedKm;
+                }
+              } else {
+                lastSmoothedKmRef.current = smoothedKm;
+              }
+
+              // Dynamic ETA calculation proportional to remaining road distance
+              const totalDist = totalRouteDistanceRef.current || 1;
+              const totalDur = totalRouteDurationRef.current || 1;
+              const avgSpeedKmPerMin = totalDist / Math.max(totalDur, 1);
+              const remainingMins =
+                smoothedKm <= 0.035
+                  ? 0
+                  : Math.max(1, Math.round(smoothedKm / Math.max(avgSpeedKmPerMin, 0.2)));
+
+              const distFormatted = formatRemainingDistance(smoothedKm);
+              const etaFormatted = formatRemainingETA(remainingMins, smoothedKm);
+
+              const prev = lastEmittedMetricsRef.current;
+              if (
+                !prev ||
+                prev.distanceFormatted !== distFormatted ||
+                prev.etaFormatted !== etaFormatted
+              ) {
+                const nextMetrics = {
+                  distanceKm: smoothedKm,
+                  durationMins: remainingMins,
+                  distanceFormatted: distFormatted,
+                  etaFormatted: etaFormatted,
+                };
+                lastEmittedMetricsRef.current = nextMetrics;
+                onRouteMetricsRef.current?.(nextMetrics);
+              }
+            }
+          }
         }
       );
     };
@@ -157,7 +309,7 @@ export default function NavigationMap({
       mounted = false;
       subscription?.remove();
     };
-  }, [onLocationChange, onHazardAlert]);
+  }, []);
 
   // 2. Fetch OSRM Road Route & Elevation Profile (cached per leg to eliminate in-transit lag)
   const prevLegKeyRef = useRef(null);
@@ -177,9 +329,27 @@ export default function NavigationMap({
     fetchRoadRoute(waypoints)
       .then(async (route) => {
         if (!active) return;
+        const cumDist = precomputeCumulativeDistances(route.coordinates);
+        roadCoordinatesRef.current = route.coordinates;
+        cumulativeDistancesRef.current = cumDist;
+        totalRouteDistanceRef.current = route.distanceKm;
+        totalRouteDurationRef.current = route.durationMins;
+        lastProgressIndexRef.current = 0;
+        lastSmoothedKmRef.current = route.distanceKm;
+        offRouteCountRef.current = 0;
+
         setRoadCoordinates(route.coordinates);
         setRouteInfo({ distanceKm: route.distanceKm, durationMins: route.durationMins });
-        onRouteMetrics?.(route);
+
+        const distFormatted = formatRemainingDistance(route.distanceKm);
+        const etaFormatted = formatRemainingETA(route.durationMins, route.distanceKm);
+        const initialMetrics = {
+          ...route,
+          distanceFormatted: distFormatted,
+          etaFormatted: etaFormatted,
+        };
+        lastEmittedMetricsRef.current = initialMetrics;
+        onRouteMetricsRef.current?.(initialMetrics);
 
         // Fetch elevation steepness segments if road coordinates are valid
         if (route.coordinates.length >= 2) {

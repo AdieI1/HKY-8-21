@@ -15,6 +15,7 @@ import NavigationInfoSheet from "../../components/navigation/NavigationInfoSheet
 import NavigationHeader from "../../components/navigation/NavigationHeader";
 import NavigationRoutePreview from "../../components/navigation/NavigationRoutePreview";
 import NavigationMap from "../../components/navigation/NavigationMap";
+import WeatherRouteAdvisory from "../../components/navigation/WeatherRouteAdvisory";
 import {
   getDelivery,
   saveDeliveryChecklist,
@@ -117,16 +118,20 @@ export default function Navigation() {
           ? backendDelivery.relief_origin_address
           : request.pickup_address || "",
       dropoff: request.dropoff_address || "",
-      distance: routeMetrics?.distanceKm
-        ? `${routeMetrics.distanceKm} km`
-        : distance
-          ? `${distance} km`
-          : "—",
-      eta: routeMetrics?.durationMins
-        ? `${routeMetrics.durationMins} mins`
-        : distance
-          ? `${Math.max(Math.round((distance / 40) * 60), 1)} mins`
-          : "—",
+      distance: routeMetrics?.distanceFormatted
+        ? routeMetrics.distanceFormatted
+        : routeMetrics?.distanceKm != null
+          ? `${routeMetrics.distanceKm} km`
+          : distance
+            ? `${distance} km`
+            : "—",
+      eta: routeMetrics?.etaFormatted
+        ? routeMetrics.etaFormatted
+        : routeMetrics?.durationMins != null
+          ? `${routeMetrics.durationMins} mins`
+          : distance
+            ? `${Math.max(Math.round((distance / 40) * 60), 1)} mins`
+            : "—",
       startingOdometer:
         preTrip?.starting_odometer || vehicle.odometer_reading || "",
       startingFuel: preTrip?.starting_fuel || "",
@@ -208,6 +213,11 @@ export default function Navigation() {
             onLocationChange={handleLocationChange}
             onHazardAlert={setActiveHazardAlert}
             onRouteMetrics={setRouteMetrics}
+          />
+
+          <WeatherRouteAdvisory
+            delivery={backendDelivery}
+            navigationState={navigationState}
           />
 
           {activeHazardAlert && (

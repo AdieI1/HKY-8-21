@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
+import Pagination from '../components/Pagination';
 
 function formatDate(dateString) {
   if (!dateString) return '—';
@@ -56,8 +57,12 @@ function FuelInventoryPage() {
   const [sortBy, setSortBy] = useState('type');
   const [historyTab, setHistoryTab] = useState('month');
   const [historyFilterType, setHistoryFilterType] = useState('all'); // all | in | out
+  const [fuelPage, setFuelPage] = useState(1);
+  const FUEL_PAGE_SIZE = 10;
   const [recentTxPage, setRecentTxPage] = useState(1);
   const recentTxRowsPerPage = 5;
+  const [modalPricePage, setModalPricePage] = useState(1);
+  const [modalTxPage, setModalTxPage] = useState(1);
 
 
   // Modals
@@ -155,6 +160,16 @@ function FuelInventoryPage() {
     if (sortBy === 'value') list.sort((a, b) => (Number(b.current_stock) * Number(b.unit_price)) - (Number(a.current_stock) * Number(a.unit_price)));
     return list;
   }, [fuels, search, sortBy]);
+
+  useEffect(() => {
+    setFuelPage(1);
+  }, [search, sortBy]);
+
+  const totalFuelPages = Math.ceil(filteredFuels.length / FUEL_PAGE_SIZE) || 1;
+  const paginatedFuels = useMemo(() => {
+    const start = (fuelPage - 1) * FUEL_PAGE_SIZE;
+    return filteredFuels.slice(start, start + FUEL_PAGE_SIZE);
+  }, [filteredFuels, fuelPage]);
 
   const filteredHistory = useMemo(() => {
     let list = [...issuances];
@@ -371,6 +386,8 @@ function FuelInventoryPage() {
     setHistoryTargetFuel(fuel);
     setHistoryTab('all');
     setHistoryFilterType('all');
+    setModalPricePage(1);
+    setModalTxPage(1);
     setShowHistoryModal(true);
   };
 
@@ -493,7 +510,7 @@ function FuelInventoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredFuels.map((fuel) => {
+                  {paginatedFuels.map((fuel) => {
                     const st = fuelStatus(fuel);
                     const totalVal = (Number(fuel.current_stock) * Number(fuel.unit_price)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                     return (
@@ -550,6 +567,14 @@ function FuelInventoryPage() {
                   )}
                 </tbody>
               </table>
+              <Pagination
+                currentPage={fuelPage}
+                totalPages={totalFuelPages}
+                totalItems={filteredFuels.length}
+                pageSize={FUEL_PAGE_SIZE}
+                onPageChange={setFuelPage}
+                showAlways={true}
+              />
             </div>
           </div>
 
@@ -642,79 +667,14 @@ function FuelInventoryPage() {
             </div>
 
             {/* Pagination Controls */}
-            <div
-              className="pi-table-footer"
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '14px 16px',
-                borderTop: '1px solid #e2e8f0',
-                background: '#fafafa',
-                borderBottomLeftRadius: 8,
-                borderBottomRightRadius: 8,
-                marginTop: 8,
-              }}
-            >
-              <span className="entries-info" style={{ fontSize: 13, color: '#64748b' }}>
-                Showing {filteredHistory.length === 0 ? 0 : (recentTxPage - 1) * recentTxRowsPerPage + 1} to{' '}
-                {Math.min(recentTxPage * recentTxRowsPerPage, filteredHistory.length)} of {filteredHistory.length} entries
-              </span>
-              <div className="pi-pagination" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="pi-page-label" style={{ fontSize: 13, color: '#64748b', marginRight: 4 }}>Page</span>
-                <button
-                  className="btn-page"
-                  type="button"
-                  disabled={recentTxPage === 1}
-                  onClick={() => setRecentTxPage((p) => Math.max(1, p - 1))}
-                  style={{
-                    padding: '5px 10px',
-                    borderRadius: 5,
-                    border: '1px solid #cbd5e1',
-                    background: '#fff',
-                    cursor: recentTxPage === 1 ? 'not-allowed' : 'pointer',
-                    opacity: recentTxPage === 1 ? 0.5 : 1,
-                  }}
-                >
-                  <i className="fas fa-chevron-left"></i>
-                </button>
-                {Array.from({ length: totalRecentTxPages }, (_, i) => i + 1).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    className={`btn-page-num ${p === recentTxPage ? 'active' : ''}`}
-                    onClick={() => setRecentTxPage(p)}
-                    style={{
-                      padding: '5px 11px',
-                      borderRadius: 5,
-                      border: p === recentTxPage ? '1px solid #d32f2f' : '1px solid #cbd5e1',
-                      background: p === recentTxPage ? '#d32f2f' : '#fff',
-                      color: p === recentTxPage ? '#fff' : '#334155',
-                      fontWeight: p === recentTxPage ? 700 : 500,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {p}
-                  </button>
-                ))}
-                <button
-                  className="btn-page"
-                  type="button"
-                  disabled={recentTxPage === totalRecentTxPages}
-                  onClick={() => setRecentTxPage((p) => Math.min(totalRecentTxPages, p + 1))}
-                  style={{
-                    padding: '5px 10px',
-                    borderRadius: 5,
-                    border: '1px solid #cbd5e1',
-                    background: '#fff',
-                    cursor: recentTxPage === totalRecentTxPages ? 'not-allowed' : 'pointer',
-                    opacity: recentTxPage === totalRecentTxPages ? 0.5 : 1,
-                  }}
-                >
-                  <i className="fas fa-chevron-right"></i>
-                </button>
-              </div>
-            </div>
+            <Pagination
+              currentPage={recentTxPage}
+              totalPages={totalRecentTxPages}
+              totalItems={filteredHistory.length}
+              pageSize={recentTxRowsPerPage}
+              onPageChange={setRecentTxPage}
+              showAlways={true}
+            />
           </div>
 
         </div>
@@ -1156,61 +1116,65 @@ function FuelInventoryPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {targetPriceHistories.map((ph, idx) => {
-                        const prev = Number(ph.previous_price || 0);
-                        const next = Number(ph.new_price || 0);
-                        const diff = next - prev;
-                        const isIncrease = diff > 0;
-                        const isInitial = prev === 0;
-                        const pct = prev > 0 ? ((diff / prev) * 100).toFixed(1) : null;
-                        const person = ph.changed_by_user?.full_name || ph.changedBy?.full_name || 'Admin / Staff';
+                      {(() => {
+                        const startIndex = (modalPricePage - 1) * 5;
+                        const pageItems = targetPriceHistories.slice(startIndex, startIndex + 5);
+                        return pageItems.map((ph, idx) => {
+                          const prev = Number(ph.previous_price || 0);
+                          const next = Number(ph.new_price || 0);
+                          const diff = next - prev;
+                          const isIncrease = diff > 0;
+                          const isInitial = prev === 0;
+                          const pct = prev > 0 ? ((diff / prev) * 100).toFixed(1) : null;
+                          const person = ph.changed_by_user?.full_name || ph.changedBy?.full_name || 'Admin / Staff';
 
-                        return (
-                          <tr key={ph.price_history_id || idx}>
-                            <td style={{ whiteSpace: 'nowrap' }}>
-                              <div style={{ fontWeight: 600, color: '#0f172a' }}>{formatDateTime(ph.created_at)}</div>
-                            </td>
-                            <td style={{ fontWeight: 700, color: '#1e293b' }}>
-                              {ph.fuel_type || historyTargetFuel?.fuel_type || 'Fuel'}
-                            </td>
-                            <td style={{ color: '#64748b', fontWeight: 600 }}>
-                              {isInitial ? '— (Initial)' : `₱${prev.toFixed(2)} / L`}
-                            </td>
-                            <td style={{ fontWeight: 800, color: '#0f172a' }}>
-                              ₱{next.toFixed(2)} / L
-                            </td>
-                            <td>
-                              {isInitial ? (
-                                <span style={{ padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, background: '#e0f2fe', color: '#0369a1' }}>
-                                  <i className="fas fa-tag"></i> Initial Base Price
+                          return (
+                            <tr key={ph.price_history_id || idx}>
+                              <td style={{ whiteSpace: 'nowrap' }}>
+                                <div style={{ fontWeight: 600, color: '#0f172a' }}>{formatDateTime(ph.created_at)}</div>
+                              </td>
+                              <td style={{ fontWeight: 700, color: '#1e293b' }}>
+                                {ph.fuel_type || historyTargetFuel?.fuel_type || 'Fuel'}
+                              </td>
+                              <td style={{ color: '#64748b', fontWeight: 600 }}>
+                                {isInitial ? '— (Initial)' : `₱${prev.toFixed(2)} / L`}
+                              </td>
+                              <td style={{ fontWeight: 800, color: '#0f172a' }}>
+                                ₱{next.toFixed(2)} / L
+                              </td>
+                              <td>
+                                {isInitial ? (
+                                  <span style={{ padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, background: '#e0f2fe', color: '#0369a1' }}>
+                                    <i className="fas fa-tag"></i> Initial Base Price
+                                  </span>
+                                ) : (
+                                  <span style={{
+                                    padding: '3px 8px',
+                                    borderRadius: 4,
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    background: isIncrease ? '#fee2e2' : '#dcfce7',
+                                    color: isIncrease ? '#dc2626' : '#16a34a',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                  }}>
+                                    <i className={isIncrease ? 'fas fa-arrow-trend-up' : 'fas fa-arrow-trend-down'}></i>
+                                    {isIncrease ? `+₱${diff.toFixed(2)}` : `-₱${Math.abs(diff).toFixed(2)}`}
+                                    {pct ? ` (${isIncrease ? '+' : ''}${pct}%)` : ''}
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#334155', fontWeight: 600 }}>
+                                  <i className="fas fa-user-circle" style={{ color: '#64748b' }}></i>
+                                  {person}
                                 </span>
-                              ) : (
-                                <span style={{
-                                  padding: '3px 8px',
-                                  borderRadius: 4,
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  background: isIncrease ? '#fee2e2' : '#dcfce7',
-                                  color: isIncrease ? '#dc2626' : '#16a34a',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                }}>
-                                  <i className={isIncrease ? 'fas fa-arrow-trend-up' : 'fas fa-arrow-trend-down'}></i>
-                                  {isIncrease ? `+₱${diff.toFixed(2)}` : `-₱${Math.abs(diff).toFixed(2)}`}
-                                  {pct ? ` (${isIncrease ? '+' : ''}${pct}%)` : ''}
-                                </span>
-                              )}
-                            </td>
-                            <td>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#334155', fontWeight: 600 }}>
-                                <i className="fas fa-user-circle" style={{ color: '#64748b' }}></i>
-                                {person}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
                       {targetPriceHistories.length === 0 && (
                         <tr>
                           <td colSpan="6" style={{ textAlign: 'center', padding: 28, color: '#888' }}>
@@ -1221,64 +1185,86 @@ function FuelInventoryPage() {
                       )}
                     </tbody>
                   </table>
+                  <Pagination
+                    currentPage={modalPricePage}
+                    totalPages={Math.ceil(targetPriceHistories.length / 5) || 1}
+                    totalItems={targetPriceHistories.length}
+                    pageSize={5}
+                    onPageChange={setModalPricePage}
+                    showAlways={true}
+                  />
                 </div>
               ) : (
                 /* Transactions Table (Fuel In / Fuel Out) */
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Date &amp; Time</th>
-                      <th>Type</th>
-                      <th>Fuel</th>
-                      <th>Quantity</th>
-                      <th>Unit Price</th>
-                      <th>Total Value</th>
-                      <th>Vehicle / Supplier</th>
-                      <th>Person Responsible</th>
-                      <th>Purpose</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredHistory.map((tx) => {
-                      const isIn = tx.transaction_type === 'in';
-                      return (
-                        <tr key={tx.issuance_id}>
-                          <td>{formatDateTime(tx.issued_at || tx.created_at)}</td>
-                          <td>
-                            <span style={{
-                              padding: '2px 8px',
-                              borderRadius: 4,
-                              fontSize: 11,
-                              fontWeight: 700,
-                              background: isIn ? '#dcfce7' : '#fee2e2',
-                              color: isIn ? '#16a34a' : '#dc2626',
-                            }}>
-                              {isIn ? 'Fuel In' : 'Fuel Out'}
-                            </span>
-                          </td>
-                          <td style={{ fontWeight: 600 }}>{tx.fuel?.fuel_type || 'Fuel'}</td>
-                          <td style={{ fontWeight: 700, color: isIn ? '#16a34a' : '#dc2626' }}>
-                            {isIn ? `+${tx.liters} L` : `-${tx.liters} L`}
-                          </td>
-                          <td>₱{Number(tx.unit_price || tx.fuel?.unit_price || 0).toFixed(2)}</td>
-                          <td style={{ fontWeight: 600 }}>
-                            ₱{Number(tx.total_value || (Number(tx.liters) * Number(tx.unit_price || tx.fuel?.unit_price || 0))).toFixed(2)}
-                          </td>
-                          <td>
-                            {isIn ? (tx.supplier_name || tx.fuel?.supplier_name || 'Supplier') : (tx.vehicle ? `${tx.vehicle.model} (${tx.vehicle.plate_number})` : 'General')}
-                          </td>
-                          <td>
-                            {isIn ? (tx.received_by?.full_name || 'Received') : (tx.issued_by?.full_name || tx.driver?.user?.full_name || 'Issued')}
-                          </td>
-                          <td style={{ fontSize: 13, color: '#64748b' }}>{tx.purpose || '—'}</td>
-                        </tr>
-                      );
-                    })}
-                    {filteredHistory.length === 0 && (
-                      <tr><td colSpan="9" style={{ textAlign: 'center', padding: 24, color: '#888' }}>No transactions recorded for this selection.</td></tr>
-                    )}
-                  </tbody>
-                </table>
+                <div>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Date &amp; Time</th>
+                        <th>Type</th>
+                        <th>Fuel</th>
+                        <th>Quantity</th>
+                        <th>Unit Price</th>
+                        <th>Total Value</th>
+                        <th>Vehicle / Supplier</th>
+                        <th>Person Responsible</th>
+                        <th>Purpose</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        const startIndex = (modalTxPage - 1) * 5;
+                        const pageItems = filteredHistory.slice(startIndex, startIndex + 5);
+                        return pageItems.map((tx) => {
+                          const isIn = tx.transaction_type === 'in';
+                          return (
+                            <tr key={tx.issuance_id}>
+                              <td>{formatDateTime(tx.issued_at || tx.created_at)}</td>
+                              <td>
+                                <span style={{
+                                  padding: '2px 8px',
+                                  borderRadius: 4,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  background: isIn ? '#dcfce7' : '#fee2e2',
+                                  color: isIn ? '#16a34a' : '#dc2626',
+                                }}>
+                                  {isIn ? 'Fuel In' : 'Fuel Out'}
+                                </span>
+                              </td>
+                              <td style={{ fontWeight: 600 }}>{tx.fuel?.fuel_type || 'Fuel'}</td>
+                              <td style={{ fontWeight: 700, color: isIn ? '#16a34a' : '#dc2626' }}>
+                                {isIn ? `+${tx.liters} L` : `-${tx.liters} L`}
+                              </td>
+                              <td>₱{Number(tx.unit_price || tx.fuel?.unit_price || 0).toFixed(2)}</td>
+                              <td style={{ fontWeight: 600 }}>
+                                ₱{Number(tx.total_value || (Number(tx.liters) * Number(tx.unit_price || tx.fuel?.unit_price || 0))).toFixed(2)}
+                              </td>
+                              <td>
+                                {isIn ? (tx.supplier_name || tx.fuel?.supplier_name || 'Supplier') : (tx.vehicle ? `${tx.vehicle.model} (${tx.vehicle.plate_number})` : 'General')}
+                              </td>
+                              <td>
+                                {isIn ? (tx.received_by?.full_name || 'Received') : (tx.issued_by?.full_name || tx.driver?.user?.full_name || 'Issued')}
+                              </td>
+                              <td style={{ fontSize: 13, color: '#64748b' }}>{tx.purpose || '—'}</td>
+                            </tr>
+                          );
+                        });
+                      })()}
+                      {filteredHistory.length === 0 && (
+                        <tr><td colSpan="9" style={{ textAlign: 'center', padding: 24, color: '#888' }}>No transactions recorded for this selection.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                  <Pagination
+                    currentPage={modalTxPage}
+                    totalPages={Math.ceil(filteredHistory.length / 5) || 1}
+                    totalItems={filteredHistory.length}
+                    pageSize={5}
+                    onPageChange={setModalTxPage}
+                    showAlways={true}
+                  />
+                </div>
               )}
             </div>
           </div>

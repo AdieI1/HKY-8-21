@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
+import StaffWeatherCard from '../components/dashboard/StaffWeatherCard';
 import reverb from '../utils/reverb';
 
 function cellClass(type) {
@@ -1047,35 +1048,40 @@ function StaffDashboardPage() {
             </div>
           </div>
 
-          <div className="adm-card adm-activity-card">
-            <div className="adm-card-header">
-              <span className="adm-card-title"><i className="fas fa-bolt" style={{ color: '#C53030', marginRight: '6px' }}></i>Activity Feed</span>
-              <button
-                type="button"
-                onClick={() => setShowAllActivitiesModal(true)}
-                className="adm-view-all"
-                style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-              >
-                View all
-              </button>
-            </div>
-            <div className="adm-activity-list">
-              {activityFeed.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '24px', color: '#888', fontSize: '13px' }}>
-                  No recent activities recorded.
-                </div>
-              ) : (
-                activityFeed.slice(0, 5).map((item, i) => (
-                  <div className="adm-activity-item" key={item.id || i}>
-                    <div className="adm-activity-icon" style={{ color: item.color }}><i className={item.icon}></i></div>
-                    <div className="adm-activity-body">
-                      <div className="adm-activity-title">{item.title}</div>
-                      {item.sub && <div className="adm-activity-sub">{item.sub}</div>}
-                    </div>
-                    <div className="adm-activity-time">{item.time}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {/* Live Weather Card Widget (matching design specification) */}
+            <StaffWeatherCard />
+
+            <div className="adm-card adm-activity-card" style={{ flex: 1 }}>
+              <div className="adm-card-header">
+                <span className="adm-card-title"><i className="fas fa-bolt" style={{ color: '#C53030', marginRight: '6px' }}></i>Activity Feed</span>
+                <button
+                  type="button"
+                  onClick={() => setShowAllActivitiesModal(true)}
+                  className="adm-view-all"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  View all
+                </button>
+              </div>
+              <div className="adm-activity-list">
+                {activityFeed.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '24px', color: '#888', fontSize: '13px' }}>
+                    No recent activities recorded.
                   </div>
-                ))
-              )}
+                ) : (
+                  activityFeed.slice(0, 5).map((item, i) => (
+                    <div className="adm-activity-item" key={item.id || i}>
+                      <div className="adm-activity-icon" style={{ color: item.color }}><i className={item.icon}></i></div>
+                      <div className="adm-activity-body">
+                        <div className="adm-activity-title">{item.title}</div>
+                        {item.sub && <div className="adm-activity-sub">{item.sub}</div>}
+                      </div>
+                      <div className="adm-activity-time">{item.time}</div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </div>

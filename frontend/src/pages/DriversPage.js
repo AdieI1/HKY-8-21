@@ -78,6 +78,8 @@ const EMPTY_FORM = {
   hired_by: '',
   contract_start: '',
   contract_end: '',
+  clearance_type: 'NBI Clearance',
+  clearance_date: '',
   email: '',
   password: '',
   confirmPassword: '',
@@ -110,6 +112,40 @@ function DriversPage() {
   const [profilePhotoFile, setProfilePhotoFile] = useState(null);
   const [profilePhotoPreview, setProfilePhotoPreview] = useState(null);
   const fileInputRef = useRef(null);
+
+  // Driver Documents state & refs
+  const [licenseFile, setLicenseFile] = useState(null);
+  const [medicalCertFile, setMedicalCertFile] = useState(null);
+  const [clearanceFile, setClearanceFile] = useState(null);
+
+  const licenseFileInputRef = useRef(null);
+  const medicalCertFileInputRef = useRef(null);
+  const clearanceFileInputRef = useRef(null);
+
+  // Document Viewer / Missing File Modal
+  const [docModal, setDocModal] = useState(null);
+
+  const handleDocFileSelect = (file, docType) => {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setFormError('Document file size exceeds 10MB limit.');
+      return;
+    }
+    if (docType === 'license') setLicenseFile(file);
+    if (docType === 'medical') setMedicalCertFile(file);
+    if (docType === 'clearance') setClearanceFile(file);
+    setFormError('');
+  };
+
+  const handleViewDocFile = (title, url, driver = null) => {
+    const targetDriver = driver || detailsDriver || editingDriver;
+    setDocModal({
+      isOpen: true,
+      title,
+      url: url || null,
+      driver: targetDriver,
+    });
+  };
 
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
@@ -352,6 +388,9 @@ function DriversPage() {
     setChangePassword(false);
     setProfilePhotoFile(null);
     setProfilePhotoPreview(null);
+    setLicenseFile(null);
+    setMedicalCertFile(null);
+    setClearanceFile(null);
     setFormError('');
     setShowFormModal(true);
   };
@@ -383,6 +422,8 @@ function DriversPage() {
       hired_by: driver.hired_by || '',
       contract_start: driver.contract_start || '',
       contract_end: driver.contract_end || '',
+      clearance_type: driver.clearance_type || 'NBI Clearance',
+      clearance_date: driver.clearance_date || '',
       email: driver.user?.email || '',
       password: '',
       confirmPassword: '',
@@ -390,6 +431,9 @@ function DriversPage() {
     setChangePassword(false);
     setProfilePhotoFile(null);
     setProfilePhotoPreview(driver.user?.profile_photo_url || '/images/brucednegrow.png');
+    setLicenseFile(null);
+    setMedicalCertFile(null);
+    setClearanceFile(null);
     setFormError('');
     setShowFormModal(true);
   };
@@ -454,10 +498,21 @@ function DriversPage() {
       if (form.hired_by) formData.append('hired_by', form.hired_by);
       if (form.contract_start) formData.append('contract_start', form.contract_start);
       if (form.contract_end) formData.append('contract_end', form.contract_end);
+      if (form.clearance_type) formData.append('clearance_type', form.clearance_type);
+      if (form.clearance_date) formData.append('clearance_date', form.clearance_date);
       if (wantsPasswordChange && form.password) formData.append('password', form.password);
 
       if (profilePhotoFile) {
         formData.append('profile_photo', profilePhotoFile);
+      }
+      if (licenseFile) {
+        formData.append('license_file', licenseFile);
+      }
+      if (medicalCertFile) {
+        formData.append('medical_certificate_file', medicalCertFile);
+      }
+      if (clearanceFile) {
+        formData.append('clearance_file', clearanceFile);
       }
 
       if (editingDriver) {
@@ -672,6 +727,7 @@ function DriversPage() {
                   totalItems={filteredDrivers.length}
                   pageSize={PAGE_SIZE}
                   onPageChange={setDriverPage}
+                  showAlways={true}
                 />
               </div>
             </div>
@@ -720,6 +776,7 @@ function DriversPage() {
                   totalItems={archivedDrivers.length}
                   pageSize={PAGE_SIZE}
                   onPageChange={setArchivePage}
+                  showAlways={true}
                 />
               </div>
             </div>
@@ -864,6 +921,7 @@ function DriversPage() {
                   totalItems={filteredIncidents.length}
                   pageSize={PAGE_SIZE}
                   onPageChange={setIncidentPage}
+                  showAlways={true}
                 />
               </div>
             </div>
@@ -1118,7 +1176,7 @@ function DriversPage() {
                     </div>
                   </div>
 
-                  <div className="driver-info-grid-row-bottom">
+                  <div className="driver-info-grid-row-bottom" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
                     {/* Driver Performance */}
                     <div className="driver-info-card">
                       <h4 className="driver-info-card-title">Driver Performance</h4>
@@ -1167,6 +1225,85 @@ function DriversPage() {
                           {totalOffenses} Recorded Offense{totalOffenses > 1 ? 's' : ''}
                         </div>
                       )}
+                    </div>
+
+                    {/* Documents & Clearances */}
+                    <div className="driver-info-card">
+                      <h4 className="driver-info-card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <i className="fas fa-folder-open" style={{ color: '#d32f2f' }}></i> Documents &amp; Clearances
+                      </h4>
+                      <div className="driver-info-kv-list" style={{ gap: 12 }}>
+                        {/* 1. Driver's License Copy */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span className="driver-info-kv-key">License Copy</span>
+                          {detailsDriver.license_file_url ? (
+                            <button
+                              type="button"
+                              onClick={() => handleViewDocFile("Driver's License Copy", detailsDriver.license_file_url, detailsDriver)}
+                              style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                              View File
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleViewDocFile("Driver's License Copy", null, detailsDriver)}
+                              style={{ background: 'none', border: 'none', color: '#dc2626', fontWeight: 600, fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                              Not Uploaded
+                            </button>
+                          )}
+                        </div>
+
+                        {/* 2. Medical / Fit-to-Work Certificate */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span className="driver-info-kv-key">Medical Certificate</span>
+                          {detailsDriver.medical_certificate_file_url ? (
+                            <button
+                              type="button"
+                              onClick={() => handleViewDocFile('Medical Fit-to-Work Certificate', detailsDriver.medical_certificate_file_url, detailsDriver)}
+                              style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                              View File
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleViewDocFile('Medical Fit-to-Work Certificate', null, detailsDriver)}
+                              style={{ background: 'none', border: 'none', color: '#dc2626', fontWeight: 600, fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                              Not Uploaded
+                            </button>
+                          )}
+                        </div>
+
+                        {/* 3. NBI / Police Clearance */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span className="driver-info-kv-key">{detailsDriver.clearance_type || 'NBI Clearance'}</span>
+                            {detailsDriver.clearance_date && (
+                              <span style={{ fontSize: 11, color: '#64748b' }}>Date: {formatDate(detailsDriver.clearance_date)}</span>
+                            )}
+                          </div>
+                          {detailsDriver.clearance_file_url ? (
+                            <button
+                              type="button"
+                              onClick={() => handleViewDocFile(detailsDriver.clearance_type || 'Security Clearance', detailsDriver.clearance_file_url, detailsDriver)}
+                              style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                              View File
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleViewDocFile(detailsDriver.clearance_type || 'Security Clearance', null, detailsDriver)}
+                              style={{ background: 'none', border: 'none', color: '#dc2626', fontWeight: 600, fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                              Not Uploaded
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1413,6 +1550,189 @@ function DriversPage() {
                   </div>
                 </div>
 
+                {/* Driver Documents (Permits & Clearances) */}
+                <div className="form-card" style={{ marginTop: 20 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                    <h4 className="form-section-title" style={{ margin: 0 }}>
+                      <i className="fas fa-folder-open" style={{ color: '#d32f2f', marginRight: 8 }}></i>
+                      Driver Documents (Permits &amp; Clearances)
+                    </h4>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>
+                      Accepted formats: JPG, PNG, WEBP, PDF (Max 10MB per file)
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16 }}>
+                    {/* Document 1: Driver's License Copy */}
+                    <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: 14 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <i className="fas fa-id-card" style={{ color: '#b91c1c' }}></i> Driver's License Copy
+                        </span>
+                        {editingDriver?.license_file_url && !licenseFile && (
+                          <button
+                            type="button"
+                            onClick={() => handleViewDocFile("Driver's License Copy", editingDriver.license_file_url, editingDriver)}
+                            style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                          >
+                            View File
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="file"
+                        ref={licenseFileInputRef}
+                        accept="image/jpeg,image/png,image/jpg,image/webp,application/pdf"
+                        style={{ display: 'none' }}
+                        onChange={(e) => handleDocFileSelect(e.target.files?.[0], 'license')}
+                      />
+                      {licenseFile ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f0fdf4', border: '1px solid #86efac', padding: '8px 10px', borderRadius: 6 }}>
+                          <span style={{ fontSize: 12, color: '#166534', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 190 }}>
+                            <i className="fas fa-check-circle" style={{ color: '#16a34a', marginRight: 6 }}></i>
+                            {licenseFile.name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setLicenseFile(null)}
+                            style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 12 }}
+                            title="Remove file"
+                          >
+                            <i className="fas fa-trash-alt"></i>
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => licenseFileInputRef.current?.click()}
+                          style={{ width: '100%', padding: '10px 12px', border: '1.5px dashed #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                        >
+                          <i className="fas fa-cloud-upload-alt" style={{ color: '#94a3b8' }}></i>
+                          {editingDriver?.license_file_url ? 'Replace License File' : 'Upload License File'}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Document 2: Medical / Fit-to-Work Certificate */}
+                    <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: 14 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <i className="fas fa-heartbeat" style={{ color: '#b91c1c' }}></i> Medical Certificate
+                        </span>
+                        {editingDriver?.medical_certificate_file_url && !medicalCertFile && (
+                          <button
+                            type="button"
+                            onClick={() => handleViewDocFile('Medical Fit-to-Work Certificate', editingDriver.medical_certificate_file_url, editingDriver)}
+                            style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                          >
+                            View File
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        type="file"
+                        ref={medicalCertFileInputRef}
+                        accept="image/jpeg,image/png,image/jpg,image/webp,application/pdf"
+                        style={{ display: 'none' }}
+                        onChange={(e) => handleDocFileSelect(e.target.files?.[0], 'medical')}
+                      />
+                      {medicalCertFile ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f0fdf4', border: '1px solid #86efac', padding: '8px 10px', borderRadius: 6 }}>
+                          <span style={{ fontSize: 12, color: '#166534', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 190 }}>
+                            <i className="fas fa-check-circle" style={{ color: '#16a34a', marginRight: 6 }}></i>
+                            {medicalCertFile.name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setMedicalCertFile(null)}
+                            style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 12 }}
+                            title="Remove file"
+                          >
+                            <i className="fas fa-trash-alt"></i>
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => medicalCertFileInputRef.current?.click()}
+                          style={{ width: '100%', padding: '10px 12px', border: '1.5px dashed #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                        >
+                          <i className="fas fa-cloud-upload-alt" style={{ color: '#94a3b8' }}></i>
+                          {editingDriver?.medical_certificate_file_url ? 'Replace Medical File' : 'Upload Medical Cert'}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Document 3: NBI / Police Clearance */}
+                    <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: 14 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <i className="fas fa-shield-alt" style={{ color: '#b91c1c' }}></i> Security Clearance
+                        </span>
+                        {editingDriver?.clearance_file_url && !clearanceFile && (
+                          <button
+                            type="button"
+                            onClick={() => handleViewDocFile(editingDriver.clearance_type || 'Security Clearance', editingDriver.clearance_file_url, editingDriver)}
+                            style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                          >
+                            View File
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 6, marginBottom: 8 }}>
+                        <select
+                          value={form.clearance_type || 'NBI Clearance'}
+                          onChange={(e) => setForm({ ...form, clearance_type: e.target.value })}
+                          style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11, background: '#fff' }}
+                        >
+                          <option value="NBI Clearance">NBI Clearance</option>
+                          <option value="Police Clearance">Police Clearance</option>
+                          <option value="Barangay Clearance">Barangay Clearance</option>
+                        </select>
+                        <input
+                          type="date"
+                          value={form.clearance_date || ''}
+                          onChange={(e) => setForm({ ...form, clearance_date: e.target.value })}
+                          style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11, background: '#fff' }}
+                          title="Clearance Issue Date"
+                        />
+                      </div>
+                      <input
+                        type="file"
+                        ref={clearanceFileInputRef}
+                        accept="image/jpeg,image/png,image/jpg,image/webp,application/pdf"
+                        style={{ display: 'none' }}
+                        onChange={(e) => handleDocFileSelect(e.target.files?.[0], 'clearance')}
+                      />
+                      {clearanceFile ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f0fdf4', border: '1px solid #86efac', padding: '8px 10px', borderRadius: 6 }}>
+                          <span style={{ fontSize: 12, color: '#166534', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 190 }}>
+                            <i className="fas fa-check-circle" style={{ color: '#16a34a', marginRight: 6 }}></i>
+                            {clearanceFile.name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setClearanceFile(null)}
+                            style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 12 }}
+                            title="Remove file"
+                          >
+                            <i className="fas fa-trash-alt"></i>
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => clearanceFileInputRef.current?.click()}
+                          style={{ width: '100%', padding: '10px 12px', border: '1.5px dashed #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                        >
+                          <i className="fas fa-cloud-upload-alt" style={{ color: '#94a3b8' }}></i>
+                          {editingDriver?.clearance_file_url ? 'Replace Clearance File' : 'Upload Clearance'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="driver-form-columns" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 20, marginTop: 20 }}>
                   {/* Account Information */}
                   <div className="form-card">
@@ -1524,6 +1844,382 @@ function DriversPage() {
           incident={selectedPrintIncident}
           onClose={() => setSelectedPrintIncident(null)}
         />
+      )}
+
+      {/* Custom Document Viewer & Missing Document Modal */}
+      {docModal && docModal.isOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(15, 23, 42, 0.72)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: 20,
+          }}
+          onClick={() => setDocModal(null)}
+        >
+          {!docModal.url ? (
+            /* Missing Document Modal */
+            <div
+              style={{
+                background: '#ffffff',
+                borderRadius: 16,
+                width: '100%',
+                maxWidth: 460,
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+                overflow: 'hidden',
+                textAlign: 'center',
+                padding: '32px 28px 26px',
+                position: 'relative',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setDocModal(null)}
+                style={{
+                  position: 'absolute',
+                  top: 16,
+                  right: 16,
+                  background: '#f1f5f9',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: 32,
+                  height: 32,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#64748b',
+                  fontSize: 14,
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#e2e8f0'; e.currentTarget.style.color = '#0f172a'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#64748b'; }}
+                title="Close"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+
+              <div
+                style={{
+                  width: 68,
+                  height: 68,
+                  borderRadius: '50%',
+                  background: '#fee2e2',
+                  border: '2px solid #fecaca',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 18px',
+                  color: '#dc2626',
+                  fontSize: 28,
+                  boxShadow: '0 4px 14px rgba(220, 38, 38, 0.15)',
+                }}
+              >
+                <i className="fas fa-file-invoice"></i>
+              </div>
+
+              <h3 style={{ margin: '0 0 8px', fontSize: 20, fontWeight: 700, color: '#0f172a' }}>
+                No Document Attached
+              </h3>
+
+              <p style={{ margin: '0 0 18px', fontSize: 14, color: '#64748b', lineHeight: 1.5 }}>
+                No document has been uploaded for <strong style={{ color: '#0f172a' }}>{docModal.title}</strong> yet.
+              </p>
+
+              {docModal.driver && (
+                <div
+                  style={{
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 10,
+                    padding: '12px 16px',
+                    marginBottom: 22,
+                    textAlign: 'left',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: '50%',
+                      background: '#fee2e2',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#dc2626',
+                      fontSize: 18,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <i className="fas fa-user"></i>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {docModal.driver.user?.full_name || 'Driver'}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>
+                      License: <span style={{ fontWeight: 600, color: '#334155' }}>{docModal.driver.license_number || 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => setDocModal(null)}
+                  style={{
+                    flex: 1,
+                    padding: '10px 18px',
+                    borderRadius: 8,
+                    border: '1px solid #cbd5e1',
+                    background: '#f8fafc',
+                    color: '#475569',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#e2e8f0'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = '#f8fafc'; }}
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const d = docModal.driver;
+                    setDocModal(null);
+                    setShowDetailsModal(false);
+                    if (d) {
+                      openEditModal(d);
+                    }
+                  }}
+                  style={{
+                    flex: 1.3,
+                    padding: '10px 18px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: '#d32f2f',
+                    color: '#ffffff',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    boxShadow: '0 2px 8px rgba(211, 47, 47, 0.35)',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#b71c1c'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = '#d32f2f'; }}
+                >
+                  <i className="fas fa-cloud-upload-alt"></i> Upload Now
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Document Previewer Modal */
+            <div
+              style={{
+                background: '#ffffff',
+                borderRadius: 16,
+                width: '100%',
+                maxWidth: 900,
+                height: '85vh',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.35)',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div
+                style={{
+                  padding: '16px 24px',
+                  borderBottom: '1px solid #e2e8f0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: '#f8fafc',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 8,
+                      background: '#fee2e2',
+                      color: '#dc2626',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 16,
+                    }}
+                  >
+                    <i className="fas fa-file-alt"></i>
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+                      {docModal.title}
+                    </h3>
+                    {docModal.driver && (
+                      <span style={{ fontSize: 12, color: '#64748b' }}>
+                        Driver: {docModal.driver.user?.full_name || 'Driver'} • License: {docModal.driver.license_number || 'N/A'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <a
+                    href={docModal.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '7px 14px',
+                      borderRadius: 6,
+                      border: '1px solid #cbd5e1',
+                      background: '#ffffff',
+                      color: '#334155',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      textDecoration: 'none',
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; }}
+                  >
+                    <i className="fas fa-external-link-alt"></i> Open Full
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setDocModal(null)}
+                    style={{
+                      background: '#e2e8f0',
+                      border: 'none',
+                      borderRadius: '50%',
+                      width: 32,
+                      height: 32,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      color: '#475569',
+                      fontSize: 14,
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#cbd5e1'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = '#e2e8f0'; }}
+                    title="Close"
+                  >
+                    <i className="fas fa-times"></i>
+                  </button>
+                </div>
+              </div>
+
+              {/* Body: Embedded PDF or Image */}
+              <div
+                style={{
+                  flex: 1,
+                  background: '#0f172a',
+                  overflow: 'auto',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 12,
+                }}
+              >
+                {docModal.url.toLowerCase().includes('.pdf') ? (
+                  <iframe
+                    src={docModal.url}
+                    title={docModal.title}
+                    style={{ width: '100%', height: '100%', border: 'none', borderRadius: 8, background: '#ffffff' }}
+                  />
+                ) : (
+                  <img
+                    src={docModal.url}
+                    alt={docModal.title}
+                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 }}
+                  />
+                )}
+              </div>
+
+              {/* Footer */}
+              <div
+                style={{
+                  padding: '12px 24px',
+                  borderTop: '1px solid #e2e8f0',
+                  background: '#ffffff',
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  alignItems: 'center',
+                  gap: 12,
+                }}
+              >
+                <a
+                  href={docModal.url}
+                  download
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '8px 18px',
+                    borderRadius: 6,
+                    border: '1px solid #cbd5e1',
+                    background: '#f8fafc',
+                    color: '#334155',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#e2e8f0'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = '#f8fafc'; }}
+                >
+                  <i className="fas fa-download"></i> Download File
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setDocModal(null)}
+                  style={{
+                    padding: '8px 20px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: '#d32f2f',
+                    color: '#ffffff',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#b71c1c'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = '#d32f2f'; }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </>
   );

@@ -48,10 +48,34 @@ class VehicleController extends Controller
             'next_maintenance_date' => 'nullable|date',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
             'status' => 'nullable|in:available,in_use,maintenance,broken,decommissioned',
+            'insurance_provider' => 'nullable|string|max:150',
+            'insurance_policy_number' => 'nullable|string|max:100',
+            'insurance_coverage_type' => 'nullable|string|max:100',
+            'insurance_valid_from' => 'nullable|date',
+            'insurance_valid_until' => 'nullable|date',
+            'insurance_policy_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+            'or_number' => 'nullable|string|max:100',
+            'cr_number' => 'nullable|string|max:100',
+            'registration_date' => 'nullable|date',
+            'expiration_date' => 'nullable|date',
+            'official_receipt_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+            'certificate_of_registration_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+            'emission_certificate_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+            'emission_date' => 'nullable|date',
         ]);
 
-        if ($request->hasFile('photo')) {
-            $validated['photo'] = $request->file('photo')->store('vehicles', 'public');
+        $fileFields = [
+            'photo' => 'vehicles',
+            'insurance_policy_file' => 'vehicles/documents',
+            'official_receipt_file' => 'vehicles/documents',
+            'certificate_of_registration_file' => 'vehicles/documents',
+            'emission_certificate_file' => 'vehicles/documents',
+        ];
+
+        foreach ($fileFields as $field => $folder) {
+            if ($request->hasFile($field)) {
+                $validated[$field] = $request->file($field)->store($folder, 'public');
+            }
         }
 
         $vehicle = Vehicle::create($validated);
@@ -90,15 +114,39 @@ class VehicleController extends Controller
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
             'status' => 'sometimes|in:available,in_use,maintenance,broken,decommissioned',
             'odometer_reading' => 'nullable|numeric|min:0',
+            'insurance_provider' => 'nullable|string|max:150',
+            'insurance_policy_number' => 'nullable|string|max:100',
+            'insurance_coverage_type' => 'nullable|string|max:100',
+            'insurance_valid_from' => 'nullable|date',
+            'insurance_valid_until' => 'nullable|date',
+            'insurance_policy_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+            'or_number' => 'nullable|string|max:100',
+            'cr_number' => 'nullable|string|max:100',
+            'registration_date' => 'nullable|date',
+            'expiration_date' => 'nullable|date',
+            'official_receipt_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+            'certificate_of_registration_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+            'emission_certificate_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+            'emission_date' => 'nullable|date',
         ]);
 
-        $data = $request->except(['photo']);
+        $fileFields = [
+            'photo' => 'vehicles',
+            'insurance_policy_file' => 'vehicles/documents',
+            'official_receipt_file' => 'vehicles/documents',
+            'certificate_of_registration_file' => 'vehicles/documents',
+            'emission_certificate_file' => 'vehicles/documents',
+        ];
 
-        if ($request->hasFile('photo')) {
-            $old = $vehicle->photo;
-            $data['photo'] = $request->file('photo')->store('vehicles', 'public');
-            if ($old) {
-                Storage::disk('public')->delete($old);
+        $data = $request->except(array_keys($fileFields));
+
+        foreach ($fileFields as $field => $folder) {
+            if ($request->hasFile($field)) {
+                $old = $vehicle->$field;
+                $data[$field] = $request->file($field)->store($folder, 'public');
+                if ($old) {
+                    Storage::disk('public')->delete($old);
+                }
             }
         }
 
@@ -113,8 +161,18 @@ class VehicleController extends Controller
 
     public function destroy(Vehicle $vehicle)
     {
-        if ($vehicle->photo) {
-            Storage::disk('public')->delete($vehicle->photo);
+        $fileFields = [
+            'photo',
+            'insurance_policy_file',
+            'official_receipt_file',
+            'certificate_of_registration_file',
+            'emission_certificate_file',
+        ];
+
+        foreach ($fileFields as $field) {
+            if ($vehicle->$field) {
+                Storage::disk('public')->delete($vehicle->$field);
+            }
         }
 
         $vehicle->delete();

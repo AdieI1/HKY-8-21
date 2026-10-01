@@ -42,6 +42,7 @@ class DriverController extends Controller
             'license_date_issued' => 'nullable|date',
             'license_expiry_date' => 'nullable|date',
             'authorized_by' => 'nullable|string|max:100',
+            'license_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
 
             'availability_status' => 'nullable|in:available,busy,offline',
 
@@ -52,6 +53,11 @@ class DriverController extends Controller
             'last_medical_check' => 'nullable|date',
             'prescriptions' => 'nullable|string',
             'existing_conditions' => 'nullable|string',
+            'medical_certificate_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+
+            'clearance_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+            'clearance_type' => 'nullable|string|max:50',
+            'clearance_date' => 'nullable|date',
 
             'date_hired' => 'nullable|date',
             'hired_by' => 'nullable|string|max:100',
@@ -72,10 +78,18 @@ class DriverController extends Controller
             $photoPath = $request->file('photo')->store('profile-photos', 'public');
         }
 
+        $docPaths = [];
+        foreach (['license_file', 'medical_certificate_file', 'clearance_file'] as $docField) {
+            if ($request->hasFile($docField)) {
+                $docPaths[$docField] = $request->file($docField)->store('drivers/documents', 'public');
+            }
+        }
+
         $driver = DB::transaction(function () use (
             $request,
             $driverRole,
-            $photoPath
+            $photoPath,
+            $docPaths
         ) {
             $user = User::create([
                 'role_id' => $driverRole?->role_id,
@@ -97,6 +111,7 @@ class DriverController extends Controller
                 'license_date_issued' => $request->license_date_issued,
                 'license_expiry_date' => $request->license_expiry_date,
                 'authorized_by' => $request->authorized_by,
+                'license_file' => $docPaths['license_file'] ?? null,
 
                 'availability_status' =>
                     $request->availability_status ?? 'available',
@@ -112,6 +127,11 @@ class DriverController extends Controller
                 'last_medical_check' => $request->last_medical_check,
                 'prescriptions' => $request->prescriptions,
                 'existing_conditions' => $request->existing_conditions,
+                'medical_certificate_file' => $docPaths['medical_certificate_file'] ?? null,
+
+                'clearance_file' => $docPaths['clearance_file'] ?? null,
+                'clearance_type' => $request->clearance_type ?? 'NBI Clearance',
+                'clearance_date' => $request->clearance_date,
 
                 'date_hired' => $request->date_hired,
                 'hired_by' => $request->hired_by,
@@ -148,6 +168,11 @@ class DriverController extends Controller
 
             'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'license_number' => ['nullable', 'string', 'regex:/^[A-Z]\d{2}-\d{2}-\d{6}$/i'],
+            'license_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+            'medical_certificate_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+            'clearance_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
+            'clearance_type' => 'nullable|string|max:50',
+            'clearance_date' => 'nullable|date',
 
             'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
@@ -160,30 +185,41 @@ class DriverController extends Controller
         ]);
 
         DB::transaction(function () use ($request, $driver) {
+            $driverData = $request->only([
+                'license_number',
+                'license_type',
+                'restriction_code',
+                'license_date_issued',
+                'license_expiry_date',
+                'authorized_by',
+                'availability_status',
+                'experience_years',
+                'health_condition',
+                'birthdate',
+                'nationality',
+                'last_medical_check',
+                'prescriptions',
+                'existing_conditions',
+                'clearance_type',
+                'clearance_date',
+                'date_hired',
+                'hired_by',
+                'contract_start',
+                'contract_end',
+                'status',
+            ]);
 
-            $driver->update(
-                $request->only([
-                    'license_number',
-                    'license_type',
-                    'restriction_code',
-                    'license_date_issued',
-                    'license_expiry_date',
-                    'authorized_by',
-                    'availability_status',
-                    'experience_years',
-                    'health_condition',
-                    'birthdate',
-                    'nationality',
-                    'last_medical_check',
-                    'prescriptions',
-                    'existing_conditions',
-                    'date_hired',
-                    'hired_by',
-                    'contract_start',
-                    'contract_end',
-                    'status',
-                ])
-            );
+            foreach (['license_file', 'medical_certificate_file', 'clearance_file'] as $docField) {
+                if ($request->hasFile($docField)) {
+                    $old = $driver->$docField;
+                    $driverData[$docField] = $request->file($docField)->store('drivers/documents', 'public');
+                    if ($old) {
+                        Storage::disk('public')->delete($old);
+                    }
+                }
+            }
+
+            $driver->update($driverData);
 
             $userPayload = $request->only([
                 'full_name',
@@ -226,6 +262,16 @@ class DriverController extends Controller
 
     public function destroy(Driver $driver)
     {
+        // Clean up documents and avatar from disk
+        foreach (['license_file', 'medical_certificate_file', 'clearance_file'] as $docField) {
+            if ($driver->$docField) {
+                Storage::disk('public')->delete($driver->$docField);
+            }
+        }
+        if ($driver->user?->profile_photo_path) {
+            Storage::disk('public')->delete($driver->user->profile_photo_path);
+        }
+
         $driver->delete();
 
         return response()->json([

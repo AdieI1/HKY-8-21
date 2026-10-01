@@ -377,3 +377,59 @@ export const resolveAvatarUrl = (urlOrPath) => {
 
     return url;
 };
+
+export const getRouteWeather = async (originLat, originLng, destLat, destLng) => {
+    try {
+        const url = `${API_URL}/weather/route?origin_lat=${originLat}&origin_lng=${originLng}&dest_lat=${destLat}&dest_lng=${destLng}`;
+        const response = await fetch(url, {
+            headers: { Accept: "application/json" }
+        });
+        const data = await safeJson(response);
+        if (response.ok && data?.summary) {
+            return data;
+        }
+    } catch (e) {
+        console.warn("Backend weather route fetch error, using direct open-meteo fallback:", e);
+    }
+
+    // Direct Open-Meteo fallback if backend is unreachable
+    try {
+        const omUrl = `https://api.open-meteo.com/v1/forecast?latitude=${destLat}&longitude=${destLng}&current=temperature_2m,weather_code,precipitation,wind_speed_10m&timezone=Asia%2FManila`;
+        const res = await fetch(omUrl);
+        const omData = await safeJson(res);
+        const code = Number(omData?.current?.weather_code || 0);
+        const isRain = [51, 53, 55, 61, 63, 65, 80, 81, 82, 95, 96, 99].includes(code);
+        const isSevere = [65, 82, 95, 96, 99].includes(code);
+        let condition = "Clear";
+        let speedLimit = 60;
+        let advisory = "Road conditions clear. Follow safe driving speeds.";
+
+        if (code === 95 || code === 96 || code === 99) {
+            condition = "Thunderstorm";
+            speedLimit = 30;
+            advisory = "Thunderstorm with lightning detected ahead. Max speed 30 km/h. Keep extreme braking distance.";
+        } else if (code === 65 || code === 82) {
+            condition = "Heavy Rain";
+            speedLimit = 35;
+            advisory = "Heavy rain downpour ahead. Low visibility and hydroplaning hazard. Keep speed under 35 km/h.";
+        } else if (isRain) {
+            condition = "Rain Showers";
+            speedLimit = 45;
+            advisory = "Rain detected ahead. Wet asphalt, maintain 45 km/h limit.";
+        }
+
+        return {
+            summary: {
+                has_rain_ahead: isRain,
+                worst_condition: condition,
+                worst_severity: isSevere ? "severe" : isRain ? "warning" : "normal",
+                location_context: "near destination",
+                recommended_speed_limit: speedLimit,
+                driver_advisory: advisory,
+                is_severe: isSevere,
+            }
+        };
+    } catch {
+        return null;
+    }
+};

@@ -126,6 +126,37 @@ function DispatchPage() {
   const [dispatchWarning, setDispatchWarning] = useState('');
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
+  // Weather advisory for selected delivery
+  const [tripWeather, setTripWeather] = useState(null);
+
+  useEffect(() => {
+    if (!selectedDelivery) {
+      setTripWeather(null);
+      return;
+    }
+    const req = selectedDelivery.request;
+    const destLat = Number(req?.dropoff_lat || req?.delivery_latitude || 8.4542);
+    const destLng = Number(req?.dropoff_lng || req?.delivery_longitude || 124.6319);
+    const targetDate = req?.scheduled_date ? String(req.scheduled_date).slice(0, 10) : tripDate;
+
+    let active = true;
+    api.get('/weather', {
+      params: { lat: destLat, lng: destLng, date: targetDate }
+    })
+      .then((res) => {
+        if (active && res.data?.success) {
+          setTripWeather(res.data);
+        }
+      })
+      .catch((err) => {
+        console.warn('Trip weather fetch error:', err);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedDelivery, tripDate]);
+
   useEffect(() => {
     const update = () => {
       setCurrentDate(
@@ -593,30 +624,32 @@ function DispatchPage() {
               </table>
             </div>
             <div className="dispatch-footer">
-              <div className="dispatch-info" style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#DC2626', fontSize: 14, fontWeight: 500 }}>
-                <i className="fas fa-info-circle" style={{ color: '#DC2626', fontSize: 16, flexShrink: 0 }}></i>
+              <div className="dispatch-info">
+                <i className="fas fa-info-circle"></i>
                 <span>Click assign button to assign driver and delivery.</span>
               </div>
-              {totalPages > 1 && (
-                <div className="dispatch-pagination">
-                  <span className="page-label">Page</span>
-                  <button
-                    className="btn-page"
-                    disabled={currentPage === 1}
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  >
-                    <i className="fas fa-chevron-left"></i>
-                  </button>
-                  <span className="page-number active">{currentPage}</span>
-                  <button
-                    className="btn-page"
-                    disabled={currentPage >= totalPages}
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  >
-                    <i className="fas fa-chevron-right"></i>
-                  </button>
-                </div>
-              )}
+              <div className="dispatch-pagination">
+                <span className="page-label">Page</span>
+                <button
+                  type="button"
+                  className="btn-page"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  title="Previous Page"
+                >
+                  <i className="fas fa-chevron-left"></i>
+                </button>
+                <span className="page-number active">{currentPage}</span>
+                <button
+                  type="button"
+                  className="btn-page"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  title="Next Page"
+                >
+                  <i className="fas fa-chevron-right"></i>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -708,6 +741,63 @@ function DispatchPage() {
                     <div style={{ fontSize: 12, color: '#166534', lineHeight: 1.4 }}>
                       This delivery is actively in transit. Reassignments are locked to protect live tracking and driver milestone synchronization.
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Weather & Road Safety Advisory for Trip */}
+              {tripWeather && (
+                <div style={{
+                  background: tripWeather.is_severe ? '#FEF2F2' : '#F0F9FF',
+                  border: tripWeather.is_severe ? '1.5px solid #FCA5A5' : '1px solid #BAE6FD',
+                  borderRadius: '8px',
+                  padding: '10px 12px',
+                  marginBottom: '14px',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px'
+                }}>
+                  <div style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 6,
+                    background: tripWeather.is_severe ? '#FEE2E2' : '#E0F2FE',
+                    color: tripWeather.is_severe ? '#DC2626' : '#0284C7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 15,
+                    flexShrink: 0
+                  }}>
+                    <i className={tripWeather.is_severe ? "fas fa-bolt" : tripWeather.precipitation_probability > 40 ? "fas fa-cloud-rain" : "fas fa-cloud-sun"}></i>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 700, fontSize: 12.5, color: tripWeather.is_severe ? '#991B1B' : '#0369A1' }}>
+                        Weather: {tripWeather.condition} ({tripWeather.temperature}°C)
+                      </span>
+                      {tripWeather.is_severe ? (
+                        <span style={{ fontSize: 10, background: '#DC2626', color: '#fff', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                          HIGH RISK
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 11, color: '#0284C7', fontWeight: 600 }}>
+                          Rec. Speed: {tripWeather.speed_limit} km/h
+                        </span>
+                      )}
+                    </div>
+                    {tripWeather.is_severe ? (
+                      <div style={{ fontSize: 11.5, color: '#B91C1C', marginTop: 3, lineHeight: 1.35 }}>
+                        <strong>⚠️ Advisory:</strong> {tripWeather.dispatch_advisory || 'Severe weather forecasted on trip date. Unfavorable road conditions.'}
+                        <div style={{ marginTop: 4, fontWeight: 600, color: '#7F1D1D' }}>
+                          💡 Recommend re-scheduling or contacting customer before departure.
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11, color: '#0C4A6E', marginTop: 2 }}>
+                        {tripWeather.advisory}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

@@ -173,6 +173,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    width: 100%;
+    box-sizing: border-box;
     margin-top: 18px;
     padding-top: 14px;
     border-top: 1px solid #F3F4F6;

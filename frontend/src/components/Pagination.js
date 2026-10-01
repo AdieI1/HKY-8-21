@@ -33,7 +33,7 @@ export default function Pagination({
   const endItem = totalItems > 0 ? Math.min(currentPage * pageSize, totalItems) : 0;
 
   return (
-    <div className="hjy-pagination">
+    <div className="hjy-pagination" style={{ width: '100%' }}>
       <div className="hjy-pagination-info">
         {totalItems != null && totalItems > 0 ? (
           <span>

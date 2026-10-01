@@ -26,19 +26,64 @@ class Vehicle extends Model
         'next_maintenance_date',
         'photo',
         'status',
+        'insurance_provider',
+        'insurance_policy_number',
+        'insurance_coverage_type',
+        'insurance_valid_from',
+        'insurance_valid_until',
+        'insurance_policy_file',
+        'or_number',
+        'cr_number',
+        'registration_date',
+        'expiration_date',
+        'official_receipt_file',
+        'certificate_of_registration_file',
+        'emission_certificate_file',
+        'emission_date',
     ];
 
-    protected $appends = ['photo_url'];
+    protected $appends = [
+        'photo_url',
+        'official_receipt_url',
+        'certificate_of_registration_url',
+        'insurance_policy_url',
+        'emission_certificate_url',
+    ];
 
-    public function getPhotoUrlAttribute()
+    protected function formatStorageUrl($path)
     {
-        if (!$this->photo) {
+        if (!$path) {
             return null;
         }
         if (request()) {
-            return request()->getSchemeAndHttpHost() . '/storage/' . ltrim($this->photo, '/');
+            return request()->getSchemeAndHttpHost() . '/storage/' . ltrim($path, '/');
         }
-        return url('storage/' . $this->photo);
+        return url('storage/' . $path);
+    }
+
+    public function getPhotoUrlAttribute()
+    {
+        return $this->formatStorageUrl($this->photo);
+    }
+
+    public function getOfficialReceiptUrlAttribute()
+    {
+        return $this->formatStorageUrl($this->official_receipt_file);
+    }
+
+    public function getCertificateOfRegistrationUrlAttribute()
+    {
+        return $this->formatStorageUrl($this->certificate_of_registration_file);
+    }
+
+    public function getInsurancePolicyUrlAttribute()
+    {
+        return $this->formatStorageUrl($this->insurance_policy_file);
+    }
+
+    public function getEmissionCertificateUrlAttribute()
+    {
+        return $this->formatStorageUrl($this->emission_certificate_file);
     }
 
     public function getNextMaintenanceDateAttribute($value)

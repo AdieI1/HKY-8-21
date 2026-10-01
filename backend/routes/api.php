@@ -27,6 +27,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DangerZoneController;
 use App\Http\Controllers\RouteElevationController;
 use App\Http\Controllers\FleetAvailabilityController;
+use App\Http\Controllers\WeatherController;
 
 
 /*
@@ -34,6 +35,16 @@ use App\Http\Controllers\FleetAvailabilityController;
 | PUBLIC ROUTES
 |--------------------------------------------------------------------------
 */
+
+Route::get('/weather', [
+    WeatherController::class,
+    'getWeather'
+]);
+
+Route::get('/weather/route', [
+    WeatherController::class,
+    'getRouteWeather'
+]);
 
 Route::get('/danger-zones', [
     DangerZoneController::class,

@@ -2614,6 +2614,8 @@ body.dark-theme .hjy-skeleton-avatar {
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 12px;
+    width: 100%;
+    box-sizing: border-box;
     margin-top: 16px;
     padding-top: 14px;
     border-top: 1px solid #e2e8f0;
