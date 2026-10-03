@@ -370,7 +370,8 @@ class IncidentReportController extends Controller
                 '/analytics'
             );
         } elseif ($validated['action'] === 'dispatch_relief') {
-            $incident->status = 'investigating';
+            $incident->status = 'resolved';
+            $incident->resolved_at = now();
 
             $delivery = $incident->delivery;
             if ($delivery) {

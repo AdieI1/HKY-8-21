@@ -199,12 +199,57 @@
   z-index: 2;
 }
 
-.adm-fleet-cell.scheduled { background: #FEF3C7; color: #B45309; font-weight: 600; border-radius: 6px; border: 1px solid #FDE68A; }
-.adm-fleet-cell.delivery  { background: #FFF1F1; color: #C53030; font-weight: 600; border-radius: 6px; }
-.adm-fleet-cell.completed { background: #DCFCE7; color: #15803D; font-weight: 700; border-radius: 6px; border: 1px solid #86EFAC; }
-.adm-fleet-cell.available { background: #F0FDF4; color: #16A34A; font-weight: 600; border-radius: 6px; }
-.adm-fleet-cell.on-break  { background: #FFFBEB; color: #D97706; font-weight: 600; border-radius: 6px; }
-.adm-fleet-cell.empty     { color: #bbb; }
+/* Delivery Monitoring lifecycle cell styles */
+.adm-fleet-cell.dispatched       { background: #F3E8FF; color: #9333EA; font-weight: 700; border-radius: 6px; border: 1px solid #D8B4FE; }
+.adm-fleet-cell.on-route         { background: #DBEAFE; color: #2563EB; font-weight: 700; border-radius: 6px; border: 1px solid #BFDBFE; }
+.adm-fleet-cell.arrived-pickup   { background: #CCFBF1; color: #0D9488; font-weight: 700; border-radius: 6px; border: 1px solid #99F6E4; }
+.adm-fleet-cell.loading-cargo    { background: #FEF3C7; color: #D97706; font-weight: 700; border-radius: 6px; border: 1px solid #FDE68A; }
+.adm-fleet-cell.on-delivery      { background: #DBEAFE; color: #2563EB; font-weight: 700; border-radius: 6px; border: 1px solid #BFDBFE; }
+.adm-fleet-cell.arrived-dropoff  { background: #ECFCCB; color: #65A30D; font-weight: 700; border-radius: 6px; border: 1px solid #D9F99D; }
+.adm-fleet-cell.unloading-cargo  { background: #FEF3C7; color: #D97706; font-weight: 700; border-radius: 6px; border: 1px solid #FDE68A; }
+.adm-fleet-cell.returning-hq     { background: #FFEDD5; color: #EA580C; font-weight: 700; border-radius: 6px; border: 1px solid #FED7AA; }
+.adm-fleet-cell.complete         { background: #DCFCE7; color: #16A34A; font-weight: 700; border-radius: 6px; border: 1px solid #86EFAC; }
+.adm-fleet-cell.completed        { background: #DCFCE7; color: #16A34A; font-weight: 700; border-radius: 6px; border: 1px solid #86EFAC; }
+.adm-fleet-cell.scheduled        { background: #F3E8FF; color: #9333EA; font-weight: 700; border-radius: 6px; border: 1px solid #D8B4FE; }
+.adm-fleet-cell.delivery         { background: #DBEAFE; color: #2563EB; font-weight: 700; border-radius: 6px; border: 1px solid #BFDBFE; }
+.adm-fleet-cell.accident         { background: #FEF2F2; color: #991B1B; font-weight: 700; border-radius: 6px; border: 1px solid #FCA5A5; }
+.adm-fleet-cell.available        { background: #F0FDF4; color: #16A34A; font-weight: 600; border-radius: 6px; }
+.adm-fleet-cell.on-break         { background: #F8FAFC; color: #475569; font-weight: 600; border-radius: 6px; border: 1px solid #CBD5E1; }
+.adm-fleet-cell.empty            { color: #bbb; }
+
+/* Delayed Alert Cell */
+.adm-fleet-cell.delayed {
+  background: #FEF2F2;
+  color: #DC2626;
+  font-weight: 700;
+  border-radius: 6px;
+  border: 1px solid #FECACA;
+}
+
+.adm-alert-pulse-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #EF4444;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  animation: pulseWarning 1.5s infinite;
+}
+
+@keyframes pulseWarning {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  70% {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
 
 /* Fleet legend */
 .adm-fleet-legend {
@@ -225,12 +270,23 @@
   margin-right: 4px;
 }
 
-.adm-legend-dot.scheduled   { background: #D97706; }
-.adm-legend-dot.delivery    { background: #EF4444; }
-.adm-legend-dot.completed   { background: #16A34A; }
-.adm-legend-dot.available   { background: #22C55E; }
-.adm-legend-dot.break       { background: #F59E0B; }
-.adm-legend-dot.maintenance { background: #94A3B8; }
+.adm-legend-dot.dispatched      { background: #9333EA; }
+.adm-legend-dot.on-route        { background: #2563EB; }
+.adm-legend-dot.arrived-pickup  { background: #0D9488; }
+.adm-legend-dot.loading-cargo   { background: #D97706; }
+.adm-legend-dot.on-delivery     { background: #2563EB; }
+.adm-legend-dot.arrived-dropoff { background: #65A30D; }
+.adm-legend-dot.unloading-cargo { background: #D97706; }
+.adm-legend-dot.returning-hq    { background: #EA580C; }
+.adm-legend-dot.complete        { background: #16A34A; }
+.adm-legend-dot.delayed         { background: #EF4444; }
+.adm-legend-dot.scheduled       { background: #9333EA; }
+.adm-legend-dot.delivery        { background: #2563EB; }
+.adm-legend-dot.accident        { background: #DC2626; }
+.adm-legend-dot.completed       { background: #16A34A; }
+.adm-legend-dot.available       { background: #22C55E; }
+.adm-legend-dot.break           { background: #94A3B8; }
+.adm-legend-dot.maintenance     { background: #94A3B8; }
 
 /* ── Activity Feed ────────────────────────────────── */
 .adm-activity-list { padding: 8px 0; }

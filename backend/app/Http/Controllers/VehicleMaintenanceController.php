@@ -16,21 +16,45 @@ class VehicleMaintenanceController extends Controller
     {
         try {
             $today = now()->toDateString();
+
+            // 1. Expire and complete maintenance whose end date has passed, or single-day maintenance in past
             $expired = VehicleMaintenance::with('vehicle')
                 ->whereIn('status', ['Scheduled', 'In Progress'])
                 ->where(function ($query) use ($today) {
-                    $query->whereNotNull('next_maintenance_date')
+                    $query->where(function ($q) use ($today) {
+                        $q->whereNotNull('next_maintenance_date')
                           ->where('next_maintenance_date', '<=', $today);
+                    })->orWhere(function ($q) use ($today) {
+                        $q->whereNull('next_maintenance_date')
+                          ->where('maintenance_date', '<', $today);
+                    });
                 })
                 ->get();
 
             foreach ($expired as $m) {
                 $m->update(['status' => 'Completed']);
                 if ($m->vehicle) {
-                    $m->vehicle->update([
-                        'status' => 'available',
-                        'last_maintenance_date' => $m->next_maintenance_date ?? $m->maintenance_date
-                    ]);
+                    // Find if there is any other active ongoing maintenance
+                    $otherActive = VehicleMaintenance::where('vehicle_id', $m->vehicle_id)
+                        ->where('maintenance_id', '!=', $m->maintenance_id)
+                        ->whereIn('status', ['Scheduled', 'In Progress'])
+                        ->where('maintenance_date', '<=', $today)
+                        ->where(function ($q) use ($today) {
+                            $q->whereNull('next_maintenance_date')
+                              ->where('maintenance_date', '>=', $today)
+                              ->orWhere(function ($sub) use ($today) {
+                                  $sub->whereNotNull('next_maintenance_date')
+                                      ->where('next_maintenance_date', '>', $today);
+                              });
+                        })
+                        ->exists();
+
+                    if (!$otherActive && $m->vehicle->status === 'maintenance') {
+                        $m->vehicle->update([
+                            'status' => 'available',
+                            'last_maintenance_date' => $m->next_maintenance_date ?? $m->maintenance_date
+                        ]);
+                    }
 
                     AppNotification::notify(
                         'maintenance',
@@ -38,6 +62,27 @@ class VehicleMaintenanceController extends Controller
                         "Vehicle [{$m->vehicle->plate_number}] ({$m->vehicle->model}) has completed scheduled repairs and is now Available for dispatch.",
                         '/vehicles'
                     );
+                }
+            }
+
+            // 2. Activate scheduled maintenance whose start date has arrived (and not yet expired)
+            $activeNow = VehicleMaintenance::with('vehicle')
+                ->where('status', 'Scheduled')
+                ->where('maintenance_date', '<=', $today)
+                ->where(function ($query) use ($today) {
+                    $query->whereNull('next_maintenance_date')
+                          ->where('maintenance_date', '=', $today)
+                          ->orWhere(function ($q) use ($today) {
+                              $q->whereNotNull('next_maintenance_date')
+                                ->where('next_maintenance_date', '>', $today);
+                          });
+                })
+                ->get();
+
+            foreach ($activeNow as $activeM) {
+                $activeM->update(['status' => 'In Progress']);
+                if ($activeM->vehicle && $activeM->vehicle->status !== 'maintenance' && $activeM->vehicle->status !== 'in_use') {
+                    $activeM->vehicle->update(['status' => 'maintenance']);
                 }
             }
         } catch (\Throwable $e) {
@@ -145,8 +190,13 @@ class VehicleMaintenanceController extends Controller
             // Update vehicle maintenance dates dynamically
             $vehicle = Vehicle::find($validated['vehicle_id']);
             if ($vehicle) {
+                $today = now()->toDateString();
+                $isStarted = ($validated['maintenance_date'] <= $today);
+
                 if (in_array($record->status, ['Scheduled', 'In Progress'])) {
-                    $vehicle->status = 'maintenance';
+                    if ($isStarted && $vehicle->status !== 'in_use') {
+                        $vehicle->status = 'maintenance';
+                    }
                     $vehicle->next_maintenance_date = $validated['next_maintenance_date'] ?? $validated['maintenance_date'];
                     // If last_maintenance_date was mistakenly set to this scheduled date, clear it or keep real completed date
                     if ($vehicle->last_maintenance_date === $validated['maintenance_date']) {

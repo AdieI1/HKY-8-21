@@ -6,14 +6,64 @@ import NotificationBell from '../components/NotificationBell';
 import StaffWeatherCard from '../components/dashboard/StaffWeatherCard';
 import reverb from '../utils/reverb';
 
+const DELIVERY_STAGE_LABELS = {
+  assigned: 'Dispatched',
+  accepted: 'On Route',
+  arrived_pickup: 'Arrived at Pickup',
+  loading_cargo: 'Loading Cargo',
+  out_for_delivery: 'On Delivery',
+  in_transit: 'On Delivery',
+  arrived_dropoff: 'Arrived at Drop-off',
+  unloading_cargo: 'Unloading Cargo',
+  delivered: 'Unloading Cargo',
+  returning_to_hq: 'Returning to HQ',
+  completed: 'Complete',
+};
+
+const DELIVERY_STAGE_CELL_TYPES = {
+  assigned: 'dispatched',
+  accepted: 'on-route',
+  arrived_pickup: 'arrived-pickup',
+  loading_cargo: 'loading-cargo',
+  out_for_delivery: 'on-delivery',
+  in_transit: 'on-delivery',
+  arrived_dropoff: 'arrived-dropoff',
+  unloading_cargo: 'unloading-cargo',
+  delivered: 'unloading-cargo',
+  returning_to_hq: 'returning-hq',
+  completed: 'complete',
+};
+
+const DELIVERY_STAGE_COLORS = {
+  dispatched: { bg: '#F3E8FF', color: '#9333EA', border: '#D8B4FE', solid: '#9333EA', label: 'Dispatched' },
+  'on-route': { bg: '#DBEAFE', color: '#2563EB', border: '#BFDBFE', solid: '#2563EB', label: 'On Route' },
+  'arrived-pickup': { bg: '#CCFBF1', color: '#0D9488', border: '#99F6E4', solid: '#0D9488', label: 'Arrived at Pickup' },
+  'loading-cargo': { bg: '#FEF3C7', color: '#D97706', border: '#FDE68A', solid: '#D97706', label: 'Loading Cargo' },
+  'on-delivery': { bg: '#DBEAFE', color: '#2563EB', border: '#BFDBFE', solid: '#2563EB', label: 'On Delivery' },
+  'arrived-dropoff': { bg: '#ECFCCB', color: '#65A30D', border: '#D9F99D', solid: '#65A30D', label: 'Arrived at Drop-off' },
+  'unloading-cargo': { bg: '#FEF3C7', color: '#D97706', border: '#FDE68A', solid: '#D97706', label: 'Unloading Cargo' },
+  'returning-hq': { bg: '#FFEDD5', color: '#EA580C', border: '#FED7AA', solid: '#EA580C', label: 'Returning to HQ' },
+  complete: { bg: '#DCFCE7', color: '#16A34A', border: '#86EFAC', solid: '#16A34A', label: 'Complete' },
+  delayed: { bg: '#FEF2F2', color: '#DC2626', border: '#EF4444', solid: '#EF4444', label: 'Delayed / Overdue' },
+  accident: { bg: '#FEF2F2', color: '#991B1B', border: '#FCA5A5', solid: '#DC2626', label: 'Accident Reported' },
+  available: { bg: '#F0FDF4', color: '#16A34A', border: '#BBF7D0', solid: '#22C55E', label: 'Available' },
+  'on-break': { bg: '#F8FAFC', color: '#475569', border: '#CBD5E1', solid: '#94A3B8', label: 'Under Maintenance' },
+};
+
 function cellClass(type) {
   if (type === 'accident' || type === 'broken') return 'adm-fleet-cell accident';
   if (type === 'delayed') return 'adm-fleet-cell delayed';
-  if (type === 'scheduled') return 'adm-fleet-cell scheduled';
-  if (type === 'delivery') return 'adm-fleet-cell delivery';
-  if (type === 'completed') return 'adm-fleet-cell completed';
+  if (type === 'dispatched' || type === 'assigned' || type === 'scheduled') return 'adm-fleet-cell dispatched';
+  if (type === 'on-route' || type === 'accepted') return 'adm-fleet-cell on-route';
+  if (type === 'arrived-pickup' || type === 'arrived_pickup') return 'adm-fleet-cell arrived-pickup';
+  if (type === 'loading-cargo' || type === 'loading_cargo') return 'adm-fleet-cell loading-cargo';
+  if (type === 'on-delivery' || type === 'out_for_delivery' || type === 'in_transit' || type === 'delivery') return 'adm-fleet-cell on-delivery';
+  if (type === 'arrived-dropoff' || type === 'arrived_dropoff') return 'adm-fleet-cell arrived-dropoff';
+  if (type === 'unloading-cargo' || type === 'unloading_cargo' || type === 'delivered') return 'adm-fleet-cell unloading-cargo';
+  if (type === 'returning-hq' || type === 'returning_to_hq') return 'adm-fleet-cell returning-hq';
+  if (type === 'complete' || type === 'completed') return 'adm-fleet-cell complete';
   if (type === 'available') return 'adm-fleet-cell available';
-  if (type === 'break') return 'adm-fleet-cell on-break';
+  if (type === 'break' || type === 'maintenance') return 'adm-fleet-cell on-break';
   return 'adm-fleet-cell empty';
 }
 
@@ -215,6 +265,17 @@ function getDeliveryDateRange(d) {
   return { startDate, endDate, isCompleted, isActive: isInTransit || ['assigned', 'accepted', 'loading_cargo', 'arrived_pickup'].includes(d.status) };
 }
 
+function isIncidentResolved(inc) {
+  if (!inc) return true;
+  if (inc.resolved_at) return true;
+  if (['resolved', 'closed', 'relief_dispatched', 'resolved_relief'].includes(inc.status)) return true;
+  if (inc.delivery?.is_relief) return true;
+  if (inc.resolution_action === 'dispatch_relief' || inc.resolution_action === 'mark_resolved') return true;
+  if (inc.delivery?.driver_id && inc.delivery?.stranded_driver_id && Number(inc.delivery.driver_id) !== Number(inc.delivery.stranded_driver_id)) return true;
+  if (inc.delivery?.vehicle_id && inc.delivery?.stranded_vehicle_id && Number(inc.delivery.vehicle_id) !== Number(inc.delivery.stranded_vehicle_id)) return true;
+  return false;
+}
+
 function StaffDashboardPage() {
   const [currentDate, setCurrentDate] = useState('');
   const [weekOffset, setWeekOffset] = useState(0);
@@ -226,6 +287,8 @@ function StaffDashboardPage() {
   const [rawMaintenances, setRawMaintenances] = useState([]);
   const [rawIncidents, setRawIncidents] = useState([]);
   const [priorityRequests, setPriorityRequests] = useState([]);
+  const [actionItems, setActionItems] = useState([]);
+  const [actionFilter, setActionFilter] = useState('all');
   const [activityFeed, setActivityFeed] = useState([]);
   const [showAllActivitiesModal, setShowAllActivitiesModal] = useState(false);
   const [activityFilter, setActivityFilter] = useState('all');
@@ -236,6 +299,16 @@ function StaffDashboardPage() {
     underMaintenance: 0,
     total: 0,
   });
+  const [driversSummary, setDriversSummary] = useState({
+    available: 0,
+    onTrip: 0,
+    onBreak: 0,
+    offline: 0,
+    total: 0,
+  });
+  const [summaryTab, setSummaryTab] = useState('both'); // 'both' | 'vehicles' | 'drivers'
+  const [actionPage, setActionPage] = useState(1);
+  const ACTION_PAGE_SIZE = 5;
   const [loadingCalendar, setLoadingCalendar] = useState(true);
   const [stats, setStats] = useState({
     activeDeliveries: 0,
@@ -248,22 +321,51 @@ function StaffDashboardPage() {
 
   const upcomingScheduledDeliveries = useMemo(() => {
     const list = [];
+    const todayIso = getTodayIso();
     rawDeliveries.forEach((d) => {
       const sDate = d.request?.scheduled_date ? String(d.request.scheduled_date).slice(0, 10) : null;
       if (sDate && !['completed', 'cancelled'].includes(d.status)) {
+        const isPastDue = sDate < todayIso;
+        const isDelayed = Boolean(d.is_delayed || isPastDue);
+        const delayDays = isPastDue
+          ? Math.max(1, Math.round((new Date(todayIso).getTime() - new Date(sDate).getTime()) / (1000 * 60 * 60 * 24)))
+          : 0;
+
+        const dateObj = new Date(sDate);
+        const shortDate = !isNaN(dateObj.getTime())
+          ? dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          : sDate;
+
+        const isUnassigned = !d.vehicle_id;
         list.push({
           id: `DLV${String(d.delivery_id).padStart(4, '0')}`,
           deliveryId: d.delivery_id,
           date: sDate,
+          shortDate,
           time: d.request?.scheduled_time_slot || 'Standard',
-          driver: d.driver?.user?.full_name || 'Assigned Driver',
-          vehicle: d.vehicle ? `${d.vehicle.model || d.vehicle.brand || 'Vehicle'} (${d.vehicle.plate_number})` : 'Assigned Unit',
+          driver: d.driver?.user?.full_name || (isUnassigned ? 'Awaiting Driver' : 'Assigned Driver'),
+          vehicle: d.vehicle ? `${d.vehicle.model || d.vehicle.brand || 'Vehicle'} (${d.vehicle.plate_number})` : 'Awaiting Vehicle',
           vehicleId: d.vehicle_id,
+          isUnassigned,
           destination: shortCity(d.request?.dropoff_address),
           item: d.request?.item_name || 'Cargo',
+          status: d.status,
+          isDelayed,
+          delayDays,
+          statusLabel: isUnassigned
+            ? (isDelayed ? 'Delayed (Pending Dispatch)' : 'Pending Dispatch')
+            : (DELIVERY_STAGE_LABELS[d.status] || 'Dispatched'),
         });
       }
     });
+
+    list.sort((a, b) => {
+      if (a.isDelayed && !b.isDelayed) return -1;
+      if (!a.isDelayed && b.isDelayed) return 1;
+      if (a.isDelayed && b.isDelayed) return b.delayDays - a.delayDays;
+      return a.date.localeCompare(b.date);
+    });
+
     return list;
   }, [rawDeliveries]);
 
@@ -302,7 +404,12 @@ function StaffDashboardPage() {
         // Check if there is an accident or breakdown report for this vehicle/day
         const todayIso = getTodayIso();
         const dayIncident = (incidentsList || []).find((inc) => {
-          const vehMatch = Number(inc.vehicle_id) === Number(v.vehicle_id) || Number(inc.delivery?.vehicle_id) === Number(v.vehicle_id);
+          // If already resolved or relief assigned, ignore
+          if (isIncidentResolved(inc)) return false;
+
+          // Check if vehicle matches the broken vehicle (not relief truck)
+          const brokenVehId = inc.vehicle_id || inc.delivery?.stranded_vehicle_id;
+          const vehMatch = brokenVehId ? Number(brokenVehId) === Number(v.vehicle_id) : (Number(inc.delivery?.vehicle_id) === Number(v.vehicle_id));
           if (!vehMatch) return false;
 
           // Accidents never occur on future days
@@ -349,45 +456,29 @@ function StaffDashboardPage() {
           routeText = formatRoute(pAddr, dAddr);
         } else if (dayDeliveries.length > 0) {
           const activeDel = dayDeliveries.find((d) =>
-            ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status)
+            ['assigned', 'accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'arrived_dropoff', 'unloading_cargo', 'delivered', 'returning_to_hq'].includes(d.status)
           );
           const scheduledDel = dayDeliveries.find((d) =>
             d.request?.is_scheduled || (d.request?.scheduled_date && String(d.request.scheduled_date).slice(0, 10) === day.iso)
           );
 
           if (activeDel) {
-            const isScheduledTrip = activeDel.request?.is_scheduled || (activeDel.request?.scheduled_date && String(activeDel.request.scheduled_date).slice(0, 10) === day.iso);
-            const isInTransit = ['out_for_delivery', 'in_transit'].includes(activeDel.status);
-            const isDelayedOrOverdue = isScheduledTrip && (
+            const sDate = activeDel.request?.scheduled_date ? String(activeDel.request.scheduled_date).slice(0, 10) : null;
+            const isPastDue = sDate && sDate < todayIso;
+            const isDelayedOrOverdue = Boolean(
               activeDel.is_delayed ||
-              (activeDel.request?.scheduled_date && String(activeDel.request.scheduled_date).slice(0, 10) < todayIso && ['assigned', 'accepted'].includes(activeDel.status))
+              (isPastDue && !['completed', 'delivered'].includes(activeDel.status))
             );
+
+            const stageLabel = DELIVERY_STAGE_LABELS[activeDel.status] || 'Dispatched';
+            const stageCellType = DELIVERY_STAGE_CELL_TYPES[activeDel.status] || 'on-delivery';
 
             if (isDelayedOrOverdue) {
               cellType = 'delayed';
-            } else if (isScheduledTrip && !isInTransit) {
-              cellType = 'scheduled';
+              statusText = `Delayed (${stageLabel})`;
             } else {
-              cellType = 'delivery';
-            }
-
-            const rawSlot = activeDel.request?.scheduled_time_slot || '';
-            const timeOnly = rawSlot.includes('(') ? rawSlot.split(' ')[0] : rawSlot;
-
-            if (isDelayedOrOverdue) {
-              statusText = timeOnly ? `Delayed (${timeOnly})` : '⚠️ Delayed';
-            } else if (isScheduledTrip && !isInTransit) {
-              statusText = timeOnly ? `Scheduled (${timeOnly})` : 'Scheduled';
-            } else {
-              const range = getDeliveryDateRange(activeDel);
-              const isContinuation = range && range.startDate !== day.iso;
-              statusText = isContinuation
-                ? 'In Transit (En Route)'
-                : activeDel.status === 'in_transit'
-                  ? 'In Transit'
-                  : activeDel.status === 'assigned'
-                    ? 'Assigned'
-                    : 'Delivery';
+              cellType = stageCellType;
+              statusText = stageLabel;
             }
 
             driverName = formatShortDriver(activeDel.driver?.user?.full_name);
@@ -396,24 +487,30 @@ function StaffDashboardPage() {
               extraText = `+${dayDeliveries.length - 1} more trip`;
             }
           } else if (scheduledDel) {
-            const isDelayedOrOverdue = scheduledDel.is_delayed || (scheduledDel.request?.scheduled_date && String(scheduledDel.request.scheduled_date).slice(0, 10) < todayIso);
-            cellType = isDelayedOrOverdue ? 'delayed' : 'scheduled';
-            const rawSlot = scheduledDel.request?.scheduled_time_slot || '';
-            const timeOnly = rawSlot.includes('(') ? rawSlot.split(' ')[0] : rawSlot;
-            statusText = isDelayedOrOverdue
-              ? (timeOnly ? `Delayed (${timeOnly})` : '⚠️ Delayed')
-              : (timeOnly ? `Scheduled (${timeOnly})` : 'Scheduled');
+            const sDate = scheduledDel.request?.scheduled_date ? String(scheduledDel.request.scheduled_date).slice(0, 10) : null;
+            const isPastDue = sDate && sDate < todayIso;
+            const isDelayedOrOverdue = Boolean(scheduledDel.is_delayed || isPastDue);
+
+            const stageLabel = DELIVERY_STAGE_LABELS[scheduledDel.status] || 'Dispatched';
+            const stageCellType = DELIVERY_STAGE_CELL_TYPES[scheduledDel.status] || 'dispatched';
+
+            if (isDelayedOrOverdue) {
+              cellType = 'delayed';
+              statusText = `Delayed (${stageLabel})`;
+            } else {
+              cellType = stageCellType;
+              statusText = stageLabel;
+            }
+
             driverName = formatShortDriver(scheduledDel.driver?.user?.full_name);
             routeText = formatRoute(scheduledDel.request?.pickup_address, scheduledDel.request?.dropoff_address);
             if (dayDeliveries.length > 1) {
               extraText = `+${dayDeliveries.length - 1} more trip`;
             }
           } else {
-            cellType = 'completed';
+            cellType = 'complete';
             const firstDel = dayDeliveries[0];
-            const range = getDeliveryDateRange(firstDel);
-            const isFinalDay = range && range.endDate === day.iso;
-            statusText = isFinalDay ? 'Trip Completed' : 'In Transit';
+            statusText = 'Complete';
             driverName = formatShortDriver(firstDel.driver?.user?.full_name);
             routeText = formatRoute(firstDel.request?.pickup_address, firstDel.request?.dropoff_address);
             if (dayDeliveries.length > 1) {
@@ -517,25 +614,111 @@ function StaffDashboardPage() {
         availableVehicles: availVehicles,
       });
 
-      // ── Connected Dynamic Priority Requests ──
-      const pendingRequestsList = requests
-        .filter((r) => r.status === 'pending')
-        .map((r) => {
-          const created = new Date(r.created_at);
-          const daysOld = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
-          const isOver = daysOld >= 2;
-          return {
-            id: `REQ${String(r.request_id).padStart(4, '0')}`,
-            customer: r.customer?.full_name || 'Customer',
-            date: created.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' }),
-            status: isOver ? 'Overdue' : 'Pending',
-            overdue: isOver,
-            createdTime: created.getTime(),
-          };
-        })
-        .sort((a, b) => (a.overdue !== b.overdue ? (a.overdue ? -1 : 1) : a.createdTime - b.createdTime));
+      // ── Action Required (Aggregates Overdue & Delayed Deliveries, Incidents, and Requests) ──
+      const todayIso = getTodayIso();
+      const actionItemsList = [];
 
-      setPriorityRequests(pendingRequestsList.slice(0, 5));
+      // 1. Delayed & Overdue Deliveries
+      deliveries.forEach((d) => {
+        if (['completed', 'cancelled'].includes(d.status)) return;
+        const sDate = d.request?.scheduled_date ? String(d.request.scheduled_date).slice(0, 10) : null;
+        const isPastDue = sDate && sDate < todayIso;
+        const isDelayed = Boolean(d.is_delayed || isPastDue);
+
+        if (isDelayed || (['assigned', 'accepted', 'pending'].includes(d.status) && (Date.now() - new Date(d.created_at || d.updated_at).getTime()) / (1000 * 60 * 60 * 24) >= 2)) {
+          const delayDays = isPastDue
+            ? Math.max(1, Math.round((new Date(todayIso).getTime() - new Date(sDate).getTime()) / (1000 * 60 * 60 * 24)))
+            : Math.max(1, Math.round((Date.now() - new Date(d.created_at || d.updated_at).getTime()) / (1000 * 60 * 60 * 24)));
+
+          const isUnassigned = !d.vehicle_id;
+          const stageLabel = isUnassigned
+            ? (d.status === 'pending' ? 'Pending Dispatch' : 'Awaiting Unit')
+            : (DELIVERY_STAGE_LABELS[d.status] || 'Dispatched');
+          const stageCellType = isUnassigned ? 'dispatched' : (DELIVERY_STAGE_CELL_TYPES[d.status] || 'dispatched');
+
+          actionItemsList.push({
+            id: `DLV${String(d.delivery_id).padStart(4, '0')}`,
+            type: 'delivery',
+            rawId: d.delivery_id,
+            customer: d.request?.customer?.full_name || 'Customer',
+            item: d.request?.item_name || 'Cargo',
+            route: formatRoute(d.request?.pickup_address, d.request?.dropoff_address),
+            driver: d.driver?.user?.full_name || (isUnassigned ? 'Unassigned Driver' : 'Assigned Driver'),
+            vehicle: d.vehicle ? `${d.vehicle.model || d.vehicle.brand || 'Unit'} (${d.vehicle.plate_number})` : 'Unassigned Unit',
+            date: sDate || String(d.created_at).slice(0, 10),
+            urgency: 'delayed',
+            delayDays,
+            isUnassigned,
+            statusKey: d.status,
+            statusLabel: `Delayed (${stageLabel})`,
+            stageType: stageCellType,
+            targetOffset: sDate ? getWeekOffsetForDate(sDate) : 0,
+            createdTime: new Date(d.created_at || Date.now()).getTime(),
+            rawDelivery: d,
+          });
+        }
+      });
+
+      // 2. Incident & Breakdown reports requiring action
+      incidents.forEach((inc) => {
+        if (isIncidentResolved(inc)) return;
+
+        actionItemsList.push({
+          id: `INC${String(inc.incident_id || 1).padStart(4, '0')}`,
+          type: 'incident',
+          rawId: inc.incident_id,
+          customer: inc.delivery?.request?.customer?.full_name || inc.driver?.user?.full_name || 'Customer / Driver',
+          item: (inc.incident_type || 'Vehicle Breakdown').replace(/_/g, ' ').toUpperCase(),
+          route: formatRoute(inc.delivery?.request?.pickup_address, inc.delivery?.request?.dropoff_address),
+          driver: inc.delivery?.driver?.user?.full_name || inc.driver?.user?.full_name || 'Assigned Driver',
+          vehicle: inc.delivery?.vehicle ? `${inc.delivery.vehicle.model || inc.delivery.vehicle.brand} (${inc.delivery.vehicle.plate_number})` : (inc.vehicle ? `${inc.vehicle.model || inc.vehicle.brand} (${inc.vehicle.plate_number})` : 'Vehicle'),
+          date: String(inc.incident_date || inc.reported_at || inc.created_at || todayIso).slice(0, 10),
+          urgency: 'critical',
+          statusLabel: 'Accident Reported',
+          stageType: 'accident',
+          targetOffset: 0,
+          createdTime: new Date(inc.created_at || Date.now()).getTime(),
+          rawIncident: inc,
+        });
+      });
+
+      // 3. Pending & Overdue Requests
+      requests.forEach((r) => {
+        if (r.status !== 'pending') return;
+        const created = new Date(r.created_at);
+        const daysOld = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
+        const isOver = daysOld >= 2 || (r.scheduled_date && String(r.scheduled_date).slice(0, 10) < todayIso);
+
+        actionItemsList.push({
+          id: `REQ${String(r.request_id).padStart(4, '0')}`,
+          type: 'request',
+          rawId: r.request_id,
+          customer: r.customer?.full_name || 'Customer',
+          item: r.item_name || r.cargo_type || 'Cargo',
+          route: formatRoute(r.pickup_address, r.dropoff_address),
+          driver: 'Unassigned',
+          vehicle: 'Unassigned',
+          date: created.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          urgency: isOver ? 'overdue' : 'pending',
+          daysOld: Math.floor(daysOld),
+          statusLabel: isOver ? 'Overdue Request' : 'Pending Dispatch',
+          stageType: isOver ? 'delayed' : 'dispatched',
+          targetOffset: r.scheduled_date ? getWeekOffsetForDate(r.scheduled_date) : 0,
+          createdTime: created.getTime(),
+          rawRequest: r,
+        });
+      });
+
+      // Priority sort: delayed dispatches & critical incidents first, then overdue requests, then standard requests
+      actionItemsList.sort((a, b) => {
+        const order = { delayed: 1, critical: 2, overdue: 3, pending: 4 };
+        const diff = (order[a.urgency] || 5) - (order[b.urgency] || 5);
+        if (diff !== 0) return diff;
+        return a.createdTime - b.createdTime;
+      });
+
+      setActionItems(actionItemsList);
+      setPriorityRequests(actionItemsList);
 
       // ── Connected Dynamic Vehicles Summary ──
       const activeDeliveryVehIds = new Set(
@@ -545,15 +728,11 @@ function StaffDashboardPage() {
           .filter(Boolean)
       );
 
-      const maintenanceVehIds = new Set([
-        ...vehicles.filter((v) => ['maintenance', 'broken', 'in_shop'].includes(v.status?.toLowerCase())).map((v) => Number(v.vehicle_id)),
-        ...maintenances.filter((m) => ['pending', 'in_progress', 'scheduled'].includes(m.status?.toLowerCase())).map((m) => Number(m.vehicle_id)),
-      ]);
-
-      const inTransitCount = vehicles.filter((v) => activeDeliveryVehIds.has(Number(v.vehicle_id))).length;
-      const maintenanceCount = vehicles.filter((v) => maintenanceVehIds.has(Number(v.vehicle_id)) && !activeDeliveryVehIds.has(Number(v.vehicle_id))).length;
+      // ── Dynamic Vehicles Summary (100% In Sync with Vehicle Management) ──
+      const maintenanceCount = vehicles.filter((v) => ['maintenance', 'broken', 'in_shop', 'under_maintenance'].includes(v.status?.toLowerCase())).length;
+      const inTransitCount = vehicles.filter((v) => !['maintenance', 'broken', 'in_shop'].includes(v.status?.toLowerCase()) && (activeDeliveryVehIds.has(Number(v.vehicle_id)) || v.status === 'in_use')).length;
       const onBreakCount = vehicles.filter((v) => {
-        return !activeDeliveryVehIds.has(Number(v.vehicle_id)) && !maintenanceVehIds.has(Number(v.vehicle_id)) && (v.status === 'on_break' || v.status === 'standby');
+        return !activeDeliveryVehIds.has(Number(v.vehicle_id)) && (v.status === 'on_break' || v.status === 'standby');
       }).length;
 
       const availableCount = Math.max(0, vehicles.length - inTransitCount - maintenanceCount - onBreakCount);
@@ -564,6 +743,25 @@ function StaffDashboardPage() {
         onBreak: onBreakCount,
         underMaintenance: maintenanceCount,
         total: vehicles.length,
+      });
+
+      // ── Dynamic Drivers Summary ──
+      const activeDeliveryDriverIds = new Set(
+        deliveries
+          .filter((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status))
+          .map((d) => Number(d.driver_id))
+          .filter(Boolean)
+      );
+
+      const driversOnTrip = drivers.filter((dr) => activeDeliveryDriverIds.has(Number(dr.driver_id))).length;
+      const driversOnBreak = drivers.filter((dr) => !activeDeliveryDriverIds.has(Number(dr.driver_id)) && (dr.availability_status === 'busy' || dr.availability_status === 'on_break')).length;
+      const driversAvailable = Math.max(0, drivers.length - driversOnTrip - driversOnBreak);
+
+      setDriversSummary({
+        available: driversAvailable,
+        onTrip: driversOnTrip,
+        onBreak: driversOnBreak,
+        total: drivers.length,
       });
 
       // ── Connected Dynamic Activity Feed ──
@@ -847,8 +1045,8 @@ function StaffDashboardPage() {
 
         {/* ── Middle row: Fleet + Activity ── */}
         <div className="adm-mid-row">
-          <div className="adm-card adm-fleet-card">
-            <div className="adm-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <div className="adm-card adm-fleet-card" id="fleet-calendar-card">
+            <div className="adm-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span className="adm-card-title">FLEET MONITORING</span>
                 {weekOffset !== 0 && (
@@ -857,7 +1055,7 @@ function StaffDashboardPage() {
                   </span>
                 )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '12px', fontWeight: 600, color: '#4B5563' }}>
                   {weekDays[0]?.date} – {weekDays[6]?.date}
                 </span>
@@ -897,56 +1095,111 @@ function StaffDashboardPage() {
                   </button>
                 </div>
 
-                <select
-                  value={weekOffset}
-                  onChange={(e) => setWeekOffset(Number(e.target.value))}
-                  style={{
-                    padding: '4px 8px',
-                    fontSize: '11px',
-                    borderRadius: '6px',
-                    border: '1px solid #D1D5DB',
-                    background: '#fff',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    fontWeight: 500,
-                  }}
-                >
-                  <option value={0}>This Week (Current)</option>
-                  <option value={1}>Next Week</option>
-                  {upcomingScheduledDeliveries.map((sd) => {
-                    const offset = getWeekOffsetForDate(sd.date);
-                    return (
-                      <option key={sd.id} value={offset}>
-                        📅 {sd.date} ({sd.item} • {sd.time})
-                      </option>
-                    );
-                  })}
-                </select>
+                {/* Adaptive Dropdown */}
+                {(() => {
+                  const selectedOptionText = (() => {
+                    if (weekOffset === 0) return 'This Week (Current)';
+                    if (weekOffset === 1) return 'Next Week';
+                    const match = upcomingScheduledDeliveries.find((sd) => getWeekOffsetForDate(sd.date) === weekOffset);
+                    if (match) return `${match.isDelayed ? '⚠️ ' : ''}${match.date} (${match.item})`;
+                    return weekOffset > 0 ? `+${weekOffset} Wk` : `${weekOffset} Wk`;
+                  })();
 
-                {upcomingScheduledDeliveries.length > 0 && weekOffset !== getWeekOffsetForDate(upcomingScheduledDeliveries[0].date) && (
-                  <button
-                    type="button"
-                    onClick={() => setWeekOffset(getWeekOffsetForDate(upcomingScheduledDeliveries[0].date))}
-                    style={{
-                      padding: '4px 9px',
-                      fontSize: '11px',
-                      borderRadius: '6px',
-                      border: '1px solid #FCD34D',
-                      background: '#FFFBEB',
-                      color: '#B45309',
-                      cursor: 'pointer',
-                      fontWeight: 600,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                    title="Jump to scheduled delivery in calendar"
-                  >
-                    <i className="fas fa-calendar-alt"></i> Jump to Sep 23
-                  </button>
-                )}
+                  return (
+                    <select
+                      value={weekOffset}
+                      onChange={(e) => setWeekOffset(Number(e.target.value))}
+                      style={{
+                        padding: '4px 8px',
+                        fontSize: '11px',
+                        borderRadius: '6px',
+                        border: '1px solid #D1D5DB',
+                        background: '#fff',
+                        color: '#374151',
+                        cursor: 'pointer',
+                        fontWeight: 500,
+                        width: `${Math.max(16, selectedOptionText.length + 3)}ch`,
+                        maxWidth: '280px',
+                      }}
+                    >
+                      <option value={0}>This Week (Current)</option>
+                      <option value={1}>Next Week</option>
+                      {upcomingScheduledDeliveries.map((sd) => {
+                        const offset = getWeekOffsetForDate(sd.date);
+                        return (
+                          <option key={sd.id} value={offset}>
+                            {sd.isDelayed ? `⚠️ DELAYED (${sd.delayDays}d overdue) • ` : '📅 '}
+                            {sd.date} ({sd.item} • {sd.time})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  );
+                })()}
               </div>
             </div>
+
+            {/* Status Reminders / Delayed Dispatches Bar (Right-Aligned directly under navigation) */}
+            {(() => {
+              const delayedList = upcomingScheduledDeliveries.filter((sd) => sd.isDelayed);
+              if (delayedList.length === 0) return null;
+              return (
+                <div
+                  style={{
+                    padding: '6px 16px',
+                    background: '#FEF2F2',
+                    borderBottom: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: '8px',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <i
+                    className="fas fa-exclamation-triangle"
+                    style={{ fontSize: '13px', color: '#DC2626' }}
+                    title="Delayed Dispatches"
+                  ></i>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {delayedList.map((targetSched) => {
+                      const targetOffset = getWeekOffsetForDate(targetSched.date);
+                      const isCurrentOffset = weekOffset === targetOffset;
+                      return (
+                        <button
+                          key={targetSched.id}
+                          type="button"
+                          onClick={() => {
+                            setWeekOffset(targetOffset);
+                            const el = document.getElementById('fleet-calendar-card');
+                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          }}
+                          style={{
+                            padding: '4px 10px',
+                            fontSize: '11px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: isCurrentOffset ? '#FEE2E2' : '#FFFFFF',
+                            color: '#DC2626',
+                            cursor: 'pointer',
+                            fontWeight: 700,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+                          }}
+                          title={`Delayed Dispatch: ${targetSched.item} (${targetSched.id}) scheduled on ${targetSched.date}, ${targetSched.delayDays}d overdue! Click to jump to week in calendar.`}
+                        >
+                          <span className="adm-alert-pulse-dot"></span>
+                          <i className="fas fa-calendar-times"></i>
+                          <span>Delayed: {targetSched.shortDate} ({targetSched.item || targetSched.id} • {targetSched.delayDays}d overdue)</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
             <div className="adm-fleet-table-wrap">
               <table className="adm-fleet-table">
                 <thead>
@@ -1037,14 +1290,20 @@ function StaffDashboardPage() {
                 </tbody>
               </table>
             </div>
-            <div className="adm-fleet-legend">
-              <span className="adm-legend-dot scheduled"></span> Scheduled Delivery
-              <span className="adm-legend-dot delayed"></span> Delayed / Overdue
-              <span className="adm-legend-dot delivery"></span> Delivery / In Transit
-              <span className="adm-legend-dot completed"></span> Completed Trip
-              <span className="adm-legend-dot available"></span> Available
-              <span className="adm-legend-dot break"></span> On Break / Maintenance
-              <span className="adm-legend-dot accident"></span> Broken / Accident Reported
+            <div className="adm-fleet-legend" style={{ flexWrap: 'wrap', gap: '8px 16px' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot dispatched"></span> Dispatched</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot on-route"></span> On Route</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot arrived-pickup"></span> Arrived at Pickup</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot loading-cargo"></span> Loading Cargo</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot on-delivery"></span> On Delivery</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot arrived-dropoff"></span> Arrived at Drop-off</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot unloading-cargo"></span> Unloading Cargo</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot returning-hq"></span> Returning to HQ</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot complete"></span> Complete</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot delayed adm-alert-pulse-dot" style={{ verticalAlign: 'middle' }}></span> Delayed / Overdue</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot available"></span> Available</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot maintenance"></span> Under Maintenance</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot accident"></span> Accident Reported</span>
             </div>
           </div>
 
@@ -1086,88 +1345,479 @@ function StaffDashboardPage() {
           </div>
         </div>
 
-        {/* ── Bottom row: Priority Requests + Vehicles Summary ── */}
+        {/* ── Bottom row: Action Required + Vehicles Summary ── */}
         <div className="adm-bottom-row">
           <div className="adm-card adm-priority-card">
-            <div className="adm-card-header">
-              <span className="adm-card-title">
-                <i className="far fa-clock" style={{ marginRight: '6px' }}></i>
-                Priority Requests
-                <span className={`adm-priority-badge ${priorityRequests.length === 0 ? 'zero' : ''}`}>{priorityRequests.length}</span>
+            <div className="adm-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <span className="adm-card-title" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <i className="fas fa-exclamation-circle" style={{ color: actionItems.length > 0 ? '#DC2626' : '#10B981', marginRight: '6px' }}></i>
+                Action Required
+                <span className={`adm-priority-badge ${actionItems.length === 0 ? 'zero' : 'critical'}`}>
+                  {actionItems.length}
+                </span>
               </span>
-              <Link to="/requests" className="adm-view-all">View all</Link>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {actionItems.filter(i => i.urgency === 'delayed' || i.urgency === 'critical').length > 0 && (
+                  <span style={{ fontSize: '11px', color: '#DC2626', fontWeight: 700 }}>
+                    ⚠️ {actionItems.filter(i => i.urgency === 'delayed' || i.urgency === 'critical').length} Delayed / Urgent
+                  </span>
+                )}
+                <Link to="/delivery" className="adm-view-all">Monitoring</Link>
+                <span style={{ color: '#E2E8F0' }}>|</span>
+                <Link to="/requests" className="adm-view-all">Requests</Link>
+              </div>
             </div>
-            <table className="adm-priority-table">
+            <table className="adm-priority-table" style={{ width: '100%', tableLayout: 'auto' }}>
               <thead>
                 <tr>
-                  <th>Request ID</th>
-                  <th>Customer</th>
-                  <th>Date Requested</th>
-                  <th>Status</th>
+                  <th style={{ width: '90px', whiteSpace: 'nowrap' }}>Reference</th>
+                  <th style={{ minWidth: '150px' }}>Details &amp; Cargo</th>
+                  <th style={{ minWidth: '150px' }}>Vehicle / Driver</th>
+                  <th style={{ width: '130px', whiteSpace: 'nowrap' }}>Schedule / Date</th>
+                  <th style={{ width: '165px', whiteSpace: 'nowrap' }}>Status</th>
+                  <th style={{ textAlign: 'right', width: '175px', whiteSpace: 'nowrap' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {priorityRequests.length === 0 ? (
+                {actionItems.length === 0 ? (
                   <tr>
-                    <td colSpan={4} style={{ textAlign: 'center', padding: '32px 16px', color: '#6B7280', fontSize: '13px' }}>
+                    <td colSpan={6} style={{ textAlign: 'center', padding: '32px 16px', color: '#6B7280', fontSize: '13px' }}>
                       <i className="far fa-check-circle" style={{ fontSize: '22px', color: '#10B981', display: 'block', marginBottom: '8px' }}></i>
-                      You currently don't have any overdue requests.
+                      You currently don't have any overdue deliveries or requests requiring action.
                     </td>
                   </tr>
                 ) : (
-                  priorityRequests.map((r) => (
-                    <tr key={r.id}>
-                      <td>
-                        {r.overdue && <i className="fas fa-exclamation-triangle adm-warn-icon"></i>}
-                        <Link to="/requests" style={{ color: 'inherit', textDecoration: 'none', fontWeight: 600 }}>
-                          {r.id}
-                        </Link>
-                      </td>
-                      <td>{r.customer}</td>
-                      <td>{r.date}</td>
-                      <td>
-                        <span className={`adm-status-dot ${r.overdue ? 'overdue' : 'pending'}`}></span>
-                        <span className={r.overdue ? 'adm-status-text overdue' : 'adm-status-text pending'}>
-                          {r.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
+                  (() => {
+                    const totalActionPages = Math.max(1, Math.ceil(actionItems.length / ACTION_PAGE_SIZE));
+                    const safePage = Math.min(actionPage, totalActionPages);
+                    const pagedActionItems = actionItems.slice((safePage - 1) * ACTION_PAGE_SIZE, safePage * ACTION_PAGE_SIZE);
+
+                    return pagedActionItems.map((item) => (
+                      <tr key={`${item.type}-${item.id}`}>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                            <span className={`adm-action-badge-tag ${item.type}`}>
+                              {item.type === 'delivery' ? <i className="fas fa-truck"></i> : item.type === 'incident' ? <i className="fas fa-exclamation-triangle"></i> : <i className="fas fa-file-invoice"></i>}
+                              {item.type}
+                            </span>
+                            <span style={{ fontWeight: 700, fontSize: '12px', color: '#1E293B' }}>{item.id}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 600, color: '#0F172A', fontSize: '12px' }}>{item.item}</div>
+                          <div style={{ fontSize: '11px', color: '#64748B' }}>{item.customer}</div>
+                          {item.route && <div style={{ fontSize: '10px', color: '#94A3B8', marginTop: '1px' }}>{item.route}</div>}
+                        </td>
+                        <td>
+                          {item.vehicle && item.vehicle !== 'Unassigned' ? (
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '11.5px', color: '#334155' }}>{item.vehicle}</div>
+                              <div style={{ fontSize: '10.5px', color: '#64748B' }}>{item.driver}</div>
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: '11px', color: '#94A3B8', fontStyle: 'italic' }}>Unassigned</span>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#334155' }}>{item.date}</div>
+                          {item.urgency === 'delayed' && (
+                            <span style={{ fontSize: '10.5px', color: '#DC2626', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <i className="fas fa-exclamation-triangle"></i> {item.delayDays}d delayed
+                            </span>
+                          )}
+                          {item.urgency === 'overdue' && (
+                            <span style={{ fontSize: '10.5px', color: '#EA580C', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <i className="fas fa-clock"></i> Overdue ({item.daysOld}d)
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <span
+                            style={{
+                              fontSize: '10.5px',
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: '12px',
+                              background: DELIVERY_STAGE_COLORS[item.stageType]?.bg || '#F3F4F6',
+                              color: DELIVERY_STAGE_COLORS[item.stageType]?.color || '#374151',
+                              border: `1px solid ${DELIVERY_STAGE_COLORS[item.stageType]?.border || '#D1D5DB'}`,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            {item.urgency === 'delayed' && <i className="fas fa-exclamation-triangle" style={{ fontSize: '9px', color: '#DC2626' }}></i>}
+                            {item.statusLabel}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          {item.type === 'delivery' ? (
+                            <div style={{ display: 'inline-flex', gap: '4px' }}>
+                              {item.isUnassigned && (
+                                <Link
+                                  to="/dispatch"
+                                  className="adm-action-btn primary"
+                                  title="Assign Vehicle and Driver in Dispatch"
+                                >
+                                  <i className="fas fa-truck-loading"></i> Assign
+                                </Link>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setWeekOffset(item.targetOffset);
+                                  const el = document.getElementById('fleet-calendar-card');
+                                  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }}
+                                className={`adm-action-btn ${item.isUnassigned ? '' : 'primary'}`}
+                                title="Jump to scheduled date in calendar"
+                              >
+                                <i className="fas fa-calendar-alt"></i> Calendar
+                              </button>
+                              <Link to="/delivery" className="adm-action-btn">
+                                <i className="fas fa-eye"></i> View
+                              </Link>
+                            </div>
+                          ) : item.type === 'incident' ? (
+                            <Link to="/delivery" className="adm-action-btn primary">
+                              <i className="fas fa-wrench"></i> Assist
+                            </Link>
+                          ) : (
+                            <Link to="/requests" className="adm-action-btn primary">
+                              <i className="fas fa-clipboard-check"></i> Dispatch
+                            </Link>
+                          )}
+                        </td>
+                      </tr>
+                    ));
+                  })()
                 )}
               </tbody>
             </table>
+
+            {/* Pagination Controls */}
+            {actionItems.length > 0 && (() => {
+              const totalActionPages = Math.max(1, Math.ceil(actionItems.length / ACTION_PAGE_SIZE));
+              const safePage = Math.min(actionPage, totalActionPages);
+              const startIdx = (safePage - 1) * ACTION_PAGE_SIZE + 1;
+              const endIdx = Math.min(safePage * ACTION_PAGE_SIZE, actionItems.length);
+
+              return (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '9px 16px',
+                    borderTop: '1px solid #F1F5F9',
+                    background: '#FAFAFA',
+                    fontSize: '11.5px',
+                    color: '#64748B',
+                  }}
+                >
+                  <div>
+                    Showing <strong style={{ color: '#0F172A' }}>{startIdx}–{endIdx}</strong> of <strong style={{ color: '#0F172A' }}>{actionItems.length}</strong> items
+                  </div>
+                  {totalActionPages > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <button
+                        type="button"
+                        disabled={safePage <= 1}
+                        onClick={() => setActionPage((p) => Math.max(1, p - 1))}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '11px',
+                          borderRadius: '5px',
+                          border: '1px solid #CBD5E1',
+                          background: safePage <= 1 ? '#F1F5F9' : '#FFFFFF',
+                          color: safePage <= 1 ? '#94A3B8' : '#334155',
+                          cursor: safePage <= 1 ? 'not-allowed' : 'pointer',
+                          fontWeight: 600,
+                        }}
+                      >
+                        <i className="fas fa-chevron-left" style={{ fontSize: '9px', marginRight: '3px' }}></i> Prev
+                      </button>
+
+                      {Array.from({ length: totalActionPages }, (_, i) => i + 1).map((pg) => (
+                        <button
+                          key={pg}
+                          type="button"
+                          onClick={() => setActionPage(pg)}
+                          style={{
+                            minWidth: '26px',
+                            height: '24px',
+                            padding: '0 6px',
+                            fontSize: '11px',
+                            borderRadius: '5px',
+                            border: pg === safePage ? '1px solid #2563EB' : '1px solid #CBD5E1',
+                            background: pg === safePage ? '#2563EB' : '#FFFFFF',
+                            color: pg === safePage ? '#FFFFFF' : '#334155',
+                            cursor: 'pointer',
+                            fontWeight: pg === safePage ? 700 : 500,
+                          }}
+                        >
+                          {pg}
+                        </button>
+                      ))}
+
+                      <button
+                        type="button"
+                        disabled={safePage >= totalActionPages}
+                        onClick={() => setActionPage((p) => Math.min(totalActionPages, p + 1))}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '11px',
+                          borderRadius: '5px',
+                          border: '1px solid #CBD5E1',
+                          background: safePage >= totalActionPages ? '#F1F5F9' : '#FFFFFF',
+                          color: safePage >= totalActionPages ? '#94A3B8' : '#334155',
+                          cursor: safePage >= totalActionPages ? 'not-allowed' : 'pointer',
+                          fontWeight: 600,
+                        }}
+                      >
+                        Next <i className="fas fa-chevron-right" style={{ fontSize: '9px', marginLeft: '3px' }}></i>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
+          {/* ── Switchable Summary Card (Vehicles / Drivers / Both) ── */}
           <div className="adm-card adm-vsummary-card">
-            <div className="adm-card-header">
-              <span className="adm-card-title">VEHICLES SUMMARY</span>
+            <div className="adm-card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px' }}>
+              <span className="adm-card-title" style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.3px' }}>
+                {summaryTab === 'vehicles' ? 'VEHICLES SUMMARY' : summaryTab === 'drivers' ? 'DRIVERS SUMMARY' : 'FLEET & CREW'}
+              </span>
+              <div style={{ display: 'inline-flex', background: '#F1F5F9', padding: '2px', borderRadius: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => setSummaryTab('vehicles')}
+                  style={{
+                    padding: '3px 8px',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    borderRadius: '4px',
+                    border: 'none',
+                    background: summaryTab === 'vehicles' ? '#FFFFFF' : 'transparent',
+                    color: summaryTab === 'vehicles' ? '#1E293B' : '#64748B',
+                    boxShadow: summaryTab === 'vehicles' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Vehicles
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSummaryTab('drivers')}
+                  style={{
+                    padding: '3px 8px',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    borderRadius: '4px',
+                    border: 'none',
+                    background: summaryTab === 'drivers' ? '#FFFFFF' : 'transparent',
+                    color: summaryTab === 'drivers' ? '#1E293B' : '#64748B',
+                    boxShadow: summaryTab === 'drivers' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Drivers
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSummaryTab('both')}
+                  style={{
+                    padding: '3px 8px',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    borderRadius: '4px',
+                    border: 'none',
+                    background: summaryTab === 'both' ? '#FFFFFF' : 'transparent',
+                    color: summaryTab === 'both' ? '#1E293B' : '#64748B',
+                    boxShadow: summaryTab === 'both' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Both
+                </button>
+              </div>
             </div>
-            <table className="adm-vsummary-table">
-              <tbody>
-                <tr>
-                  <td>Available</td>
-                  <td className="adm-vsummary-count">{vehiclesSummary.available}</td>
-                </tr>
-                <tr>
-                  <td>In Transit/On Delivery</td>
-                  <td className="adm-vsummary-count">{vehiclesSummary.inTransit}</td>
-                </tr>
-                <tr>
-                  <td>On Break</td>
-                  <td className="adm-vsummary-count">{vehiclesSummary.onBreak}</td>
-                </tr>
-                <tr>
-                  <td>Under Maintenance</td>
-                  <td className="adm-vsummary-count">{vehiclesSummary.underMaintenance}</td>
-                </tr>
-              </tbody>
-              <tfoot>
-                <tr className="adm-vsummary-total">
-                  <td>Total Vehicles</td>
-                  <td className="adm-vsummary-count">{vehiclesSummary.total}</td>
-                </tr>
-              </tfoot>
-            </table>
+
+            {summaryTab === 'vehicles' && (
+              <table className="adm-vsummary-table">
+                <tbody>
+                  <tr>
+                    <td><span className="adm-legend-dot available" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6 }}></span> Available</td>
+                    <td className="adm-vsummary-count">{vehiclesSummary.available}</td>
+                  </tr>
+                  <tr>
+                    <td><span className="adm-legend-dot delivery" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6 }}></span> In Transit / On Delivery</td>
+                    <td className="adm-vsummary-count">{vehiclesSummary.inTransit}</td>
+                  </tr>
+                  <tr>
+                    <td><span className="adm-legend-dot break" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6 }}></span> On Break</td>
+                    <td className="adm-vsummary-count">{vehiclesSummary.onBreak}</td>
+                  </tr>
+                  <tr>
+                    <td><span className="adm-legend-dot maintenance" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6 }}></span> Under Maintenance</td>
+                    <td className="adm-vsummary-count">{vehiclesSummary.underMaintenance}</td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr className="adm-vsummary-total">
+                    <td>Total Vehicles</td>
+                    <td className="adm-vsummary-count">{vehiclesSummary.total}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+
+            {summaryTab === 'drivers' && (
+              <table className="adm-vsummary-table">
+                <tbody>
+                  <tr>
+                    <td><span className="adm-legend-dot available" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6 }}></span> Available for Trip</td>
+                    <td className="adm-vsummary-count">{driversSummary.available}</td>
+                  </tr>
+                  <tr>
+                    <td><span className="adm-legend-dot delivery" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6 }}></span> On Trip / Delivering</td>
+                    <td className="adm-vsummary-count">{driversSummary.onTrip}</td>
+                  </tr>
+                  <tr>
+                    <td><span className="adm-legend-dot break" style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6 }}></span> On Break / Standby</td>
+                    <td className="adm-vsummary-count">{driversSummary.onBreak}</td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr className="adm-vsummary-total">
+                    <td>Total Drivers</td>
+                    <td className="adm-vsummary-count">{driversSummary.total}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+
+            {summaryTab === 'both' && (
+              <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
+                    <span><i className="fas fa-truck" style={{ marginRight: '4px' }}></i> Vehicles</span>
+                    <span style={{ color: '#0F172A' }}>{vehiclesSummary.total} Total</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' }}>
+                    <div style={{ background: '#F8FAFC', padding: '6px 8px', borderRadius: '6px', border: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
+                      <span style={{ color: '#16A34A', fontWeight: 600 }}>Available</span>
+                      <strong style={{ color: '#0F172A' }}>{vehiclesSummary.available}</strong>
+                    </div>
+                    <div style={{ background: '#F8FAFC', padding: '6px 8px', borderRadius: '6px', border: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
+                      <span style={{ color: '#2563EB', fontWeight: 600 }}>In Transit</span>
+                      <strong style={{ color: '#0F172A' }}>{vehiclesSummary.inTransit}</strong>
+                    </div>
+                    <div style={{ background: '#F8FAFC', padding: '6px 8px', borderRadius: '6px', border: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
+                      <span style={{ color: '#D97706', fontWeight: 600 }}>On Break</span>
+                      <strong style={{ color: '#0F172A' }}>{vehiclesSummary.onBreak}</strong>
+                    </div>
+                    <div style={{ background: '#F8FAFC', padding: '6px 8px', borderRadius: '6px', border: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', fontSize: '11.5px' }}>
+                      <span style={{ color: '#DC2626', fontWeight: 600 }}>Maintenance</span>
+                      <strong style={{ color: '#0F172A' }}>{vehiclesSummary.underMaintenance}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '10px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
+                    <span><i className="fas fa-id-badge" style={{ marginRight: '4px' }}></i> Drivers</span>
+                    <span style={{ color: '#0F172A' }}>{driversSummary.total} Total</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                    <div style={{ background: '#F8FAFC', padding: '6px 8px', borderRadius: '6px', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', alignItems: 'center', fontSize: '11px', textAlign: 'center' }}>
+                      <span style={{ color: '#16A34A', fontWeight: 600 }}>Available</span>
+                      <strong style={{ color: '#0F172A', fontSize: '13px', marginTop: '2px' }}>{driversSummary.available}</strong>
+                    </div>
+                    <div style={{ background: '#F8FAFC', padding: '6px 8px', borderRadius: '6px', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', alignItems: 'center', fontSize: '11px', textAlign: 'center' }}>
+                      <span style={{ color: '#2563EB', fontWeight: 600 }}>On Trip</span>
+                      <strong style={{ color: '#0F172A', fontSize: '13px', marginTop: '2px' }}>{driversSummary.onTrip}</strong>
+                    </div>
+                    <div style={{ background: '#F8FAFC', padding: '6px 8px', borderRadius: '6px', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', alignItems: 'center', fontSize: '11px', textAlign: 'center' }}>
+                      <span style={{ color: '#D97706', fontWeight: 600 }}>On Break</span>
+                      <strong style={{ color: '#0F172A', fontSize: '13px', marginTop: '2px' }}>{driversSummary.onBreak}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Operational Readiness & Fleet Utilization (Eliminates empty space) */}
+                <div style={{ borderTop: '1px solid #F1F5F9', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span><i className="fas fa-chart-pie" style={{ marginRight: '4px', color: '#2563EB' }}></i> Readiness &amp; Utilization</span>
+                    <span style={{ fontSize: '10.5px', color: '#16A34A', fontWeight: 700 }}>
+                      {vehiclesSummary.total > 0 ? Math.round((vehiclesSummary.inTransit / vehiclesSummary.total) * 100) : 0}% Active
+                    </span>
+                  </div>
+
+                  {/* Vehicle Utilization Bar */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: '#64748B', marginBottom: '3px' }}>
+                      <span>Fleet Deployed</span>
+                      <strong>{vehiclesSummary.inTransit} of {vehiclesSummary.total} Trucks</strong>
+                    </div>
+                    <div style={{ height: '6px', background: '#E2E8F0', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${vehiclesSummary.total > 0 ? Math.min(100, Math.round((vehiclesSummary.inTransit / vehiclesSummary.total) * 100)) : 0}%`,
+                          background: 'linear-gradient(90deg, #3B82F6 0%, #2563EB 100%)',
+                          borderRadius: '3px',
+                          transition: 'width 0.3s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Driver Allocation Bar */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: '#64748B', marginBottom: '3px' }}>
+                      <span>Crew on Duty</span>
+                      <strong>{driversSummary.onTrip} of {driversSummary.total} Drivers</strong>
+                    </div>
+                    <div style={{ height: '6px', background: '#E2E8F0', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          height: '100%',
+                          width: `${driversSummary.total > 0 ? Math.min(100, Math.round((driversSummary.onTrip / driversSummary.total) * 100)) : 0}%`,
+                          background: 'linear-gradient(90deg, #10B981 0%, #059669 100%)',
+                          borderRadius: '3px',
+                          transition: 'width 0.3s ease',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Quick Dispatch Link */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginTop: '2px' }}>
+                    <Link
+                      to="/dispatch"
+                      style={{
+                        fontSize: '11px',
+                        color: '#2563EB',
+                        fontWeight: 700,
+                        textDecoration: 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        background: '#EFF6FF',
+                        border: '1px solid #BFDBFE',
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                      }}
+                    >
+                      <i className="fas fa-truck-loading"></i> Go to Dispatch &rarr;
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1425,44 +2075,16 @@ function StaffDashboardPage() {
                       fontWeight: 700,
                       padding: '3px 10px',
                       borderRadius: '16px',
-                      background:
-                        selectedCell.cell.type === 'accident'
-                          ? '#fee2e2'
-                          : selectedCell.cell.type === 'delivery'
-                          ? '#fee2e2'
-                          : selectedCell.cell.type === 'scheduled'
-                          ? '#fdf4ff'
-                          : selectedCell.cell.type === 'completed'
-                          ? '#dbeafe'
-                          : selectedCell.cell.type === 'break'
-                          ? '#fef3c7'
-                          : '#dcfce7',
-                      color:
-                        selectedCell.cell.type === 'accident'
-                          ? '#991b1b'
-                          : selectedCell.cell.type === 'delivery'
-                          ? '#dc2626'
-                          : selectedCell.cell.type === 'scheduled'
-                          ? '#a21caf'
-                          : selectedCell.cell.type === 'completed'
-                          ? '#1d4ed8'
-                          : selectedCell.cell.type === 'break'
-                          ? '#d97706'
-                          : '#16a34a',
-                      border: selectedCell.cell.type === 'accident' ? '1px solid #fca5a5' : 'none',
+                      background: DELIVERY_STAGE_COLORS[selectedCell.cell.type]?.bg || '#f1f5f9',
+                      color: DELIVERY_STAGE_COLORS[selectedCell.cell.type]?.color || '#334155',
+                      border: `1px solid ${DELIVERY_STAGE_COLORS[selectedCell.cell.type]?.border || '#cbd5e1'}`,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
                     }}
                   >
-                    {selectedCell.cell.type === 'accident'
-                      ? '⚠️ Broken / Accident Reported'
-                      : selectedCell.cell.type === 'delivery'
-                      ? 'Active Delivery'
-                      : selectedCell.cell.type === 'scheduled'
-                      ? 'Scheduled Delivery'
-                      : selectedCell.cell.type === 'completed'
-                      ? 'Trip(s) Completed'
-                      : selectedCell.cell.type === 'break'
-                      ? 'Under Maintenance'
-                      : 'Available for Dispatch'}
+                    {selectedCell.cell.type === 'delayed' && <i className="fas fa-exclamation-triangle" style={{ fontSize: '10px' }}></i>}
+                    {selectedCell.cell.statusText || DELIVERY_STAGE_COLORS[selectedCell.cell.type]?.label || 'Available'}
                   </span>
                 </div>
                 <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e293b' }}>
@@ -1601,15 +2223,15 @@ function StaffDashboardPage() {
                                   textTransform: 'uppercase',
                                   padding: '3px 9px',
                                   borderRadius: '12px',
-                                  background: '#ffedd5',
-                                  color: '#c2410c',
-                                  border: '1px solid #fed7aa',
+                                  background: '#FEF2F2',
+                                  color: '#DC2626',
+                                  border: '1px solid #FCA5A5',
                                   display: 'inline-flex',
                                   alignItems: 'center',
                                   gap: '4px',
                                 }}
                               >
-                                <i className="fas fa-exclamation-triangle"></i> Delayed / Overdue
+                                <i className="fas fa-exclamation-triangle"></i> Delayed ({DELIVERY_STAGE_LABELS[del.status] || 'Dispatched'})
                               </span>
                             ) : (
                               <span
@@ -1619,11 +2241,12 @@ function StaffDashboardPage() {
                                   textTransform: 'uppercase',
                                   padding: '3px 9px',
                                   borderRadius: '12px',
-                                  background: isCompleted ? '#dcfce7' : isActive ? '#fee2e2' : '#f1f5f9',
-                                  color: isCompleted ? '#16a34a' : isActive ? '#dc2626' : '#64748b',
+                                  background: DELIVERY_STAGE_COLORS[DELIVERY_STAGE_CELL_TYPES[del.status]]?.bg || (isCompleted ? '#dcfce7' : '#f1f5f9'),
+                                  color: DELIVERY_STAGE_COLORS[DELIVERY_STAGE_CELL_TYPES[del.status]]?.color || (isCompleted ? '#16a34a' : '#64748b'),
+                                  border: `1px solid ${DELIVERY_STAGE_COLORS[DELIVERY_STAGE_CELL_TYPES[del.status]]?.border || '#cbd5e1'}`,
                                 }}
                               >
-                                {del.status?.replace(/_/g, ' ')}
+                                {DELIVERY_STAGE_LABELS[del.status] || del.status?.replace(/_/g, ' ')}
                               </span>
                             )}
                           </div>
@@ -1919,8 +2542,27 @@ function StaffDashboardPage() {
                           </div>
                         )}
 
-                        {/* Open in Delivery Monitoring */}
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+                        {/* Open in Delivery Monitoring / Dispatch Assign */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '10px' }}>
+                          {!del.vehicle_id && (
+                            <Link
+                              to="/dispatch"
+                              style={{
+                                fontSize: '12px',
+                                color: '#ffffff',
+                                background: '#2563eb',
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                fontWeight: 600,
+                                textDecoration: 'none',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                              }}
+                            >
+                              <i className="fas fa-truck-loading"></i> Assign Vehicle & Driver
+                            </Link>
+                          )}
                           <Link
                             to={`/delivery?delivery_id=${del.delivery_id}`}
                             style={{
@@ -1931,6 +2573,10 @@ function StaffDashboardPage() {
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: '6px',
+                              padding: '6px 10px',
+                              borderRadius: '6px',
+                              background: '#eff6ff',
+                              border: '1px solid #bfdbfe',
                             }}
                           >
                             View in Delivery Monitoring <i className="fas fa-arrow-right"></i>
