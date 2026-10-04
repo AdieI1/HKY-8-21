@@ -312,14 +312,26 @@ function DeliveryPage() {
   const PAGE_SIZE = 8;
   const [selectedDelivery, setSelectedDelivery] = useState(null);
 
-  // Deep-link from calendar or notification (?delivery_id=...)
+  // Deep-link from Action Required, calendar, or notification (?delivery_id=...)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const delId = params.get('delivery_id');
+    const delId = params.get('delivery_id') || params.get('id');
     if (delId && deliveries.length > 0) {
       const matched = deliveries.find((d) => Number(d.delivery_id) === Number(delId));
       if (matched) {
         setSelectedDelivery(matched);
+        if (matched.status === 'completed') {
+          setViewTab('completed');
+        } else {
+          setViewTab('active');
+        }
+        setActiveFilter('all');
+        setTimeout(() => {
+          const panel = document.querySelector('.delivery-panel.active') || document.querySelector('.delivery-panel');
+          if (panel) {
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+        }, 150);
       }
     }
   }, [location.search, deliveries]);
@@ -328,9 +340,13 @@ function DeliveryPage() {
   const [detectedHazards, setDetectedHazards] = useState([]);
   const [forecast, setForecast] = useState(null);
   const [rescheduleTarget, setRescheduleTarget] = useState(null);
+  const [rescheduleDriverId, setRescheduleDriverId] = useState('');
+  const [rescheduleVehicleId, setRescheduleVehicleId] = useState('');
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [rescheduleSlot, setRescheduleSlot] = useState('09:00 AM');
+  const [rescheduleRemarks, setRescheduleRemarks] = useState('');
   const [rescheduleSubmitting, setRescheduleSubmitting] = useState(false);
+  const [rescheduleErrorMsg, setRescheduleErrorMsg] = useState('');
   const [rescheduleSuccessMsg, setRescheduleSuccessMsg] = useState('');
 
   const [delayActionModalOpen, setDelayActionModalOpen] = useState(false);
@@ -420,27 +436,44 @@ function DeliveryPage() {
 
   const openRescheduleModal = (d) => {
     setRescheduleTarget(d);
+    setRescheduleDriverId(availableDrivers[0]?.driver_id || '');
+    setRescheduleVehicleId(availableVehicles[0]?.vehicle_id || '');
     setRescheduleDate(d.request?.reschedule_proposed_date || forecast?.earliest_available_date || '');
     setRescheduleSlot(d.request?.reschedule_proposed_time_slot || forecast?.earliest_available_slot || '09:00 AM');
+    setRescheduleRemarks('Re-assigned & rescheduled due to dispatch delay');
+    setRescheduleErrorMsg('');
     setRescheduleSuccessMsg('');
   };
 
   const handleSendRescheduleProposal = async () => {
-    if (!rescheduleTarget || !rescheduleDate) return;
+    if (!rescheduleTarget) return;
     setRescheduleSubmitting(true);
+    setRescheduleErrorMsg('');
     try {
-      await api.post(`/deliveries/${rescheduleTarget.delivery_id}/propose-reschedule`, {
-        proposed_date: rescheduleDate,
-        proposed_time_slot: rescheduleSlot,
-      });
-      setRescheduleSuccessMsg(`Proposal sent to customer for ${rescheduleDate}!`);
-      setTimeout(() => {
+      if (rescheduleDriverId && rescheduleVehicleId) {
+        await api.post(`/deliveries/${rescheduleTarget.delivery_id}/dispatch`, {
+          driver_id: rescheduleDriverId,
+          vehicle_id: rescheduleVehicleId,
+          trip_date: rescheduleDate || undefined,
+          remarks: rescheduleRemarks.trim() || undefined,
+        });
+      }
+
+      if (rescheduleDate) {
+        await api.post(`/deliveries/${rescheduleTarget.delivery_id}/propose-reschedule`, {
+          proposed_date: rescheduleDate,
+          proposed_time_slot: rescheduleSlot || '09:00 AM',
+        });
+      }
+
+      setRescheduleSuccessMsg('Delivery re-scheduled and assigned successfully!');
+      setTimeout(async () => {
         setRescheduleTarget(null);
         setRescheduleSuccessMsg('');
-      }, 1500);
-      await loadData();
+        await loadData();
+      }, 1400);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to send reschedule proposal.');
+      setRescheduleErrorMsg(err.response?.data?.message || 'Failed to re-schedule delivery.');
     } finally {
       setRescheduleSubmitting(false);
     }
@@ -1013,7 +1046,30 @@ function DeliveryPage() {
             </div>
             <div className="delivery-panel-content">
               <div className="panel-delivery-id">{deliveryCode(selectedDelivery.delivery_id)}</div>
-              <div className="panel-customer-name">{selectedDelivery.request?.customer?.full_name || '—'}</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap', marginBottom: '2px' }}>
+                <div className="panel-customer-name" style={{ margin: 0 }}>{selectedDelivery.request?.customer?.full_name || '—'}</div>
+                {selectedDelivery.is_relief && (
+                  <span
+                    style={{
+                      background: 'rgba(245, 158, 11, 0.18)',
+                      border: '1.5px solid #F59E0B',
+                      color: '#FCD34D',
+                      borderRadius: '6px',
+                      padding: '3px 8px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      whiteSpace: 'nowrap',
+                      letterSpacing: '0.3px',
+                    }}
+                  >
+                    <i className="fas fa-truck-moving" style={{ fontSize: '11px', color: '#F59E0B' }}></i>
+                    Relief Active
+                  </span>
+                )}
+              </div>
               <div className="panel-distance">Distance: {selectedDelivery.request?.distance_km ? `${selectedDelivery.request.distance_km} Kilometers` : '—'}</div>
               <div className="panel-status-row">
                 <span className="panel-status-label">Status:</span>
@@ -1023,84 +1079,47 @@ function DeliveryPage() {
                 </span>
               </div>
 
-              {selectedDelivery.is_relief && (
-                <div
-                  style={{
-                    background: '#FFFBEB',
-                    border: '1.5px solid #F59E0B',
-                    borderRadius: '10px',
-                    padding: '12px 14px',
-                    margin: '12px 0',
-                    boxShadow: '0 2px 8px rgba(245, 158, 11, 0.12)',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', color: '#92400E', fontWeight: 800, fontSize: '13px' }}>
-                      <i className="fas fa-truck-moving" style={{ fontSize: '15px', color: '#D97706' }}></i>
-                      {selectedDelivery.cargo_loaded ? 'Relief Mission: Cargo Transshipment' : 'Replacement Mission: Direct Pick-up'}
-                    </div>
-                    <span style={{ fontSize: '10.5px', fontWeight: 700, background: '#FDE68A', color: '#78350F', padding: '2px 7px', borderRadius: '10px' }}>
-                      {selectedDelivery.cargo_loaded ? 'Transshipment' : 'Direct Pickup'}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: '11.5px', color: '#78350F', marginTop: '6px', lineHeight: '1.45' }}>
-                    <div><strong>Relief Driver:</strong> {selectedDelivery.driver?.user?.full_name || 'Assigned'} ({selectedDelivery.vehicle ? `${selectedDelivery.vehicle.model || selectedDelivery.vehicle.brand} • ${selectedDelivery.vehicle.plate_number}` : 'Relief Truck'})</div>
-                    {selectedDelivery.cargo_loaded ? (
-                      <>
-                        <div style={{ marginTop: '3px' }}><strong>Pick-up (Breakdown Site):</strong> {selectedDelivery.relief_origin_address || 'Breakdown Location'}</div>
-                        {selectedDelivery.stranded_driver && (
-                          <div style={{ marginTop: '3px' }}>
-                            <strong>Stranded Driver:</strong> {selectedDelivery.stranded_driver?.user?.full_name} ({selectedDelivery.stranded_driver?.user?.phone || 'No phone'})
-                          </div>
-                        )}
-                        {selectedDelivery.stranded_vehicle && (
-                          <div style={{ marginTop: '2px' }}>
-                            <strong>Disabled Vehicle:</strong> {selectedDelivery.stranded_vehicle?.model || selectedDelivery.stranded_vehicle?.brand} ({selectedDelivery.stranded_vehicle?.plate_number})
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div style={{ marginTop: '3px' }}>
-                        <strong>Pick-up Location:</strong> {selectedDelivery.request?.pickup_address || 'Customer Pick-up'}
-                        <div style={{ marginTop: '2px', fontSize: '11px', color: '#92400E' }}>
-                          <em>Original truck broke down before loading. Relief driver is heading directly to the customer pickup.</em>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
               {isDeliveryDelayed(selectedDelivery) && (() => {
                 const delayInfo = getDelayDetails(selectedDelivery);
                 return (
-                  <div className="panel-delayed-alert-box" style={{ background: '#FFF1F2', border: '1px solid #FECDD3', borderRadius: 10, padding: 14, marginBottom: 14 }}>
+                  <div
+                    className="panel-delayed-alert-box"
+                    style={{
+                      background: '#383838',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: 10,
+                      padding: 14,
+                      margin: '14px 0',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)',
+                    }}
+                  >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <div className="panel-delayed-alert-title" style={{ color: '#BE123C', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <i className="fas fa-exclamation-triangle"></i> Delayed Delivery Alert
+                      <div className="panel-delayed-alert-title" style={{ color: '#FCA5A5', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <i className="fas fa-exclamation-triangle" style={{ color: '#EF4444' }}></i> Delayed Delivery Alert
                       </div>
-                      <span style={{ fontSize: 11, fontWeight: 700, background: '#F43F5E', color: '#fff', padding: '2px 8px', borderRadius: 10 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, background: '#DC2626', color: '#fff', padding: '2px 8px', borderRadius: 10 }}>
                         {delayInfo?.durationText || 'Overdue'}
                       </span>
                     </div>
 
-                    <div style={{ fontSize: 12, color: '#4B5563', lineHeight: 1.5, marginBottom: 10 }}>
-                      <div>Estimated ETA: <strong>{delayInfo?.etaDays || 2} day target</strong> ({delayInfo?.targetEtaDateStr})</div>
-                      <div>Ongoing duration: <strong style={{ color: '#E11D48' }}>{delayInfo?.elapsedDays || 3} days active</strong></div>
+                    <div style={{ fontSize: 12, color: '#D1D5DB', lineHeight: 1.5, marginBottom: 10 }}>
+                      <div>Estimated ETA: <strong style={{ color: '#FFFFFF' }}>{delayInfo?.etaDays || 2} day target</strong> ({delayInfo?.targetEtaDateStr})</div>
+                      <div>Ongoing duration: <strong style={{ color: '#F87171' }}>{delayInfo?.elapsedDays || 3} days active</strong></div>
                       {selectedDelivery.delay_reason && (
-                        <div style={{ marginTop: 6, color: '#9F1239', fontSize: 11, background: '#FFE4E6', padding: '5px 8px', borderRadius: 6 }}>
-                          <i className="fas fa-tag" style={{ marginRight: 4 }}></i><strong>Reason:</strong> {selectedDelivery.delay_reason}
+                        <div style={{ marginTop: 6, color: '#FECACA', fontSize: 11, background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.25)', padding: '5px 8px', borderRadius: 6 }}>
+                          <i className="fas fa-tag" style={{ marginRight: 4, color: '#F87171' }}></i><strong>Reason:</strong> {selectedDelivery.delay_reason}
                         </div>
                       )}
                       {selectedDelivery.delay_notified_at && (
-                        <div style={{ marginTop: 4, color: '#059669', fontSize: 11, fontWeight: 600 }}>
+                        <div style={{ marginTop: 6, color: '#34D399', fontSize: 11, fontWeight: 600 }}>
                           <i className="fas fa-check-circle" style={{ marginRight: 4 }}></i> Customer notified of delay
                         </div>
                       )}
                     </div>
 
                     {/* Smart Proposed Actions */}
-                    <div style={{ borderTop: '1px solid #FFE4E6', paddingTop: 10, marginTop: 8 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#9F1239', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', paddingTop: 10, marginTop: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
                         <i className="fas fa-lightbulb" style={{ color: '#F59E0B' }}></i> Recommended Actions:
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1108,7 +1127,7 @@ function DeliveryPage() {
                           type="button"
                           onClick={() => openNotifyCustomerModal(selectedDelivery)}
                           style={{
-                            background: '#BE123C',
+                            background: '#DC2626',
                             color: '#ffffff',
                             border: 'none',
                             borderRadius: 6,
@@ -1120,7 +1139,7 @@ function DeliveryPage() {
                             alignItems: 'center',
                             justifyContent: 'center',
                             gap: 6,
-                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
                           }}
                         >
                           <i className="fas fa-bullhorn"></i> Notify Customer of Delay &amp; Revised ETA
@@ -1142,55 +1161,36 @@ function DeliveryPage() {
                             alignItems: 'center',
                             justifyContent: 'center',
                             gap: 6,
-                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
                           }}
                         >
                           <i className="fas fa-satellite-dish"></i> Ping Driver for Delay Reason
                         </button>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                          <button
-                            type="button"
-                            onClick={() => openRescheduleModal(selectedDelivery)}
-                            style={{
-                              background: '#FFFFFF',
-                              color: '#334155',
-                              border: '1px solid #CBD5E1',
-                              borderRadius: 6,
-                              padding: '6px 8px',
-                              fontSize: 11,
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 4,
-                            }}
-                          >
-                            <i className="far fa-calendar-alt"></i> Propose Reschedule
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => openReassignModal(selectedDelivery)}
-                            style={{
-                              background: '#FFFFFF',
-                              color: '#334155',
-                              border: '1px solid #CBD5E1',
-                              borderRadius: 6,
-                              padding: '6px 8px',
-                              fontSize: 11,
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 4,
-                            }}
-                          >
-                            <i className="fas fa-user-edit"></i> Re-assign Relief
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openRescheduleModal(selectedDelivery)}
+                          style={{
+                            width: '100%',
+                            background: 'rgba(255, 255, 255, 0.08)',
+                            color: '#F9FAFB',
+                            border: '1px solid rgba(255, 255, 255, 0.2)',
+                            borderRadius: 6,
+                            padding: '8px 12px',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            transition: 'all 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.16)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'; }}
+                        >
+                          <i className="far fa-calendar-alt" style={{ color: '#60A5FA' }}></i> Propose Re-schedule
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1230,12 +1230,12 @@ function DeliveryPage() {
                 <span className="panel-detail-value">
                   {selectedDelivery.is_relief && selectedDelivery.cargo_loaded && selectedDelivery.relief_origin_address ? (
                     <>
-                      <span style={{ color: '#D97706', fontWeight: 700 }}>[Breakdown Site] </span>
+                      <span style={{ color: '#FCD34D', fontWeight: 700 }}>[Breakdown Site] </span>
                       {selectedDelivery.relief_origin_address}
                     </>
                   ) : selectedDelivery.is_relief && !selectedDelivery.cargo_loaded ? (
                     <>
-                      <span style={{ color: '#2563EB', fontWeight: 700 }}>[Direct Pick-up] </span>
+                      <span style={{ color: '#60A5FA', fontWeight: 700 }}>[Direct Pick-up] </span>
                       {selectedDelivery.request?.pickup_address || '—'}
                     </>
                   ) : (
@@ -1331,37 +1331,6 @@ function DeliveryPage() {
 
                     return (
                       <>
-                        {selectedDelivery.is_relief && (
-                          <div
-                            style={{
-                              background: '#FFFBEB',
-                              border: '1.5px solid #F59E0B',
-                              borderRadius: '10px',
-                              padding: '14px',
-                              margin: '16px 0 12px',
-                              boxShadow: '0 4px 12px rgba(245, 158, 11, 0.1)',
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#92400E', fontWeight: 800, fontSize: '13px' }}>
-                              <i className="fas fa-truck-moving" style={{ fontSize: '16px', color: '#D97706' }}></i>
-                              Relief Mission Active
-                            </div>
-                            <div style={{ fontSize: '12px', color: '#78350F', marginTop: '8px', lineHeight: '1.5' }}>
-                              <div><strong>Relief Driver:</strong> {selectedDelivery.driver?.user?.full_name || 'Assigned'} ({selectedDelivery.vehicle ? `${selectedDelivery.vehicle.model || selectedDelivery.vehicle.brand} • ${selectedDelivery.vehicle.plate_number}` : 'Relief Truck'})</div>
-                              <div style={{ marginTop: '4px' }}><strong>Pick-up (Breakdown Site):</strong> {selectedDelivery.relief_origin_address || 'Breakdown Location'}</div>
-                              {selectedDelivery.stranded_driver && (
-                                <div style={{ marginTop: '4px' }}>
-                                  <strong>Stranded Driver:</strong> {selectedDelivery.stranded_driver?.user?.full_name} ({selectedDelivery.stranded_driver?.user?.phone || 'No phone'})
-                                </div>
-                              )}
-                              {selectedDelivery.stranded_vehicle && (
-                                <div style={{ marginTop: '2px' }}>
-                                  <strong>Disabled Vehicle:</strong> {selectedDelivery.stranded_vehicle?.model || selectedDelivery.stranded_vehicle?.brand} ({selectedDelivery.stranded_vehicle?.plate_number})
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
                         {isBroken && breakdown && (() => {
                           const isCargoLoadedOnDisabled = ['loading_cargo', 'out_for_delivery', 'arrived_dropoff', 'unloading_cargo'].includes(selectedDelivery.status) || Boolean(selectedDelivery.cargo_loaded);
 
@@ -1678,7 +1647,12 @@ function DeliveryPage() {
                   <div className="map-section-title"><i className="fas fa-user"></i> Driver Info</div>
                   {selectedDelivery.driver?.user ? (
                     <div className="map-driver-card">
-                      <img src="images/brucednegrow.png" alt="Driver" className="map-driver-avatar" />
+                      <img
+                        src={selectedDelivery.driver.user.profile_photo_url || '/images/defaultavatar.png'}
+                        alt="Driver"
+                        className="map-driver-avatar"
+                        onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
+                      />
                       <div className="map-driver-info" style={{ width: '100%' }}>
                         <div className="map-driver-name">{selectedDelivery.driver.user.full_name}</div>
                         <div className="map-driver-contact">Contact Number: {selectedDelivery.driver.user.phone || '—'}</div>
@@ -1755,11 +1729,20 @@ function DeliveryPage() {
       <RescheduleProposalModal
         target={rescheduleTarget}
         forecast={forecast}
+        availableDrivers={availableDrivers}
+        availableVehicles={availableVehicles}
+        selectedDriverId={rescheduleDriverId}
+        setSelectedDriverId={setRescheduleDriverId}
+        selectedVehicleId={rescheduleVehicleId}
+        setSelectedVehicleId={setRescheduleVehicleId}
         rescheduleDate={rescheduleDate}
         setRescheduleDate={setRescheduleDate}
         rescheduleSlot={rescheduleSlot}
         setRescheduleSlot={setRescheduleSlot}
+        remarks={rescheduleRemarks}
+        setRemarks={setRescheduleRemarks}
         submitting={rescheduleSubmitting}
+        errorMsg={rescheduleErrorMsg}
         successMsg={rescheduleSuccessMsg}
         onClose={() => setRescheduleTarget(null)}
         onSubmit={handleSendRescheduleProposal}

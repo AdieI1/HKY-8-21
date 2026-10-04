@@ -56,9 +56,7 @@ class SparePart extends Model
     protected static function booted()
     {
         static::saving(function ($sparePart) {
-            if ($sparePart->isDirty('quantity_in_stock') || $sparePart->isDirty('reorder_level') || !$sparePart->status) {
-                $sparePart->status = self::determineStatus($sparePart->quantity_in_stock, $sparePart->reorder_level);
-            }
+            $sparePart->status = self::determineStatus($sparePart->quantity_in_stock, $sparePart->reorder_level);
         });
     }
 

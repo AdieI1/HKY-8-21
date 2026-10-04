@@ -225,46 +225,47 @@ export default function AssignMap({
           resolveDistance(route.summary.totalDistance / 1000);
           setStatus('ready');
 
-          // Check proximity to route coordinates
-          const coords = route.coordinates && route.coordinates.length > 0 ? route.coordinates : [pickup, dropoff];
-          const detected = combinedZones.current.filter((zone) => isZoneNearRoute(zone, coords, 2.0));
+          // Check proximity to real road coordinates
+          const coords = route.coordinates && route.coordinates.length > 1 ? route.coordinates : [];
+          const detected = coords.length > 1 ? combinedZones.current.filter((zone) => isZoneNearRoute(zone, coords, 0.4)) : [];
           setZonesOnRoute(detected);
 
           // Render danger zones
           updateDangerLayers(map, coords, detected);
 
           // Detect & visually mark steep segments along the OSRM route
-          fetchRouteSteepness(coords).then((steepnessData) => {
-            if (cancelled || !map) return;
-            steepnessDataRef.current = steepnessData;
-            setSteepnessSummary(steepnessData.summary);
+          if (coords.length > 1) {
+            fetchRouteSteepness(coords).then((steepnessData) => {
+              if (cancelled || !map) return;
+              steepnessDataRef.current = steepnessData;
+              setSteepnessSummary(steepnessData.summary);
 
-            if (showSteepness && steepnessData.segments && steepnessData.segments.length > 0) {
-              if (steepnessLayerGroupRef.current) {
-                try { map.removeLayer(steepnessLayerGroupRef.current); } catch (_) {}
-              }
-              steepnessLayerGroupRef.current = renderSteepnessPolylines(map, steepnessData.segments, {
-                originalCoords: coords,
-              });
+              if (showSteepness && steepnessData.segments && steepnessData.segments.length > 0) {
+                if (steepnessLayerGroupRef.current) {
+                  try { map.removeLayer(steepnessLayerGroupRef.current); } catch (_) {}
+                }
+                steepnessLayerGroupRef.current = renderSteepnessPolylines(map, steepnessData.segments, {
+                  originalCoords: coords,
+                });
 
-              if (steepnessLegendControlRef.current) {
-                try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}
+                if (steepnessLegendControlRef.current) {
+                  try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}
+                }
+                const legendCtrl = createSteepnessLegendControl(steepnessData.summary);
+                legendCtrl.addTo(map);
+                steepnessLegendControlRef.current = legendCtrl;
               }
-              const legendCtrl = createSteepnessLegendControl(steepnessData.summary);
-              legendCtrl.addTo(map);
-              steepnessLegendControlRef.current = legendCtrl;
-            }
-          }).catch(() => {});
+            }).catch(() => {});
+          }
         })
         .on('routingerror', () => {
           if (cancelled) return;
           resolveDistance(haversineKm(pickup.lat, pickup.lng, dropoff.lat, dropoff.lng));
           setStatus('ready');
 
-          const coords = [pickup, dropoff];
-          const detected = combinedZones.current.filter((zone) => isZoneNearRoute(zone, coords, 2.0));
+          const detected = [];
           setZonesOnRoute(detected);
-          updateDangerLayers(map, coords, detected);
+          updateDangerLayers(map, [], detected);
         })
         .addTo(map);
 

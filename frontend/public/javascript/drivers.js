@@ -139,7 +139,7 @@ let currentArchiveDriverId = null;
             const lastName = document.getElementById('lastName'); if (lastName) lastName.value = row.dataset.lastName || '';
             const birthdate = document.getElementById('birthdate'); if (birthdate) birthdate.value = row.dataset.birthdate || '';
             const contactNum = document.getElementById('contactNum'); if (contactNum) contactNum.value = row.dataset.contact || '';
-            const editPhoto = document.getElementById('editDriverModalPhoto'); if (editPhoto) editPhoto.src = row.dataset.photo || 'images/brucednegrow.png';
+            const editPhoto = document.getElementById('editDriverModalPhoto'); if (editPhoto) editPhoto.src = row.dataset.photo || 'images/defaultavatar.png';
             if (cancelBtn) cancelBtn.style.display = 'inline-flex';
             if (submitBtn) submitBtn.textContent = 'Save Changes';
             const username = document.getElementById('driverUsername'); if (username) username.value = row.dataset.username || ('Driver' + driverId.replace('DR', '') + '_' + (row.dataset.lastName || ''));
@@ -388,7 +388,7 @@ let currentArchiveDriverId = null;
         }
         function setSrc(id, value) {
             const el = document.getElementById(id);
-            if (el) el.src = value || 'images/brucednegrow.png';
+            if (el) el.src = value || 'images/defaultavatar.png';
         }
 
         // Driver Details Modal - Figma Design

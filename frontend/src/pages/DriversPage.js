@@ -430,7 +430,7 @@ function DriversPage() {
     });
     setChangePassword(false);
     setProfilePhotoFile(null);
-    setProfilePhotoPreview(driver.user?.profile_photo_url || '/images/brucednegrow.png');
+    setProfilePhotoPreview(driver.user?.profile_photo_url || '/images/defaultavatar.png');
     setLicenseFile(null);
     setMedicalCertFile(null);
     setClearanceFile(null);
@@ -695,7 +695,7 @@ function DriversPage() {
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <img
-                                src={driver.user?.profile_photo_url || '/images/brucednegrow.png'}
+                                src={driver.user?.profile_photo_url || '/images/defaultavatar.png'}
                                 alt={driver.user?.full_name || 'Driver'}
                                 style={{
                                   width: '36px',
@@ -704,7 +704,7 @@ function DriversPage() {
                                   objectFit: 'cover',
                                   border: '1px solid #e2e8f0',
                                 }}
-                                onError={(e) => { e.currentTarget.src = '/images/brucednegrow.png'; }}
+                                onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
                               />
                               <span style={{ fontWeight: 600 }}>{driver.user?.full_name || '—'}</span>
                             </div>
@@ -753,10 +753,10 @@ function DriversPage() {
                         <tr key={driver.driver_id} className="driver-row">
                           <td style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <img
-                              src={driver.user?.profile_photo_url || '/images/brucednegrow.png'}
+                              src={driver.user?.profile_photo_url || '/images/defaultavatar.png'}
                               alt=""
                               style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }}
-                              onError={(e) => { e.currentTarget.src = '/images/brucednegrow.png'; }}
+                              onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
                             />
                             <span>{driver.user?.full_name || '—'}</span>
                           </td>
@@ -1003,11 +1003,11 @@ function DriversPage() {
                 <div className="driver-profile-card">
                   <div className="driver-profile-photo-wrapper">
                     <img
-                      src={detailsDriver.user?.profile_photo_url || '/images/brucednegrow.png'}
+                      src={detailsDriver.user?.profile_photo_url || '/images/defaultavatar.png'}
                       alt={detailsDriver.user?.full_name || 'Driver'}
                       className="driver-profile-photo"
                       onError={(e) => {
-                        e.currentTarget.src = '/images/brucednegrow.png';
+                        e.currentTarget.src = '/images/defaultavatar.png';
                       }}
                     />
                   </div>
@@ -1813,7 +1813,7 @@ function DriversPage() {
                             src={profilePhotoPreview}
                             alt="Preview"
                             style={{ width: 90, height: 90, borderRadius: '50%', objectFit: 'cover', border: '2px solid #e2e8f0' }}
-                            onError={(e) => { e.currentTarget.src = '/images/brucednegrow.png'; }}
+                            onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
                           />
                           <p style={{ margin: '8px 0 0', fontSize: 12, color: '#2563eb', fontWeight: 600 }}>Click to change</p>
                         </div>

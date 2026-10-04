@@ -43,10 +43,11 @@ function driverCode(id) {
 }
 
 function timeAgo(dateString) {
-  if (!dateString) return 'Just now';
+  if (!dateString) return 'Recently';
   const d = new Date(dateString);
   if (isNaN(d.getTime())) return 'Recently';
   const diffMs = Date.now() - d.getTime();
+  if (diffMs < 0) return 'Just now';
   const diffSec = Math.floor(diffMs / 1000);
   if (diffSec < 60) return 'Just now';
   const diffMin = Math.floor(diffSec / 60);
@@ -559,28 +560,41 @@ function OverviewPage() {
       });
 
       // 5. Incident Reports
+      // 5. Incident Reports (Deduplicated and accurate timestamp)
+      const seenInc = new Set();
       incData.forEach((inc) => {
-        const rawTime = inc.created_at;
+        const incId = inc.incident_id || inc.report_id || inc.id;
+        if (!incId || seenInc.has(incId)) return;
+        seenInc.add(incId);
+
+        const rawTime = inc.reported_at || inc.created_at || inc.incident_date;
+        const timeMs = rawTime ? new Date(rawTime).getTime() : 0;
         dynamicActivities.push({
-          id: `inc-${inc.report_id}`,
+          id: `inc-${incId}`,
           category: 'fleet',
           icon: 'fas fa-exclamation-circle',
           color: '#EF4444',
-          title: `Incident: ${inc.incident_type || 'Issue reported'}`,
+          title: `Incident: ${(inc.incident_type || 'Issue reported').replace(/_/g, ' ')}`,
           sub: inc.description || 'Reported during trip',
           actor: inc.delivery?.driver?.user?.full_name || 'Driver',
           role: 'Incident',
           time: timeAgo(rawTime),
-          timeMs: rawTime ? new Date(rawTime).getTime() : 0,
+          timeMs,
           rawDate: rawTime,
         });
       });
 
       // 6. System Logs
+      const seenLogs = new Set();
       logsData.forEach((log) => {
+        const logId = log.log_id || log.id;
+        if (!logId || seenLogs.has(logId)) return;
+        seenLogs.add(logId);
+
         const rawTime = log.timestamp || log.created_at;
+        const timeMs = rawTime ? new Date(rawTime).getTime() : 0;
         dynamicActivities.push({
-          id: `log-${log.log_id}`,
+          id: `log-${logId}`,
           category: 'system',
           icon: 'fas fa-shield-alt',
           color: '#8B5CF6',
@@ -589,7 +603,7 @@ function OverviewPage() {
           actor: log.user?.full_name || 'System',
           role: log.user?.role?.role_name || 'Staff',
           time: timeAgo(rawTime),
-          timeMs: rawTime ? new Date(rawTime).getTime() : 0,
+          timeMs,
           rawDate: rawTime,
         });
       });
@@ -621,10 +635,14 @@ function OverviewPage() {
     const unsubscribeNotif = reverb.subscribe('system-notifications', 'notification.created', () => {
       loadData();
     });
+    const unsubscribeAct = reverb.subscribe('system-activities', 'activity.created', () => {
+      loadData();
+    });
 
     return () => {
       unsubscribeDel();
       unsubscribeNotif();
+      unsubscribeAct();
     };
   }, [loadData]);
 

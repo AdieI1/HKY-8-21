@@ -52,7 +52,7 @@ class DashboardController extends Controller
 
         $systemLogs = SystemLog::with('user')
             ->orderByDesc('log_id')
-            ->take(20)
+            ->take(50)
             ->get();
 
         $spareParts = SparePart::all();

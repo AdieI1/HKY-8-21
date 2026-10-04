@@ -672,10 +672,10 @@ function AnalyticsPage() {
               {topDriver ? (
                 <div className="leader-hero-row">
                   <img
-                    src={topDriver.driver?.user?.profile_photo_url || '/images/brucednegrow.png'}
+                    src={topDriver.driver?.user?.profile_photo_url || '/images/defaultavatar.png'}
                     alt="Top Driver"
                     className="leader-avatar"
-                    onError={(e) => { e.currentTarget.src = '/images/brucednegrow.png'; }}
+                    onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
                   />
                   <div className="leader-details">
                     <h4 className="leader-name">{topDriver.driver.user?.full_name || '—'}</h4>

@@ -179,18 +179,6 @@ export default function Sidebar({ activePage }) {
           </div>
         )}
       </div>
-
-      <div className="logout">
-        <button
-          type="button"
-          className="logout-btn"
-          onClick={handleLogout}
-          aria-label="Logout"
-        >
-          <i className="fas fa-sign-out-alt"></i>
-          <span>Logout</span>
-        </button>
-      </div>
     </div>
   );
 }

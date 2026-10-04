@@ -249,8 +249,8 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
             onDistanceChangeRef.current?.(distKm);
           }
 
-          const coords = e.routes[0].coordinates || [pickup, dropoff];
-          const detected = dangerZones.filter((zone) => isZoneNearRoute(zone, coords, 2.0));
+          const coords = e.routes[0].coordinates;
+          const detected = coords && coords.length > 1 ? dangerZones.filter((zone) => isZoneNearRoute(zone, coords, 0.4)) : [];
           setZonesOnRoute(detected);
 
           // Debounce steepness calculation to prevent rapid repeated requests
@@ -284,9 +284,7 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
         })
         .on('routingerror', () => {
           setRouteStatus('failed');
-          const coords = [pickup, dropoff];
-          const detected = dangerZones.filter((zone) => isZoneNearRoute(zone, coords, 2.0));
-          setZonesOnRoute(detected);
+          setZonesOnRoute([]);
         })
         .addTo(map);
     } else {
@@ -313,13 +311,13 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
 
     // ONLY render near hazards on the chosen route (or all if filter toggled off)
     const targetZones = filterRouteOnly
-      ? (routeCoords.length > 0 ? dangerZones.filter((z) => isZoneNearRoute(z, routeCoords, 2.8)) : [])
+      ? zonesOnRoute
       : dangerZones;
 
     targetZones.forEach((zone) => {
       if (!zone.lat || !zone.lng) return;
       const cat = HAZARD_CATEGORIES[zone.category] || HAZARD_CATEGORIES.accident_prone;
-      const isOnRoute = routeCoords.length > 0 && isZoneNearRoute(zone, routeCoords, 2.8);
+      const isOnRoute = zonesOnRoute.some((z) => z.id === zone.id);
 
       const circle = L.circle([zone.lat, zone.lng], {
         radius: zone.radius || 750,

@@ -144,7 +144,7 @@ function PartPanel({ part, onClose, onEdit, onStockIn, onStockOut }) {
             <div className="pi-panel-detail"><span className="pi-panel-detail-label">Unit</span><span className="pi-panel-detail-value">{part.unit || 'pcs'}</span></div>
             <div className="pi-panel-detail"><span className="pi-panel-detail-label">Unit Price</span><span className="pi-panel-detail-value">₱ {money(part.unit_price)}</span></div>
             <div className="pi-panel-detail"><span className="pi-panel-detail-label">Stock Quantity</span><span className="pi-panel-detail-value">{part.quantity_in_stock} {part.unit || 'pcs'}</span></div>
-            <div className="pi-panel-detail"><span className="pi-panel-detail-label">Reorder Level</span><span className="pi-panel-detail-value">{part.reorder_level} {part.unit || 'pcs'}</span></div>
+            <div className="pi-panel-detail"><span className="pi-panel-detail-label">Low Stock Threshold</span><span className="pi-panel-detail-value">{part.reorder_level} {part.unit || 'pcs'}</span></div>
             <div className="pi-panel-detail"><span className="pi-panel-detail-label">Total Value</span><span className="pi-panel-detail-value pi-panel-bold">₱ {money(totalValue)}</span></div>
             <div className="pi-panel-detail pi-panel-status-row">
               <span className="pi-panel-detail-label">Status</span>
@@ -856,8 +856,18 @@ function PartFormModal({ part, suppliers, onClose, onSaved }) {
                 <input type="number" min="0" placeholder="Enter stock quantity" value={form.quantity_in_stock} onChange={set('quantity_in_stock')} required />
               </div>
               <div className="ap-field">
-                <label>Reorder Level <span className="ap-req">*</span></label>
-                <input type="number" min="0" placeholder="Enter reorder level" value={form.reorder_level} onChange={set('reorder_level')} required />
+                <label>Low Stock Threshold (Reorder Level) <span className="ap-req">*</span></label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 10 (triggers low stock alert)"
+                  value={form.reorder_level}
+                  onChange={set('reorder_level')}
+                  required
+                />
+                <span style={{ fontSize: '11px', color: '#64748b', marginTop: '3px', display: 'block' }}>
+                  Triggers "Low Stock" alert when stock falls to or below this quantity (Default: 10).
+                </span>
               </div>
               <div className="ap-field">
                 <label>Total Value (Auto)</label>
@@ -1616,7 +1626,7 @@ function PartsInventoryPage() {
                       <td>{money(row.unit_price)}</td>
                       <td style={{ fontWeight: 600 }}>{money(Number(row.quantity_in_stock || 0) * Number(row.unit_price || 0))}</td>
                       <td>
-                        <span className={statusClass(row.status)}>
+                        <span className={statusClass(row.status)} title={`Low stock alert threshold: ${row.reorder_level ?? 10} ${row.unit || 'pcs'}`}>
                           <i className="fas fa-circle"></i> {statusLabel(row.status)}
                         </span>
                       </td>

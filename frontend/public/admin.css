@@ -2507,14 +2507,8 @@ body.dark-theme .pagination-num.active,
 }
 
 /* Specific KPI Card Border & Icon Accents */
-body.dark-theme .adm-stat-card.pink,
-.dark-theme .adm-stat-card.pink { border-left: 4px solid #EF4444 !important; }
-body.dark-theme .adm-stat-card.orange,
-.dark-theme .adm-stat-card.orange { border-left: 4px solid #F59E0B !important; }
-body.dark-theme .adm-stat-card.green,
-.dark-theme .adm-stat-card.green { border-left: 4px solid #10B981 !important; }
-body.dark-theme .adm-stat-card.blue,
-.dark-theme .adm-stat-card.blue { border-left: 4px solid #3B82F6 !important; }
+body.dark-theme .adm-stat-card,
+.dark-theme .adm-stat-card { border: 1px solid rgba(255, 255, 255, 0.1) !important; border-left: 1px solid rgba(255, 255, 255, 0.1) !important; }
 
 body.dark-theme .adm-stat-card.pink .adm-stat-icon { background: rgba(239, 68, 68, 0.15) !important; color: #EF4444 !important; }
 body.dark-theme .adm-stat-card.orange .adm-stat-icon { background: rgba(245, 158, 11, 0.15) !important; color: #F59E0B !important; }

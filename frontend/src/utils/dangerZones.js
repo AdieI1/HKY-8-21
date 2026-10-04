@@ -106,9 +106,9 @@ export const DEFAULT_DANGER_ZONES = [
     corridor: 'Cagayan de Oro Coastal Arterial',
     category: 'flood',
     severity: 'high',
-    lat: 8.4905,
-    lng: 124.6590,
-    radius: 700,
+    lat: 8.4885,
+    lng: 124.6570,
+    radius: 600,
     description: 'Low-elevation coastal arterial prone to sudden flash floods during high tides and heavy downpours.',
     advisory: 'Check wading depth before crossing. Reroute via highway flyover if water exceeds 25 cm.',
   },
@@ -145,9 +145,9 @@ export const DEFAULT_DANGER_ZONES = [
     corridor: 'Iligan-CDO-Butuan Highway',
     category: 'landslide',
     severity: 'moderate',
-    lat: 8.4820,
-    lng: 124.6930,
-    radius: 750,
+    lat: 8.4718,
+    lng: 124.6980,
+    radius: 650,
     description: 'Hillside highway section vulnerable to soil loosening and water runoffs during persistent rains.',
     advisory: 'Stay centered in your lane. Watch out for slick mud patches and wet gravel on curves.',
   },
@@ -158,9 +158,9 @@ export const DEFAULT_DANGER_ZONES = [
     corridor: 'CDO Industrial Corridor',
     category: 'heavy_traffic',
     severity: 'moderate',
-    lat: 8.4910,
-    lng: 124.7320,
-    radius: 800,
+    lat: 8.4745,
+    lng: 124.7260,
+    radius: 700,
     description: 'High volume of articulated factory trucks entering and exiting narrow industrial spur roads.',
     advisory: 'Anticipate slow-moving heavy machinery pulling onto the highway. Leave ample passing space.',
   },
@@ -184,9 +184,9 @@ export const DEFAULT_DANGER_ZONES = [
     corridor: 'Misamis Oriental Industrial Zone',
     category: 'accident_prone',
     severity: 'moderate',
-    lat: 8.5780,
-    lng: 124.7750,
-    radius: 850,
+    lat: 8.5830,
+    lng: 124.7735,
+    radius: 700,
     description: 'Intermodal freight access point near port and power plant; frequent fast merging heavy vehicles.',
     advisory: 'Be vigilant at unguarded turnarounds. Use horn when passing long multi-axle trailers.',
   },
@@ -529,14 +529,23 @@ function distanceToSegmentKm(pLat, pLng, aLat, aLng, bLat, bLng) {
 }
 
 /**
- * Checks if a danger zone is within `thresholdKm` of a route path or waypoints.
- * Automatically samples long inter-provincial Mindanao routes to guarantee zero missing hazards.
+ * Checks if a danger zone's perimeter ("red circle") touches or intersects the road polyline.
+ * If the driver's route enters or touches the danger zone circle, it will be detected and displayed.
  */
-export function isZoneNearRoute(zone, waypoints, thresholdKm = 2.5) {
+export function isZoneNearRoute(zone, waypoints, customThresholdKm = null) {
   if (!waypoints || waypoints.length === 0 || !zone?.lat || !zone?.lng) return false;
 
-  // Add the zone radius (converted to km) into the proximity threshold
-  const effectiveThreshold = thresholdKm + (zone.radius ? zone.radius / 1000 : 0.7);
+  // The danger zone's visible footprint on the map is a circle of radius zone.radius (in meters).
+  // A danger zone is detected if and only if this "red circle" touches or intersects the road polyline.
+  const circleRadiusKm = (zone.radius ? Number(zone.radius) : 750) / 1000;
+
+  // Effective detection threshold is the circle's radius (+50m buffer for road width and GPS margin).
+  // If a caller explicitly provides a larger threshold (e.g. in test suites with sparse waypoints),
+  // we respect the larger threshold.
+  const effectiveThreshold =
+    typeof customThresholdKm === 'number' && customThresholdKm > circleRadiusKm
+      ? customThresholdKm
+      : circleRadiusKm + 0.05;
 
   // If only 1 point or simple start/end
   if (waypoints.length === 1) {
@@ -547,8 +556,8 @@ export function isZoneNearRoute(zone, waypoints, thresholdKm = 2.5) {
   }
 
   // Optimize route traversal for long-haul routes:
-  // Step through segments. If route has thousands of points, sample smartly without skipping hazards.
-  const step = waypoints.length > 800 ? Math.floor(waypoints.length / 400) : 1;
+  // For dense OSRM routes, check segments along the road polyline.
+  const step = waypoints.length > 1000 ? Math.floor(waypoints.length / 500) : 1;
 
   for (let i = 0; i < waypoints.length - 1; i += step) {
     const nextIdx = Math.min(i + step, waypoints.length - 1);

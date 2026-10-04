@@ -72,10 +72,11 @@ function driverCode(id) {
 }
 
 function timeAgo(dateString) {
-  if (!dateString) return 'Just now';
+  if (!dateString) return 'Recently';
   const d = new Date(dateString);
   if (isNaN(d.getTime())) return 'Recently';
   const diffMs = Date.now() - d.getTime();
+  if (diffMs < 0) return 'Just now';
   const diffSec = Math.floor(diffMs / 1000);
   if (diffSec < 60) return 'Just now';
   const diffMin = Math.floor(diffSec / 60);
@@ -286,9 +287,7 @@ function StaffDashboardPage() {
   const [rawDrivers, setRawDrivers] = useState([]);
   const [rawMaintenances, setRawMaintenances] = useState([]);
   const [rawIncidents, setRawIncidents] = useState([]);
-  const [priorityRequests, setPriorityRequests] = useState([]);
   const [actionItems, setActionItems] = useState([]);
-  const [actionFilter, setActionFilter] = useState('all');
   const [activityFeed, setActivityFeed] = useState([]);
   const [showAllActivitiesModal, setShowAllActivitiesModal] = useState(false);
   const [activityFilter, setActivityFilter] = useState('all');
@@ -667,6 +666,7 @@ function StaffDashboardPage() {
           id: `INC${String(inc.incident_id || 1).padStart(4, '0')}`,
           type: 'incident',
           rawId: inc.incident_id,
+          deliveryId: inc.delivery_id || inc.delivery?.delivery_id || null,
           customer: inc.delivery?.request?.customer?.full_name || inc.driver?.user?.full_name || 'Customer / Driver',
           item: (inc.incident_type || 'Vehicle Breakdown').replace(/_/g, ' ').toUpperCase(),
           route: formatRoute(inc.delivery?.request?.pickup_address, inc.delivery?.request?.dropoff_address),
@@ -718,7 +718,6 @@ function StaffDashboardPage() {
       });
 
       setActionItems(actionItemsList);
-      setPriorityRequests(actionItemsList);
 
       // ── Connected Dynamic Vehicles Summary ──
       const activeDeliveryVehIds = new Set(
@@ -894,33 +893,45 @@ function StaffDashboardPage() {
         });
       });
 
-      // 5. Incident Reports
+      // 5. Incident Reports (Deduplicated and accurate timestamp)
+      const seenIncidents = new Set();
       incidents.forEach((inc) => {
-        const rawTime = inc.created_at;
+        const incId = inc.incident_id || inc.report_id || inc.id;
+        if (!incId || seenIncidents.has(incId)) return;
+        seenIncidents.add(incId);
+
+        const rawTime = inc.reported_at || inc.created_at || inc.incident_date;
+        const timeMs = rawTime ? new Date(rawTime).getTime() : 0;
         dynamicActivities.push({
-          id: `inc-${inc.report_id}`,
+          id: `inc-${incId}`,
           category: 'fleet',
           icon: 'fas fa-exclamation-circle',
           color: '#EF4444',
-          title: `Incident: ${inc.incident_type || 'Issue reported'}`,
+          title: `Incident: ${(inc.incident_type || 'Issue reported').replace(/_/g, ' ')}`,
           sub: inc.description || 'Reported during trip',
           time: timeAgo(rawTime),
-          timeMs: rawTime ? new Date(rawTime).getTime() : 0,
+          timeMs,
         });
       });
 
-      // 6. System Logs
-      systemLogs.slice(-5).forEach((log) => {
+      // 6. System Logs (Latest audit records, newest first)
+      const seenLogs = new Set();
+      (systemLogs || []).forEach((log) => {
+        const logId = log.log_id || log.id;
+        if (!logId || seenLogs.has(logId)) return;
+        seenLogs.add(logId);
+
         const rawTime = log.timestamp || log.created_at;
+        const timeMs = rawTime ? new Date(rawTime).getTime() : 0;
         dynamicActivities.push({
-          id: `log-${log.log_id}`,
+          id: `log-${logId}`,
           category: 'system',
           icon: 'fas fa-shield-alt',
           color: '#8B5CF6',
           title: `${log.user?.full_name || 'Staff User'}: ${log.action}`,
           sub: 'System audit log',
           time: timeAgo(rawTime),
-          timeMs: rawTime ? new Date(rawTime).getTime() : 0,
+          timeMs,
         });
       });
 
@@ -965,12 +976,16 @@ function StaffDashboardPage() {
     const unsub2 = reverb.subscribe('system-notifications', 'notification.created', () => {
       loadDashboardData();
     });
+    const unsub3 = reverb.subscribe('system-activities', 'activity.created', () => {
+      loadDashboardData();
+    });
 
-    const interval = setInterval(loadDashboardData, 60000);
+    const interval = setInterval(loadDashboardData, 15000);
     return () => {
       clearInterval(interval);
       unsub1();
       unsub2();
+      unsub3();
     };
   }, [loadDashboardData]);
 
@@ -1139,67 +1154,6 @@ function StaffDashboardPage() {
               </div>
             </div>
 
-            {/* Status Reminders / Delayed Dispatches Bar (Right-Aligned directly under navigation) */}
-            {(() => {
-              const delayedList = upcomingScheduledDeliveries.filter((sd) => sd.isDelayed);
-              if (delayedList.length === 0) return null;
-              return (
-                <div
-                  style={{
-                    padding: '6px 16px',
-                    background: '#FEF2F2',
-                    borderBottom: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'flex-end',
-                    gap: '8px',
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <i
-                    className="fas fa-exclamation-triangle"
-                    style={{ fontSize: '13px', color: '#DC2626' }}
-                    title="Delayed Dispatches"
-                  ></i>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    {delayedList.map((targetSched) => {
-                      const targetOffset = getWeekOffsetForDate(targetSched.date);
-                      const isCurrentOffset = weekOffset === targetOffset;
-                      return (
-                        <button
-                          key={targetSched.id}
-                          type="button"
-                          onClick={() => {
-                            setWeekOffset(targetOffset);
-                            const el = document.getElementById('fleet-calendar-card');
-                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                          }}
-                          style={{
-                            padding: '4px 10px',
-                            fontSize: '11px',
-                            borderRadius: '6px',
-                            border: 'none',
-                            background: isCurrentOffset ? '#FEE2E2' : '#FFFFFF',
-                            color: '#DC2626',
-                            cursor: 'pointer',
-                            fontWeight: 700,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-                          }}
-                          title={`Delayed Dispatch: ${targetSched.item} (${targetSched.id}) scheduled on ${targetSched.date}, ${targetSched.delayDays}d overdue! Click to jump to week in calendar.`}
-                        >
-                          <span className="adm-alert-pulse-dot"></span>
-                          <i className="fas fa-calendar-times"></i>
-                          <span>Delayed: {targetSched.shortDate} ({targetSched.item || targetSched.id} • {targetSched.delayDays}d overdue)</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
             <div className="adm-fleet-table-wrap">
               <table className="adm-fleet-table">
                 <thead>
@@ -1455,7 +1409,7 @@ function StaffDashboardPage() {
                             <div style={{ display: 'inline-flex', gap: '4px' }}>
                               {item.isUnassigned && (
                                 <Link
-                                  to="/dispatch"
+                                  to={`/dispatch?delivery_id=${item.rawId}`}
                                   className="adm-action-btn primary"
                                   title="Assign Vehicle and Driver in Dispatch"
                                 >
@@ -1474,16 +1428,28 @@ function StaffDashboardPage() {
                               >
                                 <i className="fas fa-calendar-alt"></i> Calendar
                               </button>
-                              <Link to="/delivery" className="adm-action-btn">
+                              <Link
+                                to={`/delivery?delivery_id=${item.rawId}`}
+                                className="adm-action-btn"
+                                title={`Open details modal for ${item.id}`}
+                              >
                                 <i className="fas fa-eye"></i> View
                               </Link>
                             </div>
                           ) : item.type === 'incident' ? (
-                            <Link to="/delivery" className="adm-action-btn primary">
+                            <Link
+                              to={item.deliveryId ? `/delivery?delivery_id=${item.deliveryId}` : '/delivery'}
+                              className="adm-action-btn primary"
+                              title="Assist and view incident monitoring"
+                            >
                               <i className="fas fa-wrench"></i> Assist
                             </Link>
                           ) : (
-                            <Link to="/requests" className="adm-action-btn primary">
+                            <Link
+                              to={`/requests?request_id=${item.rawId}`}
+                              className="adm-action-btn primary"
+                              title="Review and dispatch request"
+                            >
                               <i className="fas fa-clipboard-check"></i> Dispatch
                             </Link>
                           )}
@@ -2179,7 +2145,6 @@ function StaffDashboardPage() {
                     const req = del.request || {};
                     const customer = req.customer || {};
                     const isCompleted = ['completed', 'delivered'].includes(del.status);
-                    const isActive = ['assigned', 'accepted', 'out_for_delivery', 'in_transit'].includes(del.status);
                     const isDelOverdue = del.is_delayed || (
                       req.is_scheduled &&
                       req.scheduled_date &&

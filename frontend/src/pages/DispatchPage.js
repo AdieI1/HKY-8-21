@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import api from '../api/api-client';
 import reverb from '../utils/reverb';
 import AssignMap from '../components/dispatch/AssignMap';
@@ -96,6 +97,7 @@ export function getVehicleLastEndingOdometer(vehicleId, vehicles = [], deliverie
 }
 
 function DispatchPage() {
+  const location = useLocation();
   const [deliveries, setDeliveries] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
@@ -371,6 +373,30 @@ function DispatchPage() {
     setDispatchWarning('');
   };
   const closeAssignPanel = () => setSelectedDelivery(null);
+
+  // Auto-open assign modal/panel when deep-linked with ?delivery_id=... or ?request_id=...
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const delId = params.get('delivery_id') || params.get('id');
+    const reqId = params.get('request_id');
+    if ((delId || reqId) && deliveries.length > 0) {
+      const matched = deliveries.find((d) =>
+        (delId && Number(d.delivery_id) === Number(delId)) ||
+        (delId && Number(d.request?.request_id) === Number(delId)) ||
+        (reqId && Number(d.request?.request_id) === Number(reqId))
+      );
+      if (matched) {
+        openAssignPanel(matched);
+        setActiveFilter('all');
+        setTimeout(() => {
+          const assignModalEl = document.getElementById('assignPanel');
+          if (assignModalEl) {
+            assignModalEl.scrollIntoView({ behavior: 'smooth' });
+          }
+        }, 150);
+      }
+    }
+  }, [location.search, deliveries]);
 
   const isDispatched = Boolean(
     selectedDelivery &&
@@ -772,17 +798,39 @@ function DispatchPage() {
                     <i className={tripWeather.is_severe ? "fas fa-bolt" : tripWeather.precipitation_probability > 40 ? "fas fa-cloud-rain" : "fas fa-cloud-sun"}></i>
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 700, fontSize: 12.5, color: tripWeather.is_severe ? '#991B1B' : '#0369A1' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                      <span style={{ fontWeight: 700, fontSize: 12.5, color: tripWeather.is_severe ? '#991B1B' : tripWeather.is_wet_road ? '#C2410C' : '#0369A1' }}>
                         Weather: {tripWeather.condition} ({tripWeather.temperature}°C)
+                        {tripWeather.rain_type && tripWeather.rain_type !== 'none' && (
+                          <span style={{
+                            marginLeft: 6,
+                            fontSize: 10.5,
+                            background: tripWeather.is_severe ? '#FEE2E2' : '#FFEDD5',
+                            color: tripWeather.is_severe ? '#DC2626' : '#C2410C',
+                            border: tripWeather.is_severe ? '1px solid #FCA5A5' : '1px solid #FED7AA',
+                            padding: '1px 6px',
+                            borderRadius: 4,
+                            fontWeight: 700
+                          }}>
+                            {tripWeather.rain_type === 'thunderstorm' ? '⚡' : '🌧️'} {tripWeather.rain_type_label}
+                          </span>
+                        )}
                       </span>
                       {tripWeather.is_severe ? (
                         <span style={{ fontSize: 10, background: '#DC2626', color: '#fff', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
-                          HIGH RISK
+                          HIGH RISK • {tripWeather.speed_limit} km/h
                         </span>
                       ) : (
-                        <span style={{ fontSize: 11, color: '#0284C7', fontWeight: 600 }}>
-                          Rec. Speed: {tripWeather.speed_limit} km/h
+                        <span style={{
+                          fontSize: 11,
+                          color: tripWeather.is_wet_road ? '#C2410C' : '#0284C7',
+                          fontWeight: 700,
+                          background: tripWeather.is_wet_road ? '#FFF7ED' : '#E0F2FE',
+                          padding: '2px 7px',
+                          borderRadius: 4,
+                          border: tripWeather.is_wet_road ? '1px solid #FED7AA' : '1px solid #BAE6FD',
+                        }}>
+                          Rec. Speed: {tripWeather.speed_limit} km/h {tripWeather.is_wet_road ? '(Wet Roads: 30-40)' : ''}
                         </span>
                       )}
                     </div>
@@ -794,7 +842,7 @@ function DispatchPage() {
                         </div>
                       </div>
                     ) : (
-                      <div style={{ fontSize: 11, color: '#0C4A6E', marginTop: 2 }}>
+                      <div style={{ fontSize: 11, color: tripWeather.is_wet_road ? '#9A3412' : '#0C4A6E', marginTop: 3 }}>
                         {tripWeather.advisory}
                       </div>
                     )}

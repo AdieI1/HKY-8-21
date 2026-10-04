@@ -33,7 +33,10 @@ class User extends Authenticatable
     public function getProfilePhotoUrlAttribute()
     {
         if (!$this->profile_photo_path) {
-            return null;
+            if (request()) {
+                return request()->getSchemeAndHttpHost() . '/images/defaultavatar.png';
+            }
+            return url('images/defaultavatar.png');
         }
         if (request()) {
             return request()->getSchemeAndHttpHost() . '/storage/' . ltrim($this->profile_photo_path, '/');

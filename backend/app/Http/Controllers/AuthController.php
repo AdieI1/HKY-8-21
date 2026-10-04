@@ -43,10 +43,16 @@ class AuthController extends Controller
         $user->load(['role', 'driver']);
 
         // Automatically record login system log
-        SystemLog::create([
+        $loginLog = SystemLog::create([
             'user_id' => $user->user_id,
             'action' => 'Logged In',
         ]);
+
+        try {
+            \App\Events\UserActivityLogged::dispatch($loginLog);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Broadcast login error: ' . $e->getMessage());
+        }
 
         return response()->json([
             'user' => $user,
@@ -75,10 +81,16 @@ class AuthController extends Controller
 
         if ($user) {
             // Automatically record logout system log
-            SystemLog::create([
+            $logoutLog = SystemLog::create([
                 'user_id' => $user->user_id,
                 'action' => 'Logged Out',
             ]);
+
+            try {
+                \App\Events\UserActivityLogged::dispatch($logoutLog);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Broadcast logout error: ' . $e->getMessage());
+            }
 
             if ($user->currentAccessToken()) {
                 $user->currentAccessToken()->delete();

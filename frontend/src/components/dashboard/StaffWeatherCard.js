@@ -130,7 +130,7 @@ export default function StaffWeatherCard({ onSevereAlert }) {
         </div>
       </div>
 
-      {/* Bottom Row: Condition text & Precipitation / Refresh */}
+      {/* Bottom Row: Condition text & Rain Type / Precipitation / Refresh */}
       <div
         style={{
           display: 'flex',
@@ -138,13 +138,53 @@ export default function StaffWeatherCard({ onSevereAlert }) {
           alignItems: 'center',
           borderTop: '1px solid #f1f5f9',
           paddingTop: 10,
+          flexWrap: 'wrap',
+          gap: 6,
         }}
       >
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>
-          {condition}
-        </span>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>
+            {condition}
+          </span>
+          {weather?.rain_type && weather.rain_type !== 'none' && (
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 700,
+                background: isSevere ? '#FEE2E2' : '#EFF6FF',
+                color: isSevere ? '#DC2626' : '#2563EB',
+                border: isSevere ? '1px solid #FCA5A5' : '1px solid #BFDBFE',
+                padding: '2px 7px',
+                borderRadius: 10,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              {weather.rain_type === 'thunderstorm' ? '⚡' : '🌧️'} {weather.rain_type_label || 'Rain'}
+            </span>
+          )}
+        </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {weather?.speed_limit && (
+            <span
+              style={{
+                fontSize: 11,
+                color: weather.is_wet_road ? '#C2410C' : '#059669',
+                fontWeight: 700,
+                background: weather.is_wet_road ? '#FFF7ED' : '#ECFDF5',
+                border: weather.is_wet_road ? '1px solid #FED7AA' : '1px solid #A7F3D0',
+                padding: '2px 7px',
+                borderRadius: 10,
+              }}
+              title={weather.is_wet_road ? "Wet roads safety limit: 30-40 km/h" : "Normal road speed limit"}
+            >
+              <i className="fas fa-tachometer-alt" style={{ marginRight: 3 }}></i>
+              {weather.speed_limit} km/h
+            </span>
+          )}
+
           {weather?.precipitation_probability > 0 && (
             <span
               style={{
@@ -186,31 +226,6 @@ export default function StaffWeatherCard({ onSevereAlert }) {
         </div>
       </div>
 
-      {/* Severe Weather Warning Banner */}
-      {isSevere && (
-        <div
-          style={{
-            background: '#fef2f2',
-            border: '1px solid #fecaca',
-            borderRadius: 8,
-            padding: '8px 10px',
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 8,
-            marginTop: 2,
-          }}
-        >
-          <i className="fas fa-exclamation-triangle" style={{ color: '#dc2626', fontSize: 13, marginTop: 2 }}></i>
-          <div style={{ flex: 1 }}>
-            <span style={{ color: '#991b1b', fontSize: 11.5, fontWeight: 700, display: 'block' }}>
-              Dispatch Advisory:
-            </span>
-            <span style={{ color: '#b91c1c', fontSize: 11, lineHeight: 1.35, display: 'block' }}>
-              {weather.dispatch_advisory || 'Severe weather detected. Road hazards and reduced visibility expected. Advisable to review pending dispatches.'}
-            </span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

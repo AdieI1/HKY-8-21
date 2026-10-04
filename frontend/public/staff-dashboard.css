@@ -31,14 +31,8 @@
   border-radius: 12px;
   padding: 16px 18px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-  border-left: 4px solid transparent;
+  border: 1px solid #E2E8F0;
 }
-
-.adm-stat-card.pink   { border-left-color: #F87171; }
-.adm-stat-card.purple { border-left-color: #8B5CF6; }
-.adm-stat-card.orange { border-left-color: #FB923C; }
-.adm-stat-card.green  { border-left-color: #34D399; }
-.adm-stat-card.blue   { border-left-color: #60A5FA; }
 
 .adm-stat-icon {
   width: 46px;

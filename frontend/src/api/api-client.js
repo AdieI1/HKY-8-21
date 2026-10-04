@@ -54,7 +54,8 @@ api.clearCache = clearApiCache;
 
 const originalGet = api.get.bind(api);
 api.get = async function (url, config = {}) {
-  const shouldSkip = config.skipCache || config.cache === false;
+  const isNotificationEndpoint = typeof url === 'string' && url.includes('/notifications');
+  const shouldSkip = config.skipCache || config.cache === false || isNotificationEndpoint;
   const token = localStorage.getItem('auth_token') || '';
   const cacheKey = `${token}:${url}:${JSON.stringify(config.params || {})}`;
 

@@ -24,9 +24,12 @@ class NotificationController extends Controller
             $query = AppNotification::where('user_id', $user->user_id)->orderByDesc('created_at');
             $unreadCount = AppNotification::where('user_id', $user->user_id)->where('is_read', false)->count();
         } else {
-            // If table is completely empty, populate initial historical activity
-            if (AppNotification::count() === 0) {
-                $this->seedInitialNotifications();
+            // Check if seeded once using cache to avoid repeated DB count queries
+            if (!\Illuminate\Support\Facades\Cache::has('notifications_seeded')) {
+                if (!AppNotification::exists()) {
+                    $this->seedInitialNotifications();
+                }
+                \Illuminate\Support\Facades\Cache::forever('notifications_seeded', true);
             }
 
             $query = AppNotification::where(function ($q) use ($user) {

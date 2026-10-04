@@ -751,23 +751,17 @@ export default function ViewLocationMap({
 
   // 9. Danger Zones Detection along active route
   useEffect(() => {
-    const waypoints =
-      routeCoordinates.length > 0
-        ? routeCoordinates
-        : coords.dropoff && coords.pickup
-        ? [coords.pickup, coords.dropoff]
-        : [];
-
-    if (waypoints.length === 0) {
+    // Only detect hazards against the real turn-by-turn road polyline from routing engine
+    if (!routeCoordinates || routeCoordinates.length < 2) {
       setZonesOnRoute([]);
       detectedCallbackRef.current?.([]);
       return;
     }
 
-    const detected = dangerZones.filter((zone) => isZoneNearRoute(zone, waypoints, 2.0));
+    const detected = dangerZones.filter((zone) => isZoneNearRoute(zone, routeCoordinates, 0.4));
     setZonesOnRoute(detected);
     detectedCallbackRef.current?.(detected);
-  }, [routeCoordinates, dangerZones, coords]);
+  }, [routeCoordinates, dangerZones]);
 
   // 10. Route Steepness / Elevation Profile
   useEffect(() => {
@@ -839,23 +833,18 @@ export default function ViewLocationMap({
     if (!showDangerZones) return;
 
     const layerGroup = L.layerGroup();
-    const waypoints =
-      routeCoordinates.length > 0
-        ? routeCoordinates
-        : coords.dropoff && coords.pickup
-        ? [coords.pickup, coords.dropoff]
-        : [];
+    const waypoints = routeCoordinates && routeCoordinates.length > 1 ? routeCoordinates : [];
 
     const targetZones = filterRouteOnly
       ? waypoints.length > 0
-        ? dangerZones.filter((zone) => isZoneNearRoute(zone, waypoints, 2.8))
+        ? dangerZones.filter((zone) => isZoneNearRoute(zone, waypoints, 0.4))
         : []
       : dangerZones;
 
     targetZones.forEach((zone) => {
       if (!zone.lat || !zone.lng) return;
       const cat = HAZARD_CATEGORIES[zone.category] || HAZARD_CATEGORIES.accident_prone;
-      const onRoute = waypoints.length > 0 ? isZoneNearRoute(zone, waypoints, 2.8) : false;
+      const onRoute = waypoints.length > 0 ? isZoneNearRoute(zone, waypoints, 0.4) : false;
 
       const circle = L.circle([zone.lat, zone.lng], {
         radius: zone.radius || 750,

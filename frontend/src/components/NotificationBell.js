@@ -11,7 +11,7 @@ export default function NotificationBell() {
 
   const loadNotifications = useCallback(async () => {
     try {
-      const res = await api.get('/notifications');
+      const res = await api.get('/notifications', { skipCache: true });
       setNotifications(res.data.notifications || []);
       setUnreadCount(res.data.unread_count || 0);
     } catch (err) {
@@ -23,18 +23,36 @@ export default function NotificationBell() {
     loadNotifications();
 
     // Real-time notification updates via Laravel Reverb WebSocket
-    const unsubscribe = reverb.subscribe('system-notifications', 'notification.created', (data) => {
-      const notif = data?.notification || data;
-      if (notif && notif.id) {
-        setNotifications((prev) => [notif, ...prev.filter((n) => n.id !== notif.id)]);
-        setUnreadCount((c) => c + 1);
-      }
+    const unsubscribe1 = reverb.subscribe('system-notifications', 'notification.created', () => {
+      loadNotifications();
+    });
+    const unsubscribe2 = reverb.subscribe('system-activities', 'activity.created', () => {
+      loadNotifications();
     });
 
-    const interval = setInterval(loadNotifications, 4000); // Responsive 4s polling ensures real-time bell updates
+    // Smart, lightweight polling: runs every 10s ONLY if user is actively viewing the tab
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        loadNotifications();
+      }
+    }, 10000);
+
+    // Instant update whenever user switches back to this browser tab/window
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        loadNotifications();
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
     return () => {
       clearInterval(interval);
-      unsubscribe();
+      unsubscribe1();
+      unsubscribe2();
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
     };
   }, [loadNotifications]);
 
@@ -91,7 +109,13 @@ export default function NotificationBell() {
       <button
         type="button"
         className="notification-bell-btn"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          setOpen((prev) => {
+            const next = !prev;
+            if (next) loadNotifications();
+            return next;
+          });
+        }}
         aria-label="Notifications"
         style={{
           background: '#fff',
