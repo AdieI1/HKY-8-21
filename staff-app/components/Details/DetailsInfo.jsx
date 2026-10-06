@@ -1,9 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import {
-    StyleSheet,
-    Text,
-    View,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
+import { useTheme } from "../../context/ThemeContext";
 
 export default function DetailsInfo({
   date,
@@ -11,71 +12,80 @@ export default function DetailsInfo({
   inspectionType,
   status,
 }) {
+  const { theme, darkMode } = useTheme();
   const hasIssues = String(status || "").toLowerCase().includes("issues");
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <View style={styles.infoBox}>
         <View style={styles.labelRow}>
           <Ionicons
             name="calendar-outline"
             size={16}
-            color="#676A74"
+            color={theme.textSecondary}
           />
 
-          <Text style={styles.label}>
+          <Text style={[styles.label, { color: theme.textSecondary }]}>
             Date and Time
           </Text>
         </View>
 
-        <Text style={styles.value}>
+        <Text style={[styles.value, { color: theme.text }]}>
           {date}
         </Text>
 
-        <Text style={styles.value}>
+        <Text style={[styles.value, { color: theme.textSecondary }]}>
           {time}
         </Text>
       </View>
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
       <View style={styles.infoBox}>
         <View style={styles.labelRow}>
           <Ionicons
             name="walk-outline"
             size={16}
-            color="#676A74"
+            color={theme.textSecondary}
           />
 
-          <Text style={styles.label}>
+          <Text style={[styles.label, { color: theme.textSecondary }]}>
             Inspection Type
           </Text>
         </View>
 
-        <View style={styles.typeBadge}>
-          <Text style={styles.typeText}>
+        <View style={[styles.typeBadge, darkMode && { backgroundColor: "rgba(37, 99, 235, 0.2)", borderColor: "#3B82F6" }]}>
+          <Text style={[styles.typeText, darkMode && { color: "#60A5FA" }]}>
             {inspectionType}
           </Text>
         </View>
       </View>
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
       <View style={styles.infoBox}>
         <View style={styles.labelRow}>
           <Ionicons
             name="checkmark-circle-outline"
             size={16}
-            color="#676A74"
+            color={theme.textSecondary}
           />
 
-          <Text style={styles.label}>
+          <Text style={[styles.label, { color: theme.textSecondary }]}>
             Status
           </Text>
         </View>
 
-        <View style={[styles.statusBadge, hasIssues && styles.statusBadgeIssue]}>
-          <Text style={[styles.statusText, hasIssues && styles.statusTextIssue]}>
+        <View style={[
+          styles.statusBadge,
+          hasIssues && styles.statusBadgeIssue,
+          darkMode && (hasIssues ? { backgroundColor: "rgba(234, 88, 12, 0.2)", borderColor: "#FB923C" } : { backgroundColor: "rgba(34, 197, 94, 0.2)", borderColor: "#4ADE80" })
+        ]}>
+          <Text style={[
+            styles.statusText,
+            hasIssues && styles.statusTextIssue,
+            darkMode && (hasIssues ? { color: "#FB923C" } : { color: "#4ADE80" })
+          ]}>
             {status}
           </Text>
         </View>

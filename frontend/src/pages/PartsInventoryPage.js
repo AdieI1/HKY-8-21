@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
+import TableSkeleton from '../components/TableSkeleton';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 function partCode(partId) {
@@ -1615,7 +1616,12 @@ function PartsInventoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pageRows.map((row) => (
+                  {loading ? (
+                    <TableSkeleton rows={5} columns={10} />
+                  ) : pageRows.length === 0 ? (
+                    <tr><td colSpan="10" style={{ textAlign: 'center', padding: 24 }}>No parts match your filters.</td></tr>
+                  ) : (
+                    pageRows.map((row) => (
                     <tr key={row.part_id}>
                       <td className="pi-part-number">{partCode(row.part_id)}</td>
                       <td style={{ fontWeight: 600 }}>{row.part_name}</td>
@@ -1727,13 +1733,8 @@ function PartsInventoryPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
-                  {loading && (
-                    <tr><td colSpan="10" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading parts inventory...</td></tr>
-                  )}
-                  {!loading && pageRows.length === 0 && (
-                    <tr><td colSpan="10" style={{ textAlign: 'center', padding: 24 }}>No parts match your filters.</td></tr>
-                  )}
+                  ))
+                )}
                 </tbody>
               </table>
             </div>
@@ -1799,39 +1800,42 @@ function PartsInventoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentUsage.map((u) => {
-                    const isIn = u.transaction_type === 'in';
-                    return (
-                      <tr
-                        key={u.usage_id}
-                        className="clickable-usage-row"
-                        onClick={() => setSelectedTransaction(u)}
-                        title="Click to view full transaction & part details"
-                      >
-                        <td>{formatDateTime(u.created_at || u.used_date)}</td>
-
-                        <td>
-                          <span style={{
-                            padding: '1px 6px',
-                            borderRadius: 3,
-                            fontSize: 10,
-                            fontWeight: 700,
-                            background: isIn ? '#dcfce7' : '#fee2e2',
-                            color: isIn ? '#16a34a' : '#dc2626',
-                          }}>
-                            {isIn ? 'In' : 'Out'}
-                          </span>
-                        </td>
-                        <td style={{ fontWeight: 600 }}>{u.part?.part_name || '—'}</td>
-                        <td style={{ fontWeight: 700, color: isIn ? '#16a34a' : '#dc2626' }}>
-                          {isIn ? `+${u.quantity_used}` : `-${u.quantity_used}`}
-                        </td>
-                        <td>{isIn ? (u.supplier_name || u.part?.supplier_name || 'Supplier') : (u.vehicle ? `${u.vehicle.model}` : u.permit?.vehicle?.plate_number || 'General')}</td>
-                      </tr>
-                    );
-                  })}
-                  {recentUsage.length === 0 && (
+                  {loading ? (
+                    <TableSkeleton rows={4} columns={5} />
+                  ) : recentUsage.length === 0 ? (
                     <tr><td colSpan="5" style={{ textAlign: 'center', padding: 12 }}>No transactions recorded yet.</td></tr>
+                  ) : (
+                    recentUsage.map((u) => {
+                      const isIn = u.transaction_type === 'in';
+                      return (
+                        <tr
+                          key={u.usage_id}
+                          className="clickable-usage-row"
+                          onClick={() => setSelectedTransaction(u)}
+                          title="Click to view full transaction & part details"
+                        >
+                          <td>{formatDateTime(u.created_at || u.used_date)}</td>
+
+                          <td>
+                            <span style={{
+                              padding: '1px 6px',
+                              borderRadius: 3,
+                              fontSize: 10,
+                              fontWeight: 700,
+                              background: isIn ? '#dcfce7' : '#fee2e2',
+                              color: isIn ? '#16a34a' : '#dc2626',
+                            }}>
+                              {isIn ? 'In' : 'Out'}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 600 }}>{u.part?.part_name || '—'}</td>
+                          <td style={{ fontWeight: 700, color: isIn ? '#16a34a' : '#dc2626' }}>
+                            {isIn ? `+${u.quantity_used}` : `-${u.quantity_used}`}
+                          </td>
+                          <td>{isIn ? (u.supplier_name || u.part?.supplier_name || 'Supplier') : (u.vehicle ? `${u.vehicle.model}` : u.permit?.vehicle?.plate_number || 'General')}</td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

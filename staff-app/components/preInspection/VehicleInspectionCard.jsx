@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
+import { useTheme } from "../../context/ThemeContext";
 
 const FALLBACK_IMAGE = require("../../assets/images/truckpic.jpg");
 
@@ -12,6 +13,7 @@ export default function VehicleInspectionCard({
   total = 21,
   loading = false,
 }) {
+  const { theme, darkMode } = useTheme();
   const [imgError, setImgError] = useState(false);
   const imageSource = !imgError && image ? image : FALLBACK_IMAGE;
 
@@ -39,12 +41,9 @@ export default function VehicleInspectionCard({
   }
 
   return (
-    <View style={styles.card}>
-
+    <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
       {/* VEHICLE INFORMATION */}
-
       <View style={styles.vehicleSection}>
-
         <Image
           source={imageSource}
           onError={() => setImgError(true)}
@@ -53,34 +52,27 @@ export default function VehicleInspectionCard({
         />
 
         <View style={styles.vehicleInfo}>
-
-          <Text style={styles.vehicle}>
+          <Text style={[styles.vehicle, { color: theme.text }]}>
             {vehicle}
           </Text>
 
-          <Text style={styles.vehicleType}>
+          <Text style={[styles.vehicleType, { color: theme.textSecondary }]}>
             {vehicleType}
           </Text>
 
-          <Text style={styles.odometer}>
+          <Text style={[styles.odometer, { color: theme.textSecondary }]}>
             Odometer: {odometer}
           </Text>
-
         </View>
-
       </View>
 
-
       {/* PROGRESS BAR */}
-
-      <View style={styles.progressSection}>
-
-        <Text style={styles.progressTitle}>
+      <View style={[styles.progressSection, { borderTopColor: theme.border }]}>
+        <Text style={[styles.progressTitle, { color: theme.text }]}>
           Inspection Progress
         </Text>
 
-        <View style={styles.progressBarBackground}>
-
+        <View style={[styles.progressBarBackground, { backgroundColor: darkMode ? theme.surface : "#C5C7CB" }]}>
           <View
             style={[
               styles.progressBar,
@@ -89,11 +81,8 @@ export default function VehicleInspectionCard({
               },
             ]}
           />
-
         </View>
-
       </View>
-
     </View>
   );
 }

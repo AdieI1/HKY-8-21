@@ -27,10 +27,14 @@ export default function StaffWeatherCard({ onSevereAlert }) {
   }, [onSevereAlert]);
 
   useEffect(() => {
-    fetchWeather();
+    // Slight deferral (200ms) ensures primary dashboard overview loads first without server queue contention
+    const timer = setTimeout(fetchWeather, 200);
     // Auto-refresh every 30 minutes
     const interval = setInterval(fetchWeather, 30 * 60 * 1000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, [fetchWeather]);
 
   // Format today's date

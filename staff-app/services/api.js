@@ -9,7 +9,11 @@ export const resolveImageUrl = (url) => {
   if (!url) return null;
   if (typeof url !== "string") return url;
   if (!url.startsWith("http://") && !url.startsWith("https://")) {
-    const cleanPath = url.replace(/^\/?storage\/?/, "");
+    const cleanLeading = url.replace(/^\//, "");
+    if (cleanLeading.startsWith("images/")) {
+      return `${API_BASE}/${cleanLeading}`;
+    }
+    const cleanPath = cleanLeading.replace(/^storage\/?/, "");
     return `${API_BASE}/storage/${cleanPath}`;
   }
   return url.replace(/https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i, API_BASE);
@@ -191,6 +195,100 @@ export const saveChecklist = async (deliveryId, payload) => {
   });
 };
 
+export const updateStaffProfile = async (userId, payload) => {
+  const token = await getToken();
+  if (!token) throw new Error("Not authenticated.");
+
+  if (payload.photo?.uri) {
+    const formData = new FormData();
+    formData.append("_method", "PUT");
+    if (payload.full_name) formData.append("full_name", payload.full_name);
+    if (payload.phone) formData.append("phone", payload.phone);
+    if (payload.gender) formData.append("gender", payload.gender);
+    if (payload.date_of_birth) formData.append("date_of_birth", payload.date_of_birth);
+
+    formData.append("photo", {
+      uri: payload.photo.uri,
+      name: payload.photo.fileName || "profile-photo.jpg",
+      type: payload.photo.mimeType || "image/jpeg",
+    });
+
+    const response = await fetch(`${API_URL}/users/${userId}`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const data = await safeJson(response);
+    if (!response.ok) {
+      throw new Error(
+        data?.message ||
+        Object.values(data?.errors || {})?.[0]?.[0] ||
+        "Failed to update profile photo."
+      );
+    }
+    if (data) {
+      await safeStorage.setItem(USER_KEY, JSON.stringify(data));
+    }
+    return data;
+  } else {
+    const response = await fetch(`${API_URL}/users/${userId}`, {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await safeJson(response);
+    if (!response.ok) {
+      throw new Error(
+        data?.message ||
+        Object.values(data?.errors || {})?.[0]?.[0] ||
+        "Failed to update profile."
+      );
+    }
+    if (data) {
+      await safeStorage.setItem(USER_KEY, JSON.stringify(data));
+    }
+    return data;
+  }
+};
+
+export const changeStaffPassword = async (userId, password) => {
+  return await fetchWithAuth(`/users/${userId}`, {
+    method: "PUT",
+    body: JSON.stringify({ password }),
+  });
+};
+
+export const getStaffNotifications = async () => {
+  try {
+    const data = await fetchWithAuth("/notifications");
+    return data;
+  } catch (err) {
+    console.log("FETCH NOTIFICATIONS ERROR:", err?.message);
+    return { unread_count: 0, notifications: [] };
+  }
+};
+
+export const markStaffNotificationRead = async (id) => {
+  return await fetchWithAuth(`/notifications/${id}/read`, {
+    method: "POST",
+  });
+};
+
+export const markAllStaffNotificationsRead = async () => {
+  return await fetchWithAuth("/notifications/mark-all-read", {
+    method: "POST",
+  });
+};
+
 export const logout = async () => {
   const token = await getToken();
   try {
@@ -210,3 +308,17 @@ export const logout = async () => {
     await safeStorage.removeItem(USER_KEY);
   }
 };
+
+export const reportBug = async ({ category, description, deviceInfo }) => {
+  return await fetchWithAuth("/bug-reports", {
+    method: "POST",
+    body: JSON.stringify({
+      category,
+      description,
+      app_source: "staff-app",
+      device_info: deviceInfo || "Staff Mobile App",
+    }),
+  });
+};
+
+

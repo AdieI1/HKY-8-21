@@ -11,19 +11,25 @@ import OverviewCard from "@/components/OverviewCard";
 import ReportMessage from "@/components/ReportMessage";
 import SuccessCard from "@/components/SuccessCard";
 import TaskCard from "@/components/TaskCard";
+import NotificationsModal from "@/components/NotificationsModal";
 import {
   getDeliveries,
   getIncidentReports,
   getSavedUser,
   getCurrentUser,
+  getStaffNotifications,
+  markStaffNotificationRead,
+  markAllStaffNotificationsRead,
   resolveImageUrl,
 } from "../../services/api";
+import { useTheme } from "../../context/ThemeContext";
 
 const DEFAULT_IMAGE = require("../../assets/images/truckpic.jpg");
 
 export default function Home() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { theme } = useTheme();
 
   const [userName, setUserName] = useState("Staff");
   const [userAvatar, setUserAvatar] = useState(null);
@@ -35,13 +41,19 @@ export default function Home() {
     issuesReported: 0,
   });
 
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsVisible, setNotificationsVisible] = useState(false);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+
   const loadData = useCallback(async () => {
     try {
-      const [savedUser, currentUser, deliveryList, reports] = await Promise.all([
+      const [savedUser, currentUser, deliveryList, reports, notifsRes] = await Promise.all([
         getSavedUser().catch(() => null),
         getCurrentUser().catch(() => null),
         getDeliveries().catch(() => []),
         getIncidentReports().catch(() => []),
+        getStaffNotifications().catch(() => ({ unread_count: 0, notifications: [] })),
       ]);
 
       const activeUser = currentUser || savedUser;
@@ -51,6 +63,16 @@ export default function Home() {
       const rawPhoto = activeUser?.profile_photo_url || activeUser?.profile_photo_path;
       if (rawPhoto) {
         setUserAvatar(resolveImageUrl(rawPhoto));
+      }
+
+      if (notifsRes) {
+        const notifList = Array.isArray(notifsRes?.notifications) ? notifsRes.notifications : [];
+        setNotifications(notifList);
+        setUnreadCount(
+          typeof notifsRes?.unread_count === "number"
+            ? notifsRes.unread_count
+            : notifList.filter((n) => !n.is_read).length
+        );
       }
 
       const deliveries = Array.isArray(deliveryList) ? deliveryList : [];
@@ -69,40 +91,44 @@ export default function Home() {
           ["in_transit", "arrived", "delivered", "returning_to_hq", "completed"].includes(d?.status)
       );
 
-      // Only count checks completed today (0 if none completed yet)
-      const now = new Date();
-      const currentYear = now.getFullYear();
-      const currentMonth = now.getMonth();
-      const currentDay = now.getDate();
-
-      const parseDateSafe = (dateString) => {
-        if (!dateString) return null;
-        const cleaned = String(dateString).replace(/\.\d+Z?$/, "").replace(/Z$/, "").replace("T", " ");
-        const parts = cleaned.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}):?(\d{2})?)?/);
-        return parts ? new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])) : new Date(dateString);
+      // Helper to accurately check if a timestamp occurred today in device local time
+      const isToday = (dateString) => {
+        if (!dateString) return false;
+        const str = String(dateString).trim();
+        const dt = new Date(str.includes(" ") && !str.includes("T") ? str.replace(" ", "T") : str);
+        if (isNaN(dt.getTime())) return false;
+        const now = new Date();
+        return (
+          dt.getFullYear() === now.getFullYear() &&
+          dt.getMonth() === now.getMonth() &&
+          dt.getDate() === now.getDate()
+        );
       };
 
-      const completedToday = deliveries.filter((d) =>
-        d?.checklists?.some((c) => {
-          if (!c?.completed_at) return false;
-          const dt = parseDateSafe(c.completed_at);
-          return (
-            dt &&
-            dt.getFullYear() === currentYear &&
-            dt.getMonth() === currentMonth &&
-            dt.getDate() === currentDay
-          );
-        })
+      // Count all checklists completed today across deliveries (resets to 0 daily at midnight)
+      let completedToday = 0;
+      deliveries.forEach((d) => {
+        (d?.checklists || []).forEach((c) => {
+          const timestamp = c?.completed_at || c?.created_at;
+          if (timestamp && isToday(timestamp)) {
+            completedToday++;
+          }
+        });
+      });
+
+      // Count only incidents reported today (resets to 0 daily at midnight)
+      const issuesReportedToday = incidentList.filter((r) =>
+        isToday(r?.reported_at || r?.created_at)
       ).length;
 
       setOverview({
         preTripChecks: pendingPreTrip.length,
         postTripChecks: pendingPostTrip.length,
         checksCompleted: completedToday,
-        issuesReported: incidentList.length,
+        issuesReported: issuesReportedToday,
       });
 
-      // Show only active deliveries needing inspection
+      // Show active deliveries needing inspection
       const activeInspections = [...pendingPreTrip, ...pendingPostTrip];
 
       const formattedTasks = activeInspections.map((d) => {
@@ -113,9 +139,18 @@ export default function Home() {
         const plate = vehicle?.plate_number || `Delivery #${d?.delivery_id}`;
         const typeStr = brandModel || (vehicle?.type ? `${vehicle.type}` : "Fuso - Truck");
 
-        const timeStr = d?.created_at
-          ? new Date(d.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-          : "10:00 AM";
+        const dateObj = d?.created_at
+          ? new Date(
+              String(d.created_at).includes(" ") && !String(d.created_at).includes("T")
+                ? String(d.created_at).replace(" ", "T")
+                : d.created_at
+            )
+          : new Date();
+
+        const rawMonth = dateObj.toLocaleDateString("en-US", { month: "short" });
+        const month = rawMonth === "Sep" ? "Sept" : rawMonth;
+        const dateStr = `${month} ${dateObj.getDate()}, ${dateObj.getFullYear()}`;
+        const timeStr = dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
         const resolvedUrl = resolveImageUrl(vehicle?.photo_url || vehicle?.photo);
         const imageSource = resolvedUrl ? { uri: resolvedUrl } : DEFAULT_IMAGE;
@@ -126,6 +161,7 @@ export default function Home() {
           id: d?.delivery_id,
           vehicle: plate,
           type: typeStr,
+          date: dateStr,
           time: timeStr,
           image: imageSource,
           delivery: d,
@@ -147,7 +183,29 @@ export default function Home() {
   }, [loadData]);
 
   const handleNotificationPress = () => {
-    console.log("Notifications pressed");
+    setNotificationsVisible(true);
+  };
+
+  const handleMarkAsRead = async (id) => {
+    try {
+      await markStaffNotificationRead(id);
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id || n.notification_id === id ? { ...n, is_read: true } : n))
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    } catch (e) {
+      console.log("MARK READ ERROR:", e);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      await markAllStaffNotificationsRead();
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+      setUnreadCount(0);
+    } catch (e) {
+      console.log("MARK ALL READ ERROR:", e);
+    }
   };
 
   const [showSuccess, setShowSuccess] = useState(false);
@@ -175,9 +233,9 @@ export default function Home() {
   }, [params.reportSubmitted]);
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <LinearGradient
-        colors={["#4F0A11", "#9E1E21"]}
+        colors={theme.header || ["#4F0A11", "#9E1E21"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
         style={styles.header}
@@ -186,12 +244,14 @@ export default function Home() {
           <Header
             name={userName}
             avatar={userAvatar}
+            unreadCount={unreadCount}
             onNotificationPress={handleNotificationPress}
           />
         </SafeAreaView>
 
         <View style={styles.overviewWrapper}>
           <OverviewCard
+            pendingChecks={overview.preTripChecks + overview.postTripChecks}
             preTripChecks={overview.preTripChecks}
             checksCompleted={overview.checksCompleted}
             issuesReported={overview.issuesReported}
@@ -210,10 +270,10 @@ export default function Home() {
       >
         <View style={styles.overviewSpacer} />
 
-        <View style={styles.tasksCard}>
+        <View style={[styles.tasksCard, { backgroundColor: theme.surface }]}>
           <View style={styles.tasksHeader}>
-            <Text style={styles.tasksTitle}>{"Today's Tasks"}</Text>
-            <Text style={styles.viewAll} onPress={() => router.push("/(tabs)/inspections")}>
+            <Text style={[styles.tasksTitle, { color: theme.text }]}>{"Today's Tasks"}</Text>
+            <Text style={[styles.viewAll, { color: theme.primary }]} onPress={() => router.push("/(tabs)/inspections")}>
               View All
             </Text>
           </View>
@@ -227,8 +287,8 @@ export default function Home() {
             {tasks.length === 0 ? (
               <View style={styles.emptyContainer}>
                 <Ionicons name="checkmark-circle-outline" size={46} color="#45B63A" />
-                <Text style={styles.emptyTitle}>All Caught Up!</Text>
-                <Text style={styles.emptySubtitle}>
+                <Text style={[styles.emptyTitle, { color: theme.text }]}>All Caught Up!</Text>
+                <Text style={[styles.emptySubtitle, { color: theme.secondaryText }]}>
                   There are no pending vehicle inspections assigned for today.
                 </Text>
               </View>
@@ -239,7 +299,9 @@ export default function Home() {
                   image={task.image}
                   vehicle={task.vehicle}
                   type={task.type}
+                  date={task.date}
                   time={task.time}
+                  inspectionType={task.inspectionType}
                   onPress={() =>
                     router.push({
                       pathname: "/pre-inspection",
@@ -259,6 +321,16 @@ export default function Home() {
 
       {showSuccess && <SuccessCard />}
       {showReportMessage && <ReportMessage />}
+
+      <NotificationsModal
+        visible={notificationsVisible}
+        onClose={() => setNotificationsVisible(false)}
+        notifications={notifications}
+        unreadCount={unreadCount}
+        loading={notificationsLoading}
+        onMarkAsRead={handleMarkAsRead}
+        onMarkAllAsRead={handleMarkAllAsRead}
+      />
     </View>
   );
 }

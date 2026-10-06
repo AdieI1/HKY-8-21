@@ -4,6 +4,7 @@ import api from '../api/api-client';
 import reverb from '../utils/reverb';
 import AssignMap from '../components/dispatch/AssignMap';
 import { DispatchHeader, DispatchSidebar } from '../components/dispatch/DispatchChrome';
+import TableSkeleton from '../components/TableSkeleton';
 
 function requestCode(id) {
   return `REQ${String(id).padStart(4, '0')}`;
@@ -593,58 +594,58 @@ function DispatchPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedDeliveries.map((d) => {
-                    const st = getDeliveryStatus(d);
-                    return (
-                      <tr key={d.delivery_id}>
-                        <td className="request-id">{requestCode(d.request?.request_id || d.delivery_id)}</td>
-                        <td style={{ fontWeight: 600 }}>{d.request?.customer?.full_name || '—'}</td>
-                        <td className="route">
-                          {(d.request?.pickup_address || '—').split(',')[0]} ~ {(d.request?.dropoff_address || '—').split(',')[0]}
-                        </td>
-                        <td>
-                          <span className={`dispatch-status-val ${st.key}`}>
-                            {st.label}
-                          </span>
-                          {st.isOverdue && (
-                            <span
-                              style={{
-                                marginLeft: '8px',
-                                padding: '2px 7px',
-                                borderRadius: '4px',
-                                backgroundColor: '#FEE2E2',
-                                color: '#DC2626',
-                                fontSize: '11px',
-                                fontWeight: '700',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '3px',
-                                verticalAlign: 'middle',
-                              }}
-                              title="Exceeded SLA dispatch timeline"
-                            >
-                              <i className="fas fa-exclamation-triangle" style={{ fontSize: '10px' }}></i> Overdue
-                            </span>
-                          )}
-                        </td>
-                        <td>{new Date(d.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}</td>
-                        <td>
-                          <button
-                            className="btn-assign"
-                            style={d.status === 'assigned' ? { background: '#2563EB' } : (['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit'].includes(d.status) ? { background: '#475569' } : {})}
-                            onClick={() => openAssignPanel(d)}
-                          >
-                            {!d.driver_id || d.status === 'pending' ? 'Assign' : (d.status === 'assigned' ? 'Reassign' : 'View Ticket')}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {loading && (
-                    <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading dispatch...</td></tr>
-                  )}
-                  {!loading && paginatedDeliveries.length === 0 && (
+                  {loading ? (
+                    <TableSkeleton rows={5} columns={6} />
+                  ) : paginatedDeliveries.length === 0 ? (
                     <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>No delivery requests found.</td></tr>
+                  ) : (
+                    paginatedDeliveries.map((d) => {
+                      const st = getDeliveryStatus(d);
+                      return (
+                        <tr key={d.delivery_id}>
+                          <td className="request-id">{requestCode(d.request?.request_id || d.delivery_id)}</td>
+                          <td style={{ fontWeight: 600 }}>{d.request?.customer?.full_name || '—'}</td>
+                          <td className="route">
+                            {(d.request?.pickup_address || '—').split(',')[0]} ~ {(d.request?.dropoff_address || '—').split(',')[0]}
+                          </td>
+                          <td>
+                            <span className={`dispatch-status-val ${st.key}`}>
+                              {st.label}
+                            </span>
+                            {st.isOverdue && (
+                              <span
+                                style={{
+                                  marginLeft: '8px',
+                                  padding: '2px 7px',
+                                  borderRadius: '4px',
+                                  backgroundColor: '#FEE2E2',
+                                  color: '#DC2626',
+                                  fontSize: '11px',
+                                  fontWeight: '700',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  verticalAlign: 'middle',
+                                }}
+                                title="Exceeded SLA dispatch timeline"
+                              >
+                                <i className="fas fa-exclamation-triangle" style={{ fontSize: '10px' }}></i> Overdue
+                              </span>
+                            )}
+                          </td>
+                          <td>{new Date(d.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}</td>
+                          <td>
+                            <button
+                              className="btn-assign"
+                              style={d.status === 'assigned' ? { background: '#2563EB' } : (['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit'].includes(d.status) ? { background: '#475569' } : {})}
+                              onClick={() => openAssignPanel(d)}
+                            >
+                              {!d.driver_id || d.status === 'pending' ? 'Assign' : (d.status === 'assigned' ? 'Reassign' : 'View Ticket')}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

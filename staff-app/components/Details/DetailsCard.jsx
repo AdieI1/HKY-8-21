@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useTheme } from "../../context/ThemeContext";
 
 const FALLBACK_IMAGE = require("../../assets/images/truckpic.jpg");
 
@@ -18,6 +19,7 @@ export default function DetailsCard({
   onPress,
 }) {
   const router = useRouter();
+  const { theme } = useTheme();
   const [imgError, setImgError] = useState(false);
   const imageSource = !imgError && image ? image : FALLBACK_IMAGE;
 
@@ -33,6 +35,7 @@ export default function DetailsCard({
     <Pressable
       style={({ pressed }) => [
         styles.card,
+        { backgroundColor: theme.card, borderColor: theme.border },
         pressed && styles.pressed,
       ]}
       onPress={handlePress}
@@ -44,15 +47,15 @@ export default function DetailsCard({
       />
 
       <View style={styles.info}>
-        <Text style={styles.vehicle}>
+        <Text style={[styles.vehicle, { color: theme.text }]}>
           {vehicle}
         </Text>
 
-        <Text style={styles.type}>
+        <Text style={[styles.type, { color: theme.textSecondary }]}>
           {type}
         </Text>
 
-        <Text style={styles.odometer}>
+        <Text style={[styles.odometer, { color: theme.textSecondary }]}>
           Odometer: {odometer}
         </Text>
       </View>

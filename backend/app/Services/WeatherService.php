@@ -46,7 +46,7 @@ class WeatherService
         $roundLng = round($lng, 3);
         $cacheKey = "weather_{$roundLat}_{$roundLng}_" . ($date ?: 'current');
 
-        // Check cache first (cached for 10 minutes for fast response & timely weather shifts)
+        // Check cache first (cached for 60 minutes for fast response & zero server contention)
         if (Cache::has($cacheKey)) {
             $cached = Cache::get($cacheKey);
             if (is_array($cached) && !empty($cached)) {
@@ -55,7 +55,7 @@ class WeatherService
         }
 
         try {
-            $response = Http::timeout(8)->get('https://api.open-meteo.com/v1/forecast', [
+            $response = Http::timeout(2.5)->connectTimeout(1.5)->get('https://api.open-meteo.com/v1/forecast', [
                 'latitude' => $lat,
                 'longitude' => $lng,
                 'current' => 'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,showers,weather_code,wind_speed_10m',
@@ -69,13 +69,22 @@ class WeatherService
                 $data = $response->json();
                 $formatted = $this->formatWeatherData($data, $lat, $lng, $date);
 
-                // Cache for 10 minutes
-                Cache::put($cacheKey, $formatted, now()->addMinutes(10));
+                // Cache for 60 minutes
+                Cache::put($cacheKey, $formatted, now()->addMinutes(60));
+                Cache::forever('weather_last_known', $formatted);
 
                 return $formatted;
             }
         } catch (\Throwable $e) {
             Log::warning('Weather API fetch failed: ' . $e->getMessage());
+        }
+
+        // Return last known weather if available (keeps system fast & offline-tolerant)
+        if (Cache::has('weather_last_known')) {
+            $lastKnown = Cache::get('weather_last_known');
+            if (is_array($lastKnown) && !empty($lastKnown)) {
+                return $lastKnown;
+            }
         }
 
         // Return graceful fallback (keeps system completely stable)

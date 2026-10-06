@@ -3,6 +3,7 @@ import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
+import TableSkeleton from '../components/TableSkeleton';
 
 function formatDate(dateString) {
   if (!dateString) return '—';
@@ -510,60 +511,60 @@ function FuelInventoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedFuels.map((fuel) => {
-                    const st = fuelStatus(fuel);
-                    const totalVal = (Number(fuel.current_stock) * Number(fuel.unit_price)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                    return (
-                      <tr key={fuel.fuel_id}>
-                        <td style={{ fontWeight: 700, color: '#0f172a' }}>{fuel.fuel_type}</td>
-                        <td>{fuel.supplier_name || '—'}</td>
-                        <td>
-                          <strong>{Number(fuel.current_stock).toLocaleString()}</strong> {fuel.unit}
-                        </td>
-                        <td>₱{Number(fuel.unit_price).toFixed(2)}</td>
-                        <td style={{ fontWeight: 700, color: '#16a34a' }}>₱{totalVal}</td>
-                        <td>
-                          <span className={`fuel-status-badge ${st.cls}`} style={{ padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600 }}>
-                            {st.label}
-                          </span>
-                        </td>
-                        <td>{formatDate(fuel.last_delivery_date)}</td>
-                        <td className="action-cell">
-                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                            <button
-                              onClick={() => openReceiveModal(fuel)}
-                              style={{ background: '#16a34a', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                            >
-                              Fuel In
-                            </button>
-                            <button
-                              onClick={() => openIssueModal(fuel)}
-                              style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                            >
-                              Fuel Out
-                            </button>
-                            <button
-                              onClick={() => openEditModal(fuel)}
-                              style={{ background: '#475569', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                            >
-                              Edit/Price
-                            </button>
-                            <button
-                              onClick={() => openHistoryModal(fuel)}
-                              style={{ background: '#f59e0b', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                            >
-                              History
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {loading && (
-                    <tr><td colSpan="8" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading fuel inventory...</td></tr>
-                  )}
-                  {!loading && filteredFuels.length === 0 && (
+                  {loading ? (
+                    <TableSkeleton rows={5} columns={8} />
+                  ) : filteredFuels.length === 0 ? (
                     <tr><td colSpan="8" style={{ textAlign: 'center', padding: 24 }}>No fuel inventory records found.</td></tr>
+                  ) : (
+                    paginatedFuels.map((fuel) => {
+                      const st = fuelStatus(fuel);
+                      const totalVal = (Number(fuel.current_stock) * Number(fuel.unit_price)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                      return (
+                        <tr key={fuel.fuel_id}>
+                          <td style={{ fontWeight: 700, color: '#0f172a' }}>{fuel.fuel_type}</td>
+                          <td>{fuel.supplier_name || '—'}</td>
+                          <td>
+                            <strong>{Number(fuel.current_stock).toLocaleString()}</strong> {fuel.unit}
+                          </td>
+                          <td>₱{Number(fuel.unit_price).toFixed(2)}</td>
+                          <td style={{ fontWeight: 700, color: '#16a34a' }}>₱{totalVal}</td>
+                          <td>
+                            <span className={`fuel-status-badge ${st.cls}`} style={{ padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600 }}>
+                              {st.label}
+                            </span>
+                          </td>
+                          <td>{formatDate(fuel.last_delivery_date)}</td>
+                          <td className="action-cell">
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                              <button
+                                onClick={() => openReceiveModal(fuel)}
+                                style={{ background: '#16a34a', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                              >
+                                Fuel In
+                              </button>
+                              <button
+                                onClick={() => openIssueModal(fuel)}
+                                style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                              >
+                                Fuel Out
+                              </button>
+                              <button
+                                onClick={() => openEditModal(fuel)}
+                                style={{ background: '#475569', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                              >
+                                Edit/Price
+                              </button>
+                              <button
+                                onClick={() => openHistoryModal(fuel)}
+                                style={{ background: '#f59e0b', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                              >
+                                History
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -624,43 +625,46 @@ function FuelInventoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedRecentTx.map((tx) => {
-                    const isIn = tx.transaction_type === 'in';
-                    return (
-                      <tr key={tx.issuance_id}>
-                        <td>{formatDateTime(tx.issued_at || tx.created_at)}</td>
-                        <td>
-                          <span style={{
-                            padding: '2px 8px',
-                            borderRadius: 4,
-                            fontSize: 11,
-                            fontWeight: 700,
-                            background: isIn ? '#dcfce7' : '#fee2e2',
-                            color: isIn ? '#16a34a' : '#dc2626',
-                          }}>
-                            {isIn ? 'Fuel In (+)' : 'Fuel Out (-)'}
-                          </span>
-                        </td>
-                        <td style={{ fontWeight: 600 }}>{tx.fuel?.fuel_type || 'Fuel'}</td>
-                        <td style={{ fontWeight: 700, color: isIn ? '#16a34a' : '#dc2626' }}>
-                          {isIn ? `+${tx.liters} L` : `-${tx.liters} L`}
-                        </td>
-                        <td>₱{Number(tx.unit_price || tx.fuel?.unit_price || 0).toFixed(2)}</td>
-                        <td style={{ fontWeight: 600 }}>
-                          ₱{Number(tx.total_value || (Number(tx.liters) * Number(tx.unit_price || tx.fuel?.unit_price || 0))).toFixed(2)}
-                        </td>
-                        <td>
-                          {isIn ? (tx.supplier_name || tx.fuel?.supplier_name || 'Supplier') : (tx.vehicle ? `${tx.vehicle.model} (${tx.vehicle.plate_number})` : 'General')}
-                        </td>
-                        <td>
-                          {isIn ? (tx.received_by?.full_name || 'Received') : (tx.issued_by?.full_name || tx.driver?.user?.full_name || 'Issued')}
-                        </td>
-                        <td style={{ fontSize: 13, color: '#64748b' }}>{tx.purpose || '—'}</td>
-                      </tr>
-                    );
-                  })}
-                  {filteredHistory.length === 0 && (
+                  {loading ? (
+                    <TableSkeleton rows={4} columns={9} />
+                  ) : filteredHistory.length === 0 ? (
                     <tr><td colSpan="9" style={{ textAlign: 'center', padding: 20, color: '#888' }}>No fuel transactions found for this period.</td></tr>
+                  ) : (
+                    paginatedRecentTx.map((tx) => {
+                      const isIn = tx.transaction_type === 'in';
+                      return (
+                        <tr key={tx.issuance_id}>
+                          <td>{formatDateTime(tx.issued_at || tx.created_at)}</td>
+                          <td>
+                            <span style={{
+                              padding: '2px 8px',
+                              borderRadius: 4,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              background: isIn ? '#dcfce7' : '#fee2e2',
+                              color: isIn ? '#16a34a' : '#dc2626',
+                            }}>
+                              {isIn ? 'Fuel In (+)' : 'Fuel Out (-)'}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 600 }}>{tx.fuel?.fuel_type || 'Fuel'}</td>
+                          <td style={{ fontWeight: 700, color: isIn ? '#16a34a' : '#dc2626' }}>
+                            {isIn ? `+${tx.liters} L` : `-${tx.liters} L`}
+                          </td>
+                          <td>₱{Number(tx.unit_price || tx.fuel?.unit_price || 0).toFixed(2)}</td>
+                          <td style={{ fontWeight: 600 }}>
+                            ₱{Number(tx.total_value || (Number(tx.liters) * Number(tx.unit_price || tx.fuel?.unit_price || 0))).toFixed(2)}
+                          </td>
+                          <td>
+                            {isIn ? (tx.supplier_name || tx.fuel?.supplier_name || 'Supplier') : (tx.vehicle ? `${tx.vehicle.model} (${tx.vehicle.plate_number})` : 'General')}
+                          </td>
+                          <td>
+                            {isIn ? (tx.received_by?.full_name || 'Received') : (tx.issued_by?.full_name || tx.driver?.user?.full_name || 'Issued')}
+                          </td>
+                          <td style={{ fontSize: 13, color: '#64748b' }}>{tx.purpose || '—'}</td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

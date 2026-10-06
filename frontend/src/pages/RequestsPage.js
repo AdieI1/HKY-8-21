@@ -5,6 +5,7 @@ import Sidebar from '../components/Sidebar';
 import RequestDetailsModal from '../components/requests/RequestDetailsModal';
 import CreateRequestModal from '../components/requests/CreateRequestModal';
 import NotificationBell from '../components/NotificationBell';
+import TableSkeleton from '../components/TableSkeleton';
 
 const OVERDUE_DAYS = 2;
 const ITEMS_PER_PAGE = 8;
@@ -307,41 +308,41 @@ function RequestsPage() {
                       <tr><th>Request ID</th><th>Customer</th><th>Status</th><th>Date</th><th>Action</th></tr>
                     </thead>
                     <tbody>
-                      {paginatedRequests.map((r) => {
-                        const overdue = isOverdue(r);
-                        return (
-                          <tr key={r.request_id}>
-                            <td className="request-id">
-                              {overdue && <i className="fas fa-exclamation-triangle status-icon"></i>} {requestCode(r.request_id)}
-                            </td>
-                            <td>{r.customer?.full_name || '—'}</td>
-                            <td>
-                              <span className={`status-badge status-${overdue ? 'overdue' : r.status}`}>
-                                {overdue ? 'Overdue' : r.status.charAt(0).toUpperCase() + r.status.slice(1)}
-                              </span>
-                            </td>
-                            <td>
-                              {formatDate(r.created_at)}
-                              {(r.is_scheduled || r.scheduled_date) && (
-                                <div className="schedule-pill" title={`Scheduled for ${r.scheduled_date || 'Future'} (${r.scheduled_time_slot || 'Anytime'})`}>
-                                  <i className="far fa-calendar-alt"></i> Sched: {r.scheduled_date ? formatDate(r.scheduled_date) : 'Yes'}{r.scheduled_time_slot ? ` · ${r.scheduled_time_slot}` : ''}
-                                </div>
-                              )}
-                            </td>
-                            <td style={{ display: 'flex', gap: 6 }}>
-                              <button className="btn-details" onClick={() => openDetails(r)}>Details</button>
-                              {view === 'drafts' && (
-                                <button className="btn-approve" onClick={() => undraftRequest(r)}>Undraft</button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                      {loading && (
-                        <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading requests...</td></tr>
-                      )}
-                      {!loading && paginatedRequests.length === 0 && (
+                      {loading ? (
+                        <TableSkeleton rows={5} columns={5} />
+                      ) : paginatedRequests.length === 0 ? (
                         <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24 }}>No requests found.</td></tr>
+                      ) : (
+                        paginatedRequests.map((r) => {
+                          const overdue = isOverdue(r);
+                          return (
+                            <tr key={r.request_id}>
+                              <td className="request-id">
+                                {overdue && <i className="fas fa-exclamation-triangle status-icon"></i>} {requestCode(r.request_id)}
+                              </td>
+                              <td>{r.customer?.full_name || '—'}</td>
+                              <td>
+                                <span className={`status-badge status-${overdue ? 'overdue' : r.status}`}>
+                                  {overdue ? 'Overdue' : r.status.charAt(0).toUpperCase() + r.status.slice(1)}
+                                </span>
+                              </td>
+                              <td>
+                                {formatDate(r.created_at)}
+                                {(r.is_scheduled || r.scheduled_date) && (
+                                  <div className="schedule-pill" title={`Scheduled for ${r.scheduled_date || 'Future'} (${r.scheduled_time_slot || 'Anytime'})`}>
+                                    <i className="far fa-calendar-alt"></i> Sched: {r.scheduled_date ? formatDate(r.scheduled_date) : 'Yes'}{r.scheduled_time_slot ? ` · ${r.scheduled_time_slot}` : ''}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ display: 'flex', gap: 6 }}>
+                                <button className="btn-details" onClick={() => openDetails(r)}>Details</button>
+                                {view === 'drafts' && (
+                                  <button className="btn-approve" onClick={() => undraftRequest(r)}>Undraft</button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>

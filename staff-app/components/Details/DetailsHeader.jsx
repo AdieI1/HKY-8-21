@@ -7,9 +7,11 @@ import {
   Text,
   View,
 } from "react-native";
+import { useTheme } from "../../context/ThemeContext";
 
 export default function DetailsHeader({ onBack }) {
   const router = useRouter();
+  const { theme } = useTheme();
 
   const handleBack = () => {
     if (onBack) {
@@ -23,7 +25,7 @@ export default function DetailsHeader({ onBack }) {
 
   return (
     <LinearGradient
-      colors={["#4F0A11", "#9E1E21"]}
+      colors={theme.header}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
       style={styles.header}

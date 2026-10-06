@@ -1,14 +1,13 @@
 import { LinearGradient } from "expo-linear-gradient";
-import {
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { useTheme } from "../context/ThemeContext";
 
 export default function InspectionHeader() {
+  const { theme } = useTheme();
+
   return (
     <LinearGradient
-      colors={["#4F0A11", "#9E1E21"]}
+      colors={theme?.header || ["#4F0A11", "#9E1E21"]}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
       style={styles.header}

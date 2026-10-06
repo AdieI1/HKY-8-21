@@ -10,6 +10,7 @@ import RescheduleProposalModal from '../components/delivery/RescheduleProposalMo
 import ReassignDriverModal from '../components/delivery/ReassignDriverModal';
 import PostDeliveryMetricsPanel, { formatTripDuration, getFuelMetrics } from '../components/delivery/PostDeliveryMetricsPanel';
 
+import TableSkeleton from '../components/TableSkeleton';
 import DelayActionModal from '../components/delivery/DelayActionModal';
 
 const STATUS_STEPS = [
@@ -888,116 +889,112 @@ function DeliveryPage() {
                   )}
                 </thead>
                 <tbody>
-                  {paginatedDeliveries.map((d) => {
-                    if (viewTab === 'completed') {
-                      const tripDuration = formatTripDuration(d.start_time || d.created_at, d.end_time || d.updated_at);
-                      const fuelInfo = getFuelMetrics(d);
-                      const distLabel = fuelInfo.distance !== '—' ? `${fuelInfo.distance} km` : (d.request?.distance_km ? `${d.request.distance_km} km` : '—');
-
-                      return (
-                        <tr className="delivery-row" key={d.delivery_id} onClick={() => openDeliveryPanel(d)}>
-                          <td className="delivery-id">{deliveryCode(d.delivery_id)}</td>
-                          <td>{d.request?.customer?.full_name || '—'}</td>
-                          <td>{d.driver?.user?.full_name || 'Unassigned'}</td>
-                          <td>{d.vehicle ? `${d.vehicle.model} – ${d.vehicle.plate_number}` : 'Unassigned'}</td>
-                          <td>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                              <span style={{ fontWeight: 600, color: '#334155', fontSize: '13px' }}>
-                                <i className="far fa-clock" style={{ marginRight: '4px', color: '#6366f1' }}></i>
-                                {tripDuration}
-                              </span>
-                              <span style={{ fontSize: '11px', color: '#64748b' }}>
-                                🛣️ {distLabel}
-                              </span>
-                            </div>
-                          </td>
-                          <td>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                              <span style={{ fontWeight: 600, color: '#ea580c', fontSize: '13px' }}>
-                                ⛽ {fuelInfo.consumed} {fuelInfo.unit}
-                              </span>
-                              <span style={{ fontSize: '11px', color: '#16a34a' }}>
-                                {fuelInfo.efficiency !== '—' ? `${fuelInfo.efficiency}` : 'Standard'}
-                              </span>
-                            </div>
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                              <span className="status-badge-monitor completed" onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}>
-                                <i className="fas fa-check" style={{ marginRight: '4px', fontSize: '10px' }}></i>
-                                Completed
-                              </span>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    }
-
-                    const delayed = isDeliveryDelayed(d);
-                    const delayInfo = delayed ? getDelayDetails(d) : null;
-                    return (
-                      <tr className={`delivery-row ${delayed ? 'delayed-row' : ''}`} key={d.delivery_id} onClick={() => openDeliveryPanel(d)}>
-                        <td className="delivery-id">{deliveryCode(d.delivery_id)}</td>
-                        <td>{d.request?.customer?.full_name || '—'}</td>
-                        <td>{d.driver?.user?.full_name || 'Unassigned'}</td>
-                        <td>{d.vehicle ? `${d.vehicle.model} – ${d.vehicle.plate_number}` : 'Unassigned'}</td>
-                        <td>{formatRelativeTime(d.updated_at)}</td>
-                        <td style={{ textAlign: 'center' }}>
-                          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                            <span
-                              className={`status-badge-monitor ${statusBadgeClass(d)}`}
-                              onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}
-                              title={delayed && delayInfo ? `Delayed: ${delayInfo.fullLabel}` : undefined}
-                            >
-                              {delayed && <i className="fas fa-exclamation-triangle" style={{ marginRight: '5px', fontSize: '11px' }}></i>}
-                              {statusLabel(d)}
-                            </span>
-                            {delayed && delayInfo && (
-                              <span
-                                className="delayed-duration-chip"
-                                title={delayInfo.fullLabel}
-                                onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}
-                              >
-                                <i className="far fa-clock" style={{ marginRight: '4px', fontSize: '10px' }}></i>
-                                {delayInfo.durationText}
-                              </span>
-                            )}
-                            {(() => {
-                              const speedInfo = deliverySpeeds.get(d.delivery_id);
-                              if (!speedInfo || !speedInfo.totalPointsCount) return null;
-                              return (
-                                <span
-                                  className={`table-speed-chip ${speedInfo.category.badgeClass}`}
-                                  title={`Speed: ${speedInfo.currentSpeed} km/h • ${speedInfo.category.label} (Avg: ${speedInfo.avgSpeed} km/h, Peak: ${speedInfo.peakSpeed} km/h)`}
-                                  style={{
-                                    background: speedInfo.category.bg,
-                                    color: speedInfo.category.color,
-                                    borderColor: speedInfo.category.border,
-                                  }}
-                                >
-                                  <i className={`fas ${speedInfo.category.icon}`} style={{ fontSize: '9px', marginRight: '3px' }}></i>
-                                  {speedInfo.currentSpeed} km/h
-                                </span>
-                              );
-                            })()}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {!loading && paginatedDeliveries.length === 0 && (
+                  {loading ? (
+                    <TableSkeleton rows={5} columns={viewTab === 'completed' ? 7 : 6} />
+                  ) : paginatedDeliveries.length === 0 ? (
                     <tr>
                       <td colSpan={viewTab === 'completed' ? '7' : '6'} style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>
                         {viewTab === 'completed' ? 'No completed deliveries found.' : 'No active deliveries found.'}
                       </td>
                     </tr>
-                  )}
-                  {loading && (
-                    <tr>
-                      <td colSpan={viewTab === 'completed' ? '7' : '6'} style={{ textAlign: 'center', padding: 24 }}>
-                        Loading deliveries...
-                      </td>
-                    </tr>
+                  ) : (
+                    paginatedDeliveries.map((d) => {
+                      if (viewTab === 'completed') {
+                        const tripDuration = formatTripDuration(d.start_time || d.created_at, d.end_time || d.updated_at);
+                        const fuelInfo = getFuelMetrics(d);
+                        const distLabel = fuelInfo.distance !== '—' ? `${fuelInfo.distance} km` : (d.request?.distance_km ? `${d.request.distance_km} km` : '—');
+
+                        return (
+                          <tr className="delivery-row" key={d.delivery_id} onClick={() => openDeliveryPanel(d)}>
+                            <td className="delivery-id">{deliveryCode(d.delivery_id)}</td>
+                            <td>{d.request?.customer?.full_name || '—'}</td>
+                            <td>{d.driver?.user?.full_name || 'Unassigned'}</td>
+                            <td>{d.vehicle ? `${d.vehicle.model} – ${d.vehicle.plate_number}` : 'Unassigned'}</td>
+                            <td>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span style={{ fontWeight: 600, color: '#334155', fontSize: '13px' }}>
+                                  <i className="far fa-clock" style={{ marginRight: '4px', color: '#6366f1' }}></i>
+                                  {tripDuration}
+                                </span>
+                                <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                  🛣️ {distLabel}
+                                </span>
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <span style={{ fontWeight: 600, color: '#ea580c', fontSize: '13px' }}>
+                                  ⛽ {fuelInfo.consumed} {fuelInfo.unit}
+                                </span>
+                                <span style={{ fontSize: '11px', color: '#16a34a' }}>
+                                  {fuelInfo.efficiency !== '—' ? `${fuelInfo.efficiency}` : 'Standard'}
+                                </span>
+                              </div>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <span className="status-badge-monitor completed" onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}>
+                                  <i className="fas fa-check" style={{ marginRight: '4px', fontSize: '10px' }}></i>
+                                  Completed
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      const delayed = isDeliveryDelayed(d);
+                      const delayInfo = delayed ? getDelayDetails(d) : null;
+                      return (
+                        <tr className={`delivery-row ${delayed ? 'delayed-row' : ''}`} key={d.delivery_id} onClick={() => openDeliveryPanel(d)}>
+                          <td className="delivery-id">{deliveryCode(d.delivery_id)}</td>
+                          <td>{d.request?.customer?.full_name || '—'}</td>
+                          <td>{d.driver?.user?.full_name || 'Unassigned'}</td>
+                          <td>{d.vehicle ? `${d.vehicle.model} – ${d.vehicle.plate_number}` : 'Unassigned'}</td>
+                          <td>{formatRelativeTime(d.updated_at)}</td>
+                          <td style={{ textAlign: 'center' }}>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span
+                                className={`status-badge-monitor ${statusBadgeClass(d)}`}
+                                onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}
+                                title={delayed && delayInfo ? `Delayed: ${delayInfo.fullLabel}` : undefined}
+                              >
+                                {delayed && <i className="fas fa-exclamation-triangle" style={{ marginRight: '5px', fontSize: '11px' }}></i>}
+                                {statusLabel(d)}
+                              </span>
+                              {delayed && delayInfo && (
+                                <span
+                                  className="delayed-duration-chip"
+                                  title={delayInfo.fullLabel}
+                                  onClick={(e) => { e.stopPropagation(); openDeliveryPanel(d); }}
+                                >
+                                  <i className="far fa-clock" style={{ marginRight: '4px', fontSize: '10px' }}></i>
+                                  {delayInfo.durationText}
+                                </span>
+                              )}
+                              {(() => {
+                                const speedInfo = deliverySpeeds.get(d.delivery_id);
+                                if (!speedInfo || !speedInfo.totalPointsCount) return null;
+                                return (
+                                  <span
+                                    className={`table-speed-chip ${speedInfo.category.badgeClass}`}
+                                    title={`Speed: ${speedInfo.currentSpeed} km/h • ${speedInfo.category.label} (Avg: ${speedInfo.avgSpeed} km/h, Peak: ${speedInfo.peakSpeed} km/h)`}
+                                    style={{
+                                      background: speedInfo.category.bg,
+                                      color: speedInfo.category.color,
+                                      borderColor: speedInfo.category.border,
+                                    }}
+                                  >
+                                    <i className={`fas ${speedInfo.category.icon}`} style={{ fontSize: '9px', marginRight: '3px' }}></i>
+                                    {speedInfo.currentSpeed} km/h
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -1166,6 +1163,30 @@ function DeliveryPage() {
                         >
                           <i className="fas fa-satellite-dish"></i> Ping Driver for Delay Reason
                         </button>
+
+                        {canReassign && (
+                          <button
+                            type="button"
+                            onClick={() => openReassignModal(selectedDelivery)}
+                            style={{
+                              background: '#4F46E5',
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: 6,
+                              padding: '8px 12px',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 6,
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                            }}
+                          >
+                            <i className="fas fa-user-edit"></i> Re-assign Driver &amp; Vehicle
+                          </button>
+                        )}
 
                         <button
                           type="button"
@@ -1434,7 +1455,7 @@ function DeliveryPage() {
                           );
                         })()}
 
-                        {isInTransitNavigating ? (
+                        {isInTransitNavigating && (
                           <button
                             className="btn-view-location"
                             onClick={openMapModal}
@@ -1443,54 +1464,6 @@ function DeliveryPage() {
                             <i className={isBroken ? 'fas fa-map-marked-alt' : 'fas fa-map-marker-alt'}></i>{' '}
                             {isBroken ? 'View Breakdown Location & Live Map' : 'View Live Location'}
                           </button>
-                        ) : (
-                          <div className="panel-transit-status-box">
-                            <div className="transit-status-header">
-                              <span className="transit-status-dot"></span>
-                              <span className="transit-status-title">Waiting for driver to be in transit</span>
-                            </div>
-                            <div className="transit-status-subtitle">
-                              Live location tracking will pop up once the driver is in transit navigating to the pickup point.
-                            </div>
-
-                            <div className="transit-actions-wrap">
-                              {canReassign ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="btn-reassign-panel-primary"
-                                    onClick={() => openReassignModal(selectedDelivery)}
-                                  >
-                                    <i className="fas fa-user-edit"></i> Re-assign Driver &amp; Vehicle
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="btn-link-resched"
-                                    onClick={() => openRescheduleModal(selectedDelivery)}
-                                  >
-                                    <i className="far fa-calendar-alt"></i> Propose Reschedule Instead
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="btn-resched-panel-primary"
-                                    onClick={() => openRescheduleModal(selectedDelivery)}
-                                  >
-                                    <i className="far fa-calendar-alt"></i> Propose Reschedule to Customer
-                                  </button>
-                                  <div className="transit-fleet-note">
-                                    <i className="fas fa-info-circle"></i> {!hasAvailableDrivers && !hasAvailableVehicles
-                                      ? 'No drivers or vehicles currently available for reassignment.'
-                                      : !hasAvailableDrivers
-                                      ? 'No drivers currently available for reassignment.'
-                                      : 'No vehicles currently available for reassignment.'}
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          </div>
                         )}
                       </>
                     );

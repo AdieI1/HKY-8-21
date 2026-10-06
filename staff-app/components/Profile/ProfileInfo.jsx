@@ -1,3 +1,4 @@
+import React from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Pressable,
@@ -5,17 +6,23 @@ import {
   Text,
   View,
 } from "react-native";
+import { useRouter } from "expo-router";
+import { useTheme } from "../../context/ThemeContext";
 
 export default function ProfileInfo({
-  phoneNumber = "09674209607",
-  firstName = "Christopher",
-  lastName = "Lee",
-  gender = "09674209607",
-  dateOfBirth = "05/16/98",
-  onEditProfile,
+  phoneNumber = "N/A",
+  firstName = "Inspector",
+  lastName = "Staff",
+  gender = "Not specified",
+  dateOfBirth = "N/A",
+  role = "Staff / Inspector",
+  status = "Active",
 }) {
+  const router = useRouter();
+  const { theme } = useTheme();
+
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: theme.surface }]}>
       {/* Section Title */}
       <View style={styles.sectionTitleRow}>
         <View style={styles.iconCircle}>
@@ -26,74 +33,93 @@ export default function ProfileInfo({
           />
         </View>
 
-        <Text style={styles.sectionTitle}>
-          Personal Information
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>
+          Official Staff Information
         </Text>
       </View>
 
-      <View style={styles.divider} />
+      <Text style={[styles.readOnlyNote, { color: theme.secondaryText }]}>
+        Profile details are synchronized with HJY Logistics portal.
+      </Text>
+
+      <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+      {/* Role & Status Row */}
+      <View style={styles.twoColRow}>
+        <View style={[styles.fieldGroup, { flex: 1 }]}>
+          <Text style={[styles.fieldLabel, { color: theme.secondaryText }]}>Role:</Text>
+          <View style={[styles.fieldBox, { backgroundColor: theme.cardSecondary, borderColor: theme.border }]}>
+            <Text style={[styles.fieldText, { color: theme.text }]}>{role}</Text>
+          </View>
+        </View>
+
+        <View style={[styles.fieldGroup, { flex: 1 }]}>
+          <Text style={[styles.fieldLabel, { color: theme.secondaryText }]}>Status:</Text>
+          <View style={[styles.fieldBox, styles.statusBox, { backgroundColor: theme.cardSecondary, borderColor: theme.border }]}>
+            <View style={styles.statusDot} />
+            <Text style={[styles.fieldText, styles.statusText]}>
+              {status.toUpperCase()}
+            </Text>
+          </View>
+        </View>
+      </View>
 
       {/* Phone Number */}
       <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>Phone number:</Text>
-        <View style={styles.fieldBox}>
-          <Text style={styles.fieldText}>{phoneNumber}</Text>
+        <Text style={[styles.fieldLabel, { color: theme.secondaryText }]}>Phone number:</Text>
+        <View style={[styles.fieldBox, { backgroundColor: theme.cardSecondary, borderColor: theme.border }]}>
+          <Text style={[styles.fieldText, { color: theme.text }]}>{phoneNumber || "Not set"}</Text>
         </View>
       </View>
 
-      {/* First Name */}
-      <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>First Name:</Text>
-        <View style={styles.fieldBox}>
-          <Text style={styles.fieldText}>{firstName}</Text>
-        </View>
-      </View>
-
-      {/* Last Name */}
-      <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>Last Name:</Text>
-        <View style={styles.fieldBox}>
-          <Text style={styles.fieldText}>{lastName}</Text>
-        </View>
-      </View>
-
-      {/* Gender */}
-      <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>Gender:</Text>
-        <View style={[styles.fieldBox, styles.halfBox]}>
-          <Text style={styles.fieldText}>{gender}</Text>
-        </View>
-      </View>
-
-      {/* Date of Birth */}
-      <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>Date of Birth:</Text>
-        <View style={[styles.fieldBox, styles.dateBox]}>
-          <View style={styles.calendarIconWrap}>
-            <Ionicons
-              name="calendar-outline"
-              size={18}
-              color="#374151"
-            />
+      {/* First Name & Last Name */}
+      <View style={styles.twoColRow}>
+        <View style={[styles.fieldGroup, { flex: 1 }]}>
+          <Text style={[styles.fieldLabel, { color: theme.secondaryText }]}>First Name:</Text>
+          <View style={[styles.fieldBox, { backgroundColor: theme.cardSecondary, borderColor: theme.border }]}>
+            <Text style={[styles.fieldText, { color: theme.text }]}>{firstName}</Text>
           </View>
-          <Text style={styles.fieldText}>{dateOfBirth}</Text>
+        </View>
+
+        <View style={[styles.fieldGroup, { flex: 1 }]}>
+          <Text style={[styles.fieldLabel, { color: theme.secondaryText }]}>Last Name:</Text>
+          <View style={[styles.fieldBox, { backgroundColor: theme.cardSecondary, borderColor: theme.border }]}>
+            <Text style={[styles.fieldText, { color: theme.text }]}>{lastName || "—"}</Text>
+          </View>
         </View>
       </View>
 
-      {/* Edit Profile Button */}
+      {/* Gender & DOB */}
+      <View style={styles.twoColRow}>
+        <View style={[styles.fieldGroup, { flex: 1 }]}>
+          <Text style={[styles.fieldLabel, { color: theme.secondaryText }]}>Gender:</Text>
+          <View style={[styles.fieldBox, { backgroundColor: theme.cardSecondary, borderColor: theme.border }]}>
+            <Text style={[styles.fieldText, { color: theme.text }]}>{gender || "Not specified"}</Text>
+          </View>
+        </View>
+
+        <View style={[styles.fieldGroup, { flex: 1 }]}>
+          <Text style={[styles.fieldLabel, { color: theme.secondaryText }]}>Date of Birth:</Text>
+          <View style={[styles.fieldBox, { backgroundColor: theme.cardSecondary, borderColor: theme.border }]}>
+            <Text style={[styles.fieldText, { color: theme.text }]}>{dateOfBirth || "N/A"}</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Settings Navigation Shortcut */}
       <Pressable
         style={({ pressed }) => [
-          styles.editButton,
+          styles.settingsBtn,
+          { borderColor: theme.border, backgroundColor: theme.cardSecondary },
           pressed && styles.buttonPressed,
         ]}
-        onPress={onEditProfile}
+        onPress={() => router.push("/settings")}
       >
-        <Ionicons
-          name="create-outline"
-          size={20}
-          color="#FFFFFF"
-        />
-        <Text style={styles.editButtonText}>Edit Profile</Text>
+        <Ionicons name="settings-outline" size={19} color={theme.text} />
+        <Text style={[styles.settingsBtnText, { color: theme.text }]}>
+          Open App Settings & Preferences
+        </Text>
+        <Ionicons name="chevron-forward" size={17} color={theme.secondaryText} />
       </Pressable>
     </View>
   );
@@ -101,12 +127,11 @@ export default function ProfileInfo({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#F7F8FD",
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     marginTop: -16,
     paddingHorizontal: 18,
-    paddingTop: 18,
+    paddingTop: 20,
     paddingBottom: 110,
     flex: 1,
   },
@@ -125,16 +150,25 @@ const styles = StyleSheet.create({
   },
 
   sectionTitle: {
-    color: "#2C2E35",
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "700",
+  },
+
+  readOnlyNote: {
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 36,
   },
 
   divider: {
     height: 1,
-    backgroundColor: "#E2E5EE",
-    marginTop: 12,
+    marginTop: 14,
     marginBottom: 14,
+  },
+
+  twoColRow: {
+    flexDirection: "row",
+    gap: 12,
   },
 
   fieldGroup: {
@@ -142,66 +176,60 @@ const styles = StyleSheet.create({
   },
 
   fieldLabel: {
-    color: "#1F2937",
-    fontSize: 14.5,
-    fontWeight: "700",
-    marginBottom: 6,
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 5,
   },
 
   fieldBox: {
-    height: 42,
-    backgroundColor: "#D2D6E0",
-    borderRadius: 7,
+    height: 44,
+    borderRadius: 8,
     justifyContent: "center",
     paddingHorizontal: 14,
+    borderWidth: 1,
   },
 
-  halfBox: {
-    width: "48%",
-  },
-
-  dateBox: {
+  statusBox: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 6,
+    justifyContent: "flex-start",
   },
 
-  calendarIconWrap: {
-    width: 26,
-    height: 26,
-    borderWidth: 1,
-    borderColor: "#4B5563",
+  statusDot: {
+    width: 8,
+    height: 8,
     borderRadius: 4,
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: "#16A34A",
+  },
+
+  statusText: {
+    color: "#16A34A",
+    fontWeight: "700",
+    fontSize: 12,
   },
 
   fieldText: {
-    color: "#374151",
-    fontSize: 13.5,
+    fontSize: 14,
     fontWeight: "500",
   },
 
-  editButton: {
+  settingsBtn: {
     height: 48,
-    backgroundColor: "#E32E2E",
     borderRadius: 10,
+    borderWidth: 1,
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
-    marginTop: 16,
-    gap: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 4,
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    marginTop: 10,
   },
 
-  editButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
+  settingsBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
+    marginLeft: 10,
   },
 
   buttonPressed: {

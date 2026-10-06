@@ -4,6 +4,7 @@ import reverb from '../utils/reverb';
 import Sidebar from '../components/Sidebar';
 import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
+import TableSkeleton from '../components/TableSkeleton';
 import { validatePhoneNumber, formatPhoneInput } from '../utils/validation';
 
 const ACTIVE_STATUSES = [
@@ -1016,7 +1017,12 @@ function OverviewPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {currentDeliveries.map((d) => {
+                      {loading ? (
+                        <TableSkeleton rows={5} columns={5} />
+                      ) : currentDeliveries.length === 0 ? (
+                        <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24 }}>No deliveries found.</td></tr>
+                      ) : (
+                        currentDeliveries.map((d) => {
                         const isOpen = expandedDeliveryId === d.delivery_id;
                         const statusInfo = getDeliveryStatusInfo(d.status);
                         return (
@@ -1150,14 +1156,9 @@ function OverviewPage() {
                             })()}
                           </Fragment>
                         );
-                      })}
-                      {loading && (
-                        <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading deliveries...</td></tr>
-                      )}
-                      {!loading && currentDeliveries.length === 0 && (
-                        <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24 }}>No deliveries found.</td></tr>
-                      )}
-                    </tbody>
+                      })
+                    )}
+                  </tbody>
                   </table>
 
                   {/* Deliveries Pagination */}
@@ -1333,7 +1334,15 @@ function OverviewPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {accountsView === 'active' ? (
+                      {loading ? (
+                        <TableSkeleton rows={5} columns={5} />
+                      ) : currentStaff.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" style={{ textAlign: 'center', padding: 24, color: '#888' }}>
+                            {staffSearchQuery ? 'No staff matching search query.' : accountsView === 'active' ? 'No active staff accounts.' : 'No deactivated staff accounts.'}
+                          </td>
+                        </tr>
+                      ) : accountsView === 'active' ? (
                         currentStaff.map((staff) => {
                           const staffId = `STF${String(staff.user_id).padStart(4, '0')}`;
                           const isOpen = expandedStaffId === staff.user_id;
@@ -1394,14 +1403,6 @@ function OverviewPage() {
                             </td>
                           </tr>
                         ))
-                      )}
-
-                      {currentStaff.length === 0 && (
-                        <tr>
-                          <td colSpan="5" style={{ textAlign: 'center', padding: 24, color: '#888' }}>
-                            {staffSearchQuery ? 'No staff matching search query.' : accountsView === 'active' ? 'No active staff accounts.' : 'No deactivated staff accounts.'}
-                          </td>
-                        </tr>
                       )}
                     </tbody>
                   </table>

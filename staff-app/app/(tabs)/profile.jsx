@@ -1,6 +1,10 @@
 import { useFocusEffect } from "@react-navigation/native";
+import { useRouter } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import { useCallback, useState } from "react";
 import {
+  Alert,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   View,
@@ -8,21 +12,36 @@ import {
 
 import ProfileHeader from "@/components/Profile/ProfileHeader";
 import ProfileInfo from "@/components/Profile/ProfileInfo";
-import { getCurrentUser, getSavedUser, resolveImageUrl } from "../../services/api";
+import { useTheme } from "../../context/ThemeContext";
+import {
+  getCurrentUser,
+  getSavedUser,
+  resolveImageUrl,
+  updateStaffProfile,
+} from "../../services/api";
 
 const DEFAULT_AVATAR = require("@/assets/images/staffpic.jpg");
 
 export default function Profile() {
+  const router = useRouter();
+  const { theme } = useTheme();
+
   const [user, setUser] = useState({
-    name: "Mark Grayson",
+    id: null,
+    name: "Staff Inspector",
     email: "staff@hjytrucking.com",
-    phoneNumber: "09123456788",
-    firstName: "Mark",
-    lastName: "Grayson",
-    gender: "Male",
+    phoneNumber: "N/A",
+    firstName: "Staff",
+    lastName: "Inspector",
+    gender: "Not specified",
     dateOfBirth: "N/A",
+    role: "Inspector",
+    status: "Active",
     avatar: DEFAULT_AVATAR,
   });
+
+  const [refreshing, setRefreshing] = useState(false);
+  const [avatarLoading, setAvatarLoading] = useState(false);
 
   const loadProfile = useCallback(async () => {
     try {
@@ -42,17 +61,22 @@ export default function Profile() {
         : DEFAULT_AVATAR;
 
       setUser({
-        name: active.full_name || "Staff",
+        id: active.user_id,
+        name: active.full_name || "Staff Inspector",
         email: active.email || "",
         phoneNumber: active.phone || "",
         firstName: firstName,
         lastName: lastName,
-        gender: active.gender || "Male",
+        gender: active.gender || "Not specified",
         dateOfBirth: active.date_of_birth || "N/A",
+        role: active.role?.role_name || "Staff",
+        status: active.status || "active",
         avatar: avatarSource,
       });
     } catch (e) {
       console.log("LOAD PROFILE ERROR:", e);
+    } finally {
+      setRefreshing(false);
     }
   }, []);
 
@@ -62,20 +86,113 @@ export default function Profile() {
     }, [loadProfile])
   );
 
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadProfile();
+  }, [loadProfile]);
+
+  // Profile photo picker
+  const handlePickAvatar = async () => {
+    Alert.alert(
+      "Update Profile Photo",
+      "Choose a source for your profile picture:",
+      [
+        {
+          text: "Take Photo",
+          onPress: async () => {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== "granted") {
+              Alert.alert(
+                "Permission Denied",
+                "Camera access is required to take a new profile photo."
+              );
+              return;
+            }
+            const res = await ImagePicker.launchCameraAsync({
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            });
+            if (!res.canceled && res.assets?.[0]) {
+              await uploadAvatar(res.assets[0]);
+            }
+          },
+        },
+        {
+          text: "Choose from Library",
+          onPress: async () => {
+            const { status } =
+              await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== "granted") {
+              Alert.alert(
+                "Permission Denied",
+                "Gallery access is required to select a profile photo."
+              );
+              return;
+            }
+            const res = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            });
+            if (!res.canceled && res.assets?.[0]) {
+              await uploadAvatar(res.assets[0]);
+            }
+          },
+        },
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
+  };
+
+  const uploadAvatar = async (asset) => {
+    if (!user.id) {
+      Alert.alert("Error", "User account not loaded yet.");
+      return;
+    }
+
+    try {
+      setAvatarLoading(true);
+      await updateStaffProfile(user.id, {
+        photo: {
+          uri: asset.uri,
+          fileName: asset.fileName || "profile.jpg",
+          mimeType: asset.mimeType || "image/jpeg",
+        },
+      });
+
+      await loadProfile();
+      Alert.alert("Success", "Profile photo updated successfully!");
+    } catch (err) {
+      Alert.alert("Upload Failed", err.message || "Failed to update profile picture.");
+    } finally {
+      setAvatarLoading(false);
+    }
+  };
+
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={["#C52227"]}
+          />
+        }
       >
         <ProfileHeader
           name={user.name}
           email={user.email}
+          role={user.role}
           avatar={user.avatar}
-          onSettingsPress={() => {
-            console.log("Settings pressed");
-          }}
+          avatarLoading={avatarLoading}
+          onAvatarPress={handlePickAvatar}
+          onSettingsPress={() => router.push("/settings")}
         />
 
         <ProfileInfo
@@ -84,9 +201,8 @@ export default function Profile() {
           lastName={user.lastName}
           gender={user.gender}
           dateOfBirth={user.dateOfBirth}
-          onEditProfile={() => {
-            console.log("Edit Profile pressed");
-          }}
+          role={user.role}
+          status={user.status}
         />
       </ScrollView>
     </View>
@@ -96,7 +212,6 @@ export default function Profile() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#F7F8FD",
   },
 
   scrollView: {

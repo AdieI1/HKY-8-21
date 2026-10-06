@@ -17,12 +17,13 @@ import {
 } from "react-native";
 
 import ReportVehicleCard from "@/components/ReportIssue/ReportVehicleCard";
-
 import ReportIssueForm from "@/components/ReportIssue/ReportIssueForm";
+import { useTheme } from "../context/ThemeContext";
 
 export default function ReportIssue() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { theme } = useTheme();
 
   const vehiclePlate = params?.vehicle || "ABC - 1234";
   const vehicleType = params?.vehicleType || "10 Wheeler - FUSO";
@@ -31,23 +32,15 @@ export default function ReportIssue() {
   const initialDescription = params?.initialDescription || params?.defectsSummary || "";
 
   return (
-
-    <View style={styles.screen}>
-
+    <View style={[styles.screen, { backgroundColor: theme.background }]}>
       {/* =================================
           HEADER
       ================================= */}
-
       <LinearGradient
-
-        colors={["#4F0A11", "#9E1E21"]}
-
+        colors={theme.header || ["#4F0A11", "#9E1E21"]}
         start={{ x: 0, y: 0 }}
-
         end={{ x: 0, y: 1 }}
-
         style={styles.header}
-
       >
 
         <Pressable
@@ -111,7 +104,7 @@ export default function ReportIssue() {
             REPORT CARD
         ================================= */}
 
-        <View style={styles.reportCard}>
+        <View style={[styles.reportCard, { backgroundColor: theme.surface }]}>
 
           {/* VEHICLE INFORMATION */}
 

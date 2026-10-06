@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useTheme } from "../../context/ThemeContext";
 import UploadPhoto from "../UploadPhoto";
 
 export const CHECKLIST_CATEGORIES = [
@@ -63,12 +64,11 @@ export default function InspectionChecklistCard({
   onItemChange,
   odometer = "",
   onOdometerChange,
-  fuel = "",
-  onFuelChange,
   photos = [],
   onPhotosChange,
   onProgressChange,
 }) {
+  const { theme, darkMode } = useTheme();
   const allItems = useMemo(() => CHECKLIST_CATEGORIES.flatMap((c) => c.items), []);
   const totalCount = allItems.length;
 
@@ -94,17 +94,17 @@ export default function InspectionChecklistCard({
   };
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
       <View style={styles.header}>
-        <Text style={styles.title}>Inspection Checklist</Text>
-        <Text style={styles.count}>{completedCount}/{totalCount}</Text>
+        <Text style={[styles.title, { color: theme.text }]}>Inspection Checklist</Text>
+        <Text style={[styles.count, { color: theme.textSecondary }]}>{completedCount}/{totalCount}</Text>
       </View>
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
       {CHECKLIST_CATEGORIES.map((cat, catIndex) => (
         <View key={cat.category} style={styles.categorySection}>
           <View style={styles.categoryHeader}>
-            <Text style={styles.categoryTitle}>{cat.category}</Text>
+            <Text style={[styles.categoryTitle, { color: theme.text }]}>{cat.category}</Text>
             {catIndex === 0 && (
               <View style={styles.columnIndicators}>
                 <Ionicons name="checkmark-circle-outline" size={17} color="#22C55E" />
@@ -120,17 +120,25 @@ export default function InspectionChecklistCard({
 
             return (
               <View key={item.id} style={styles.checkItem}>
-                <Text style={styles.checkText}>{item.label}</Text>
+                <Text style={[styles.checkText, { color: theme.textSecondary }]}>{item.label}</Text>
                 <View style={styles.actionBoxes}>
                   <Pressable
-                    style={[styles.box, isPass && styles.passBox]}
+                    style={[
+                      styles.box,
+                      { borderColor: theme.border, backgroundColor: theme.surface },
+                      isPass && styles.passBox,
+                    ]}
                     onPress={() => toggleStatus(item.id, "pass")}
                   >
                     {isPass && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
                   </Pressable>
 
                   <Pressable
-                    style={[styles.box, isDefect && styles.defectBox]}
+                    style={[
+                      styles.box,
+                      { borderColor: theme.border, backgroundColor: theme.surface },
+                      isDefect && styles.defectBox,
+                    ]}
                     onPress={() => toggleStatus(item.id, "defect")}
                   >
                     {isDefect && <Ionicons name="close" size={13} color="#FFFFFF" />}
@@ -142,24 +150,14 @@ export default function InspectionChecklistCard({
         </View>
       ))}
 
-      <View style={styles.inputSection}>
-        <Text style={styles.inputLabel}>{isPost ? "Ending Odometer" : "Starting Odometer"}</Text>
+      <View style={[styles.inputSection, { borderTopColor: theme.border }]}>
+        <Text style={[styles.inputLabel, { color: theme.text }]}>{isPost ? "Ending Odometer" : "Starting Odometer"}</Text>
         <TextInput
-          style={styles.textInput}
+          style={[styles.textInput, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
           value={odometer}
           onChangeText={onOdometerChange}
           placeholder={isPost ? "Enter ending odometer (e.g. 68000)" : "Enter starting odometer (e.g. 67000)"}
-          placeholderTextColor="#9CA3AF"
-          keyboardType="numeric"
-        />
-
-        <Text style={[styles.inputLabel, { marginTop: 12 }]}>{isPost ? "Ending Fuel Remaining" : "Starting Fuel Issued"}</Text>
-        <TextInput
-          style={styles.textInput}
-          value={fuel}
-          onChangeText={onFuelChange}
-          placeholder={isPost ? "Enter ending fuel in liters (e.g. 50)" : "Enter starting fuel in liters (e.g. 100)"}
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={theme.textSecondary}
           keyboardType="numeric"
         />
       </View>

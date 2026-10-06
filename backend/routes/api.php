@@ -28,6 +28,7 @@ use App\Http\Controllers\DangerZoneController;
 use App\Http\Controllers\RouteElevationController;
 use App\Http\Controllers\FleetAvailabilityController;
 use App\Http\Controllers\WeatherController;
+use App\Http\Controllers\BugReportController;
 
 
 /*
@@ -586,4 +587,23 @@ Route::middleware('auth:sanctum')->group(function () {
             'markAllAsRead'
         ]
     );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Bug Reports
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'bug-reports',
+        BugReportController::class
+    );
 });
+
+Route::post(
+    '/bug-reports/public',
+    [
+        BugReportController::class,
+        'store'
+    ]
+);

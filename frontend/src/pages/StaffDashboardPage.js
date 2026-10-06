@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
+import TableSkeleton from '../components/TableSkeleton';
 import StaffWeatherCard from '../components/dashboard/StaffWeatherCard';
 import reverb from '../utils/reverb';
 
@@ -1333,7 +1334,9 @@ function StaffDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {actionItems.length === 0 ? (
+                {loadingCalendar ? (
+                  <TableSkeleton rows={4} columns={6} />
+                ) : actionItems.length === 0 ? (
                   <tr>
                     <td colSpan={6} style={{ textAlign: 'center', padding: '32px 16px', color: '#6B7280', fontSize: '13px' }}>
                       <i className="far fa-check-circle" style={{ fontSize: '22px', color: '#10B981', display: 'block', marginBottom: '8px' }}></i>

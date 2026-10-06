@@ -15,6 +15,7 @@ import DetailsCard from "@/components/Details/DetailsCard";
 import DetailsHeader from "@/components/Details/DetailsHeader";
 import DetailsInfo from "@/components/Details/DetailsInfo";
 import Photos from "@/components/Details/Photos";
+import { useTheme } from "../context/ThemeContext";
 import { getDeliveries, getDelivery, getIncidentReports, resolveImageUrl } from "../services/api";
 
 const DEFAULT_IMAGE = require("../assets/images/truckpic.jpg");
@@ -63,6 +64,7 @@ const parseDateSafe = (dateString) => {
 
 export default function RecordDetails() {
   const params = useLocalSearchParams();
+  const { theme, darkMode } = useTheme();
   const [activeTab, setActiveTab] = useState("Checklist");
   const [loading, setLoading] = useState(true);
   const [record, setRecord] = useState(null);
@@ -178,7 +180,7 @@ export default function RecordDetails() {
   );
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: theme.background }]}>
       <DetailsHeader />
 
       {loading && !record ? (
@@ -205,12 +207,13 @@ export default function RecordDetails() {
             status={record?.status || "Completed"}
           />
 
-          <View style={styles.tabs}>
+          <View style={[styles.tabs, { borderBottomColor: theme.border }]}>
             <View style={[styles.tab, activeTab === "Checklist" && styles.activeTab]}>
               <DetailsTab
                 title="Checklist"
                 active={activeTab === "Checklist"}
                 onPress={() => setActiveTab("Checklist")}
+                textColor={theme.textSecondary}
               />
             </View>
 
@@ -219,6 +222,7 @@ export default function RecordDetails() {
                 title="Photos"
                 active={activeTab === "Photos"}
                 onPress={() => setActiveTab("Photos")}
+                textColor={theme.textSecondary}
               />
             </View>
           </View>
@@ -234,10 +238,10 @@ export default function RecordDetails() {
   );
 }
 
-function DetailsTab({ title, active, onPress }) {
+function DetailsTab({ title, active, onPress, textColor }) {
   return (
     <Pressable style={styles.tabButton} onPress={onPress}>
-      <Text style={[styles.tabText, active && styles.activeTabText]}>
+      <Text style={[styles.tabText, { color: textColor || "#666872" }, active && styles.activeTabText]}>
         {title}
       </Text>
     </Pressable>

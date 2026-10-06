@@ -20,11 +20,13 @@ import {
   resolveImageUrl,
   saveChecklist,
 } from "../services/api";
+import { useTheme } from "../context/ThemeContext";
 
 const DEFAULT_TRUCK_IMAGE = require("../assets/images/truckpic.jpg");
 
 export default function PreInspection() {
   const router = useRouter();
+  const { theme, darkMode } = useTheme();
   const params = useLocalSearchParams();
   const isPost = params?.type === "post_trip" || String(params?.inspectionType || "").toLowerCase().includes("post");
 
@@ -32,7 +34,6 @@ export default function PreInspection() {
   const [submitting, setSubmitting] = useState(false);
   const [itemStates, setItemStates] = useState({});
   const [odometer, setOdometer] = useState("");
-  const [fuel, setFuel] = useState("");
   const [photos, setPhotos] = useState([]);
   const [progress, setProgress] = useState({ completed: 0, total: 21, defects: 0 });
 
@@ -146,10 +147,8 @@ export default function PreInspection() {
 
       if (!isPost) {
         payload.starting_odometer = Number(odometer) || 0;
-        if (fuel) payload.starting_fuel = Number(fuel);
       } else {
         payload.ending_odometer = Number(odometer) || 0;
-        if (fuel) payload.ending_fuel = Number(fuel);
       }
 
       await saveChecklist(deliveryId, payload);
@@ -168,8 +167,8 @@ export default function PreInspection() {
   };
 
   return (
-    <View style={styles.screen}>
-      <LinearGradient colors={["#4F0A11", "#9E1E21"]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.header}>
+    <View style={[styles.screen, { backgroundColor: theme.background }]}>
+      <LinearGradient colors={theme.header} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.header}>
         <Pressable style={styles.backButton} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={28} color="#FFFFFF" />
         </Pressable>
@@ -192,8 +191,6 @@ export default function PreInspection() {
           onItemChange={handleItemChange}
           odometer={odometer}
           onOdometerChange={setOdometer}
-          fuel={fuel}
-          onFuelChange={setFuel}
           photos={photos}
           onPhotosChange={setPhotos}
           onProgressChange={handleProgressChange}
@@ -204,20 +201,21 @@ export default function PreInspection() {
         <Pressable
           style={({ pressed }) => [
             styles.reportButton,
-            !canReport && styles.reportButtonDisabled,
+            { backgroundColor: darkMode ? theme.surface : "#FFFFFF" },
+            !canReport && (darkMode ? { backgroundColor: theme.surface, borderColor: theme.border } : styles.reportButtonDisabled),
             canReport && pressed && styles.buttonPressed,
           ]}
           onPress={handleReportIssue}
           disabled={!canReport}
         >
-          <Ionicons name="warning" size={17} color={canReport ? "#E32E2E" : "#9CA3AF"} />
-          <Text style={[styles.reportText, !canReport && styles.reportTextDisabled]}>Report Issue</Text>
+          <Ionicons name="warning" size={17} color={canReport ? "#E32E2E" : (darkMode ? theme.textSecondary : "#9CA3AF")} />
+          <Text style={[styles.reportText, !canReport && { color: darkMode ? theme.textSecondary : "#9CA3AF" }]}>Report Issue</Text>
         </Pressable>
 
         <Pressable
           style={({ pressed }) => [
             styles.completeButton,
-            !canComplete && styles.completeButtonDisabled,
+            !canComplete && (darkMode ? { backgroundColor: theme.border } : styles.completeButtonDisabled),
             canComplete && (pressed || submitting) && styles.buttonPressed,
           ]}
           onPress={handleCompleteInspection}
@@ -226,7 +224,7 @@ export default function PreInspection() {
           {submitting ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
-            <Text style={[styles.completeText, !canComplete && styles.completeTextDisabled]}>Complete Inspection</Text>
+            <Text style={[styles.completeText, !canComplete && { color: darkMode ? theme.textSecondary : "#9CA3AF" }]}>Complete Inspection</Text>
           )}
         </Pressable>
       </View>

@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useTheme } from "../context/ThemeContext";
 
 function OverviewItem({
   icon,
@@ -8,6 +9,8 @@ function OverviewItem({
   title,
   subtitle,
   onPress,
+  titleColor,
+  subtitleColor,
 }) {
   const content = (
     <View style={styles.item}>
@@ -33,9 +36,11 @@ function OverviewItem({
         {number}
       </Text>
 
-      <Text style={styles.itemTitle}>{title}</Text>
+      <Text style={[styles.itemTitle, { color: titleColor || "#292929" }]}>{title}</Text>
 
-      <Text style={styles.itemSubtitle}>{subtitle}</Text>
+      {Boolean(subtitle) && (
+        <Text style={[styles.itemSubtitle, { color: subtitleColor || "#777777" }]}>{subtitle}</Text>
+      )}
     </View>
   );
 
@@ -54,6 +59,7 @@ function OverviewItem({
 }
 
 export default function OverviewCard({
+  pendingChecks,
   preTripChecks = 2,
   checksCompleted = 3,
   issuesReported = 1,
@@ -62,21 +68,26 @@ export default function OverviewCard({
   onPressCompleted,
   onPressIssues,
 }) {
+  const { theme, darkMode } = useTheme();
+  const totalPending = typeof pendingChecks === "number" ? pendingChecks : preTripChecks;
+
   return (
-    <View style={styles.card}>
-      <Text style={styles.heading}>{"Today's Overview"}</Text>
+    <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border, borderWidth: darkMode ? 1 : 0 }]}>
+      <Text style={[styles.heading, { color: theme.primary }]}>{"Today's Overview"}</Text>
 
       <View style={styles.statsContainer}>
         <OverviewItem
           icon="bus-outline"
           iconColor="#4B7EFF"
-          number={preTripChecks}
-          title="Pre-Trip Check"
+          number={totalPending}
+          title="Pending Checks"
           subtitle={preTripSubtitle}
           onPress={onPressPreTrip}
+          titleColor={theme.text}
+          subtitleColor={theme.secondaryText}
         />
 
-        <View style={styles.divider} />
+        <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
         <OverviewItem
           icon="checkmark-done"
@@ -85,17 +96,21 @@ export default function OverviewCard({
           title="Checks Completed"
           subtitle=""
           onPress={onPressCompleted}
+          titleColor={theme.text}
+          subtitleColor={theme.secondaryText}
         />
 
-        <View style={styles.divider} />
+        <View style={[styles.divider, { backgroundColor: theme.border }]} />
 
         <OverviewItem
           icon="warning"
           iconColor="#E53935"
           number={issuesReported}
           title="Issues Reported"
-          subtitle="to admin for further action"
+          subtitle="to admin for action"
           onPress={onPressIssues}
+          titleColor={theme.text}
+          subtitleColor={theme.secondaryText}
         />
       </View>
     </View>
@@ -105,24 +120,22 @@ export default function OverviewCard({
 const styles = StyleSheet.create({
   card: {
     marginHorizontal: 10,
-    backgroundColor: "#F5F7FF",
-    borderRadius: 10,
-    paddingTop: 7,
+    borderRadius: 12,
+    paddingTop: 8,
     paddingBottom: 8,
     shadowColor: "#000000",
-    shadowOpacity: 0.20,
+    shadowOpacity: 0.18,
     shadowOffset: {
-        width: 0,
-        height: 4,
+      width: 0,
+      height: 4,
     },
     shadowRadius: 7,
     elevation: 10,
     zIndex: 30,
- },
+  },
 
   heading: {
-    color: "#E53935",
-    fontSize: 19,
+    fontSize: 18,
     fontWeight: "800",
     marginLeft: 14,
     marginBottom: 4,
@@ -156,13 +169,12 @@ const styles = StyleSheet.create({
   },
 
   number: {
-    fontSize: 43,
-    lineHeight: 47,
-    fontWeight: "600",
+    fontSize: 42,
+    lineHeight: 46,
+    fontWeight: "700",
   },
 
   itemTitle: {
-    color: "#292929",
     fontSize: 11.5,
     fontWeight: "700",
     textAlign: "center",
@@ -170,18 +182,16 @@ const styles = StyleSheet.create({
   },
 
   itemSubtitle: {
-    color: "#777777",
-    fontSize: 10,
-    fontWeight: "700",
+    fontSize: 9.5,
+    fontWeight: "600",
     textAlign: "center",
-    lineHeight: 10,
-    marginTop: 3,
+    lineHeight: 11,
+    marginTop: 2,
     paddingHorizontal: 2,
   },
 
   divider: {
     width: 1,
-    backgroundColor: "#C8C8C8",
     marginVertical: 2,
   },
 });

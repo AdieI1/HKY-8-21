@@ -1,22 +1,25 @@
 import { Ionicons } from "@expo/vector-icons";
 import { StyleSheet, TextInput, View } from "react-native";
+import { useTheme } from "../../context/ThemeContext";
 
 export default function SearchBar({ value, onChangeText }) {
+  const { theme } = useTheme();
+
   return (
-    <View style={styles.wrapper}>
+    <View style={[styles.wrapper, { backgroundColor: theme.surface, borderColor: theme.border }]}>
       <Ionicons
         name="search-outline"
         size={20}
-        color="#9CA3AF"
+        color={theme.secondaryText}
         style={styles.icon}
       />
 
       <TextInput
         value={value}
         onChangeText={onChangeText}
-        placeholder="Search..."
-        placeholderTextColor="#9CA3AF"
-        style={styles.input}
+        placeholder="Search vehicle or checklist..."
+        placeholderTextColor={theme.secondaryText}
+        style={[styles.input, { color: theme.text }]}
         autoCapitalize="none"
         autoCorrect={false}
       />
@@ -29,10 +32,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: -24,
     height: 48,
-    backgroundColor: "#FFFFFF",
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 14,
@@ -43,7 +44,7 @@ const styles = StyleSheet.create({
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.12,
     shadowRadius: 6,
   },
 
@@ -54,7 +55,6 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     height: "100%",
-    color: "#1F2937",
     fontSize: 14,
   },
 });

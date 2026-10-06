@@ -15,7 +15,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import CustomerFeedbackModal from "../../components/CustomerFeedbackModal";
 import { useTheme } from "../context/ThemeContext";
-import { logout } from "../../services/api";
+import { logout, reportBug } from "../../services/api";
 
 export default function Settings() {
   const { darkMode, toggleDarkMode, theme } = useTheme();
@@ -108,17 +108,24 @@ export default function Settings() {
       Alert.alert("Required", "Please describe what went wrong or how to reproduce the bug.");
       return;
     }
-    setSubmittingBug(true);
-    // Simulate logging / sending to diagnostics
-    setTimeout(() => {
-      setSubmittingBug(false);
+    try {
+      setSubmittingBug(true);
+      await reportBug({
+        category: bugCategory,
+        description: bugDescription.trim(),
+        deviceInfo: "Driver Mobile App (Navigation Console)",
+      });
       setBugModalVisible(false);
       setBugDescription("");
       Alert.alert(
         "Report Submitted",
         "Thank you! Your bug report has been forwarded to the IT dispatch operations team."
       );
-    }, 800);
+    } catch {
+      Alert.alert("Error", "Could not submit bug report. Please try again.");
+    } finally {
+      setSubmittingBug(false);
+    }
   };
 
   return (

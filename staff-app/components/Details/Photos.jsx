@@ -5,16 +5,18 @@ import {
   Text,
   View,
 } from "react-native";
+import { useTheme } from "../../context/ThemeContext";
 
 export default function Photos({ photos = [] }) {
+  const { theme, darkMode } = useTheme();
   const displayPhotos = Array.isArray(photos) ? photos : [];
 
   if (displayPhotos.length === 0) {
     return (
       <View style={styles.emptyContainer}>
-        <Ionicons name="images-outline" size={44} color="#A3A6B4" />
-        <Text style={styles.emptyTitle}>No Photos Uploaded</Text>
-        <Text style={styles.emptySubtitle}>
+        <Ionicons name="images-outline" size={44} color={theme.textSecondary} />
+        <Text style={[styles.emptyTitle, { color: theme.text }]}>No Photos Uploaded</Text>
+        <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
           There are no photos attached to this inspection record.
         </Text>
       </View>

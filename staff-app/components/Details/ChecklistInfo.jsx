@@ -1,4 +1,5 @@
 import { StyleSheet, Text, View } from "react-native";
+import { useTheme } from "../../context/ThemeContext";
 
 const CHECKLIST = [
   {
@@ -36,16 +37,17 @@ const CHECKLIST = [
 ];
 
 export default function ChecklistInfo({ items = CHECKLIST }) {
+  const { theme } = useTheme();
   const displayItems = Array.isArray(items) && items.length > 0 ? items : CHECKLIST;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1, borderTopWidth: 0 }]}>
       {displayItems.map((item, index) => (
         <View
           key={index}
-          style={styles.item}
+          style={[styles.item, index < displayItems.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.border }]}
         >
-          <Text style={styles.label}>
+          <Text style={[styles.label, { color: theme.textSecondary }]}>
             {item.label}
           </Text>
 

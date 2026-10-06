@@ -433,3 +433,29 @@ export const getRouteWeather = async (originLat, originLng, destLat, destLng) =>
         return null;
     }
 };
+
+export const reportBug = async ({ category, description, deviceInfo }) => {
+    const token = await getToken();
+    const headers = {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+    };
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
+    const response = await fetch(`${API_URL}/bug-reports`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+            category,
+            description,
+            app_source: "driver-app",
+            device_info: deviceInfo || "Driver Mobile App",
+        }),
+    });
+    const data = await safeJson(response);
+    if (!response.ok) {
+        throw new Error(data?.message || "Failed to submit bug report.");
+    }
+    return data;
+};

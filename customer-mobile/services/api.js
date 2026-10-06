@@ -316,5 +316,18 @@ export const markAllNotificationsRead = async () => {
   });
 };
 
+export const reportBug = async ({ category, description, deviceInfo }) => {
+  return request("/bug-reports", {
+    method: "POST",
+    body: JSON.stringify({
+      category,
+      description,
+      app_source: "customer-app",
+      device_info: deviceInfo || "Customer Mobile App",
+    }),
+  });
+};
+
+
 
 

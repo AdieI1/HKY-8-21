@@ -1,20 +1,20 @@
-import * as ImagePicker from "expo-image-picker";
-
-import {
-    Alert,
-    Image,
-    Pressable,
-    StyleSheet,
-    Text,
-    View,
-} from "react-native";
-
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import {
+  Alert,
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { useTheme } from "../context/ThemeContext";
 
 export default function UploadPhoto({
   photos = [],
   onPhotosChange,
 }) {
+  const { theme, darkMode } = useTheme();
 
   const pickPhotos = async () => {
 
@@ -64,30 +64,24 @@ export default function UploadPhoto({
 
   return (
     <View style={styles.container}>
-
-      <Text style={styles.title}>
+      <Text style={[styles.title, { color: theme.textSecondary }]}>
         Upload Photos
       </Text>
 
-
       <View style={styles.photoRow}>
-
         {/* ==============================
             EXISTING PHOTOS
         ============================== */}
-
         {photos.map((photo, index) => (
           <View
             key={`${photo}-${index}`}
             style={styles.photoWrapper}
           >
-
             <Image
               source={{ uri: photo }}
               style={styles.photo}
               resizeMode="cover"
             />
-
             <Pressable
               style={styles.removeButton}
               onPress={() => removePhoto(index)}
@@ -98,37 +92,33 @@ export default function UploadPhoto({
                 color="#FFFFFF"
               />
             </Pressable>
-
           </View>
         ))}
-
 
         {/* ==============================
             ADD PHOTO BUTTON
         ============================== */}
-
         <Pressable
           style={({ pressed }) => [
             styles.addPhotoButton,
+            {
+              backgroundColor: darkMode ? theme.surface : "#E9EBF2",
+              borderColor: theme.border,
+            },
             pressed && styles.pressed,
           ]}
           onPress={pickPhotos}
         >
-
           <Ionicons
             name="camera-outline"
             size={25}
-            color="#8A8D98"
+            color={darkMode ? theme.textSecondary : "#8A8D98"}
           />
-
-          <Text style={styles.addPhotoText}>
+          <Text style={[styles.addPhotoText, { color: theme.textSecondary }]}>
             Add Photos
           </Text>
-
         </Pressable>
-
       </View>
-
     </View>
   );
 }

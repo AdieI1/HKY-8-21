@@ -9,6 +9,7 @@ import {
   Alert,
   Dimensions,
   Image,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -18,7 +19,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { getCurrentCustomer, getSavedUser, logout, updateCustomerProfile } from "../../services/api";
+import { getCurrentCustomer, getSavedUser, logout, updateCustomerProfile, reportBug } from "../../services/api";
 
 const { width, height } = Dimensions.get("window");
 const pfpplaceholder = require("../../assets/images/profilepic.png");
@@ -36,6 +37,36 @@ const Profile = () => {
   const [dob, setDob] = useState("05/16/98");
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  const [bugModalVisible, setBugModalVisible] = useState(false);
+  const [bugCategory, setBugCategory] = useState("Booking & Requests");
+  const [bugDescription, setBugDescription] = useState("");
+  const [submittingBug, setSubmittingBug] = useState(false);
+
+  const handleSubmitBug = async () => {
+    if (!bugDescription.trim()) {
+      Alert.alert("Required", "Please describe the problem you encountered.");
+      return;
+    }
+    try {
+      setSubmittingBug(true);
+      await reportBug({
+        category: bugCategory,
+        description: bugDescription.trim(),
+        deviceInfo: "Customer Mobile App",
+      });
+      setBugModalVisible(false);
+      setBugDescription("");
+      Alert.alert(
+        "Report Submitted",
+        "Thank you! Your bug report has been forwarded to logistics support."
+      );
+    } catch {
+      Alert.alert("Error", "Could not submit bug report. Please try again.");
+    } finally {
+      setSubmittingBug(false);
+    }
+  };
 
   const populateForm = (user) => {
     if (!user) return;
@@ -316,13 +347,90 @@ const Profile = () => {
               </TouchableOpacity>
             </View>
           ) : (
-            <TouchableOpacity style={styles.editBtn} onPress={() => setIsEditing(true)} activeOpacity={0.85}>
-              <Ionicons name="create-outline" size={18} color="#fff" />
-              <Text style={styles.editText}>Edit Profile</Text>
-            </TouchableOpacity>
+            <View style={{ gap: 10, marginTop: height * 0.025 }}>
+              <TouchableOpacity style={styles.editBtn} onPress={() => setIsEditing(true)} activeOpacity={0.85}>
+                <Ionicons name="create-outline" size={18} color="#fff" />
+                <Text style={styles.editText}>Edit Profile</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.bugBtn}
+                onPress={() => setBugModalVisible(true)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="bug-outline" size={18} color="#CA2A30" />
+                <Text style={styles.bugBtnText}>Report a Problem / Bug</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </ScrollView>
+
+      {/* BUG REPORT MODAL */}
+      <Modal
+        visible={bugModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setBugModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="bug-outline" size={20} color="#CA2A30" />
+                <Text style={styles.modalTitle}>Report an Issue / Bug</Text>
+              </View>
+              <TouchableOpacity onPress={() => setBugModalVisible(false)} hitSlop={10}>
+                <Ionicons name="close" size={22} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: height * 0.6 }}>
+              <Text style={styles.modalLabel}>Issue Category</Text>
+              <View style={styles.modalCategoryRow}>
+                {["Booking & Requests", "Tracking & Map", "Profile & Account", "Billing / Pricing", "Other"].map((cat) => (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[styles.modalCatChip, bugCategory === cat && styles.modalCatChipActive]}
+                    onPress={() => setBugCategory(cat)}
+                  >
+                    <Text style={[styles.modalCatChipText, bugCategory === cat && styles.modalCatChipTextActive]}>
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={[styles.modalLabel, { marginTop: 14 }]}>Describe the Problem</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="What happened? Please describe the issue in detail..."
+                placeholderTextColor="#999"
+                multiline
+                numberOfLines={4}
+                value={bugDescription}
+                onChangeText={setBugDescription}
+                textAlignVertical="top"
+              />
+
+              <TouchableOpacity
+                style={styles.modalSubmitBtn}
+                onPress={handleSubmitBug}
+                disabled={submittingBug}
+                activeOpacity={0.85}
+              >
+                {submittingBug ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="send" size={16} color="#fff" style={{ marginRight: 6 }} />
+                    <Text style={styles.modalSubmitText}>Submit Bug Report</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -357,11 +465,26 @@ const styles = StyleSheet.create({
   genderChipActive: { backgroundColor: "#CA2A30" },
   genderChipText: { fontSize: width * 0.04, color: "#444451", fontWeight: "600" },
   genderChipTextActive: { color: "#FFFFFF" },
-  editBtn: { marginTop: height * 0.025, backgroundColor: "#E53935", paddingVertical: 14, borderRadius: 12, flexDirection: "row", justifyContent: "center", alignItems: "center" },
+  editBtn: { backgroundColor: "#E53935", paddingVertical: 14, borderRadius: 12, flexDirection: "row", justifyContent: "center", alignItems: "center" },
   editText: { color: "#fff", fontSize: width * 0.04, fontWeight: "600", marginLeft: 6 },
+  bugBtn: { backgroundColor: "#FFF5F5", borderWidth: 1, borderColor: "#FED7D7", paddingVertical: 13, borderRadius: 12, flexDirection: "row", justifyContent: "center", alignItems: "center" },
+  bugBtnText: { color: "#CA2A30", fontSize: width * 0.038, fontWeight: "600", marginLeft: 6 },
   buttonGroup: { marginTop: height * 0.025, gap: 10 },
   saveBtn: { backgroundColor: "#2E7D32", paddingVertical: 14, borderRadius: 12, flexDirection: "row", justifyContent: "center", alignItems: "center" },
   saveBtnText: { color: "#fff", fontSize: width * 0.04, fontWeight: "600", marginLeft: 6 },
   cancelBtn: { backgroundColor: "#ECEFF1", paddingVertical: 12, borderRadius: 12, alignItems: "center" },
   cancelBtnText: { color: "#546E7A", fontSize: width * 0.04, fontWeight: "600" },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
+  modalCard: { backgroundColor: "#fff", width: "100%", borderRadius: 20, padding: 20, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 10, elevation: 8 },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16, borderBottomWidth: 1, borderBottomColor: "#F0F0F0", paddingBottom: 12 },
+  modalTitle: { fontSize: 17, fontWeight: "700", color: "#222" },
+  modalLabel: { fontSize: 13, fontWeight: "600", color: "#555", marginBottom: 8 },
+  modalCategoryRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  modalCatChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, backgroundColor: "#F3F4F6", borderWidth: 1, borderColor: "#E5E7EB" },
+  modalCatChipActive: { backgroundColor: "#CA2A30", borderColor: "#CA2A30" },
+  modalCatChipText: { fontSize: 12, color: "#4B5563", fontWeight: "600" },
+  modalCatChipTextActive: { color: "#FFFFFF" },
+  modalInput: { backgroundColor: "#F9FAFB", borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 12, padding: 12, fontSize: 14, color: "#111", height: 100, marginBottom: 16 },
+  modalSubmitBtn: { backgroundColor: "#CA2A30", paddingVertical: 14, borderRadius: 12, flexDirection: "row", justifyContent: "center", alignItems: "center" },
+  modalSubmitText: { color: "#fff", fontSize: 15, fontWeight: "700" },
 });

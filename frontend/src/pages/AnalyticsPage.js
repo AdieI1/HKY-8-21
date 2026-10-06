@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
+import TableSkeleton from '../components/TableSkeleton';
 import AnalyticsOverviewModal from '../components/analytics/AnalyticsOverviewModal';
 import CustomerRatingsModal from '../components/analytics/CustomerRatingsModal';
 import ClaimsRefundsModal from '../components/analytics/ClaimsRefundsModal';
@@ -794,26 +795,29 @@ function AnalyticsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {customerStats.slice(0, 4).map((c, i) => (
-                    <tr key={c.customer.user_id}>
-                      <td style={{ fontWeight: 600, color: '#0f172a' }}>
-                        <span className={`rank-badge ${i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : 'rank-other'}`}>
-                          {i + 1}
-                        </span>
-                        {c.customer.full_name}
-                      </td>
-                      <td>{c.requests} orders</td>
-                      <td style={{ textAlign: 'right', fontWeight: 800, color: '#10b981' }}>
-                        {formatMoney(c.spend)}
-                      </td>
-                    </tr>
-                  ))}
-                  {customerStats.length === 0 && (
+                  {loading ? (
+                    <TableSkeleton rows={4} columns={3} />
+                  ) : customerStats.length === 0 ? (
                     <tr>
                       <td colSpan="3" style={{ textAlign: 'center', padding: 18, color: '#94a3b8' }}>
                         No customer transactions yet.
                       </td>
                     </tr>
+                  ) : (
+                    customerStats.slice(0, 4).map((c, i) => (
+                      <tr key={c.customer.user_id}>
+                        <td style={{ fontWeight: 600, color: '#0f172a' }}>
+                          <span className={`rank-badge ${i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : 'rank-other'}`}>
+                            {i + 1}
+                          </span>
+                          {c.customer.full_name}
+                        </td>
+                        <td>{c.requests} orders</td>
+                        <td style={{ textAlign: 'right', fontWeight: 800, color: '#10b981' }}>
+                          {formatMoney(c.spend)}
+                        </td>
+                      </tr>
+                    ))
                   )}
                 </tbody>
               </table>
@@ -862,41 +866,41 @@ function AnalyticsPage() {
                 </tr>
               </thead>
               <tbody>
-                {pagedHistory.map((d) => (
-                  <tr
-                    key={d.delivery_id}
-                    onClick={() => setSelectedDelivery(d)}
-                    style={{ cursor: 'pointer' }}
-                    className="clickable-history-row"
-                    title="Click to view comprehensive delivery details & telemetry"
-                  >
-                    <td style={{ fontWeight: 700, color: '#2563eb' }}>{deliveryCode(d.delivery_id)}</td>
-                    <td style={{ fontWeight: 600 }}>{d.request?.customer?.full_name || '—'}</td>
-                    <td>{d.driver?.user?.full_name || 'Unassigned'}</td>
-                    <td>{d.vehicle ? `${d.vehicle.model} (${d.vehicle.plate_number})` : 'Unassigned'}</td>
-                    <td>
-                      <span style={{
-                        padding: '3px 8px',
-                        borderRadius: 4,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        background: d.status === 'completed' ? '#dcfce7' : d.status === 'assigned' ? '#dbeafe' : '#f1f5f9',
-                        color: d.status === 'completed' ? '#16a34a' : d.status === 'assigned' ? '#2563eb' : '#475569',
-                      }}>
-                        {d.status === 'completed' && <i className="far fa-check-circle" style={{ marginRight: 4 }}></i>}
-                        {d.status.replace(/_/g, ' ')}
-                      </span>
-                    </td>
-                    <td>{formatDate(d.created_at)}</td>
-                    <td style={{ fontWeight: 800, color: '#10b981', textAlign: 'right' }}>{formatMoney(d.trip_cost)}</td>
-                  </tr>
-                ))}
-                {loading && (
-                  <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24, color: '#888' }}>Loading analytics...</td></tr>
-                )}
-                {!loading && pagedHistory.length === 0 && (
+                {loading ? (
+                  <TableSkeleton rows={5} columns={7} />
+                ) : pagedHistory.length === 0 ? (
                   <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>No deliveries found.</td></tr>
+                ) : (
+                  pagedHistory.map((d) => (
+                    <tr
+                      key={d.delivery_id}
+                      onClick={() => setSelectedDelivery(d)}
+                      style={{ cursor: 'pointer' }}
+                      className="clickable-history-row"
+                      title="Click to view comprehensive delivery details & telemetry"
+                    >
+                      <td style={{ fontWeight: 700, color: '#2563eb' }}>{deliveryCode(d.delivery_id)}</td>
+                      <td style={{ fontWeight: 600 }}>{d.request?.customer?.full_name || '—'}</td>
+                      <td>{d.driver?.user?.full_name || 'Unassigned'}</td>
+                      <td>{d.vehicle ? `${d.vehicle.model} (${d.vehicle.plate_number})` : 'Unassigned'}</td>
+                      <td>
+                        <span style={{
+                          padding: '3px 8px',
+                          borderRadius: 4,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          textTransform: 'uppercase',
+                          background: d.status === 'completed' ? '#dcfce7' : d.status === 'assigned' ? '#dbeafe' : '#f1f5f9',
+                          color: d.status === 'completed' ? '#16a34a' : d.status === 'assigned' ? '#2563eb' : '#475569',
+                        }}>
+                          {d.status === 'completed' && <i className="far fa-check-circle" style={{ marginRight: 4 }}></i>}
+                          {d.status.replace(/_/g, ' ')}
+                        </span>
+                      </td>
+                      <td>{formatDate(d.created_at)}</td>
+                      <td style={{ fontWeight: 800, color: '#10b981', textAlign: 'right' }}>{formatMoney(d.trip_cost)}</td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>

@@ -2,11 +2,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import SearchBar from "@/components/Records/SearchBar";
 import VehicleRecords from "@/components/Records/VehicleRecords";
 import { getDeliveries, getIncidentReports, resolveImageUrl } from "../../services/api";
+import { useTheme } from "../../context/ThemeContext";
 
 const DEFAULT_IMAGE = require("../../assets/images/truckpic.jpg");
 const TABS = ["All Records", "Pre-Trip", "Post-Trip", "Issues"];
@@ -43,6 +44,7 @@ const formatRecordDate = (dateObj) => {
 export default function Records() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { theme } = useTheme();
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState(params?.tab || "All Records");
   const [activeFilter, setActiveFilter] = useState("Latest");
@@ -106,6 +108,14 @@ export default function Records() {
   }, []);
 
   useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData();
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
   const onRefresh = useCallback(() => { setRefreshing(true); loadData(); }, [loadData]);
 
   const records = useMemo(() => {
@@ -139,8 +149,13 @@ export default function Records() {
   }, [records]);
 
   return (
-    <View style={styles.screen}>
-      <LinearGradient colors={["#4F0A11", "#9E1E21"]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.header}>
+    <View style={[styles.screen, { backgroundColor: theme.background }]}>
+      <LinearGradient
+        colors={theme.header || ["#4F0A11", "#9E1E21"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0, y: 1 }}
+        style={styles.header}
+      >
         <View style={styles.headerContent}>
           <View style={styles.headerTextWrap}>
             <Text style={styles.title}>Checklist Records</Text>
@@ -154,14 +169,21 @@ export default function Records() {
 
       <SearchBar value={search} onChangeText={setSearch} />
 
-      <View style={styles.content}>
-        <View style={styles.tabsContainer}>
+      <View style={[styles.content, { backgroundColor: theme.surface }]}>
+        <View style={[styles.tabsContainer, { borderBottomColor: theme.border }]}>
           {TABS.map((tab) => {
             const selected = activeTab === tab;
             return (
               <Pressable key={tab} style={styles.tab} onPress={() => setActiveTab(tab)}>
-                <Text style={[styles.tabText, selected && styles.activeTabText]}>{tab}</Text>
-                {selected && <View style={styles.activeLine} />}
+                <Text
+                  style={[
+                    styles.tabText,
+                    { color: selected ? theme.primary : theme.secondaryText },
+                  ]}
+                >
+                  {tab}
+                </Text>
+                {selected && <View style={[styles.activeLine, { backgroundColor: theme.primary }]} />}
               </Pressable>
             );
           })}
@@ -172,14 +194,14 @@ export default function Records() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#E32E2E" colors={["#E32E2E"]} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} colors={[theme.primary]} />}
         >
           {loading && rawRecords.length === 0 ? (
-            <View style={styles.loadingBox}><ActivityIndicator size="large" color="#E32E2E" /></View>
+            <View style={styles.loadingBox}><ActivityIndicator size="large" color={theme.primary} /></View>
           ) : Object.keys(groupedRecords).length > 0 ? (
             Object.entries(groupedRecords).map(([date, items]) => (
               <View key={date}>
-                <Text style={styles.dateHeader}>{date}</Text>
+                <Text style={[styles.dateHeader, { color: theme.text }]}>{date}</Text>
                 {items.map((record) => (
                   <VehicleRecords
                     key={record.id}
@@ -196,9 +218,9 @@ export default function Records() {
             ))
           ) : (
             <View style={styles.empty}>
-              <Ionicons name="document-text-outline" size={42} color="#9CA3AF" />
-              <Text style={styles.emptyTitle}>No Records Found</Text>
-              <Text style={styles.emptyText}>{search ? "No records match your search." : "No checklist records available."}</Text>
+              <Ionicons name="document-text-outline" size={42} color={theme.secondaryText} />
+              <Text style={[styles.emptyTitle, { color: theme.text }]}>No Records Found</Text>
+              <Text style={[styles.emptyText, { color: theme.secondaryText }]}>{search ? "No records match your search." : "No checklist records available."}</Text>
             </View>
           )}
         </ScrollView>
@@ -206,11 +228,11 @@ export default function Records() {
 
       <Modal transparent visible={showFilter} animationType="fade" onRequestClose={() => setShowFilter(false)}>
         <Pressable style={styles.overlay} onPress={() => setShowFilter(false)}>
-          <Pressable style={styles.filterModal} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Filter & Sort</Text>
+          <Pressable style={[styles.filterModal, { backgroundColor: theme.surface }]} onPress={(e) => e.stopPropagation()}>
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Filter & Sort</Text>
               <Pressable onPress={() => setShowFilter(false)}>
-                <Ionicons name="close" size={22} color="#666872" />
+                <Ionicons name="close" size={22} color={theme.secondaryText} />
               </Pressable>
             </View>
             {FILTERS.map((filter) => {
@@ -218,14 +240,18 @@ export default function Records() {
               return (
                 <Pressable
                   key={filter.label}
-                  style={[styles.filterOption, selected && styles.selectedFilter]}
+                  style={[
+                    styles.filterOption,
+                    { borderBottomColor: theme.border },
+                    selected && { backgroundColor: theme.cardSecondary },
+                  ]}
                   onPress={() => { setActiveFilter(filter.label); setShowFilter(false); }}
                 >
                   <View style={styles.filterLeft}>
-                    <Ionicons name={filter.icon} size={19} color={selected ? "#E32E2E" : "#777984"} />
-                    <Text style={[styles.filterText, selected && styles.selectedText]}>{filter.label}</Text>
+                    <Ionicons name={filter.icon} size={19} color={selected ? theme.primary : theme.secondaryText} />
+                    <Text style={[styles.filterText, { color: selected ? theme.primary : theme.text }]}>{filter.label}</Text>
                   </View>
-                  {selected && <Ionicons name="checkmark" size={19} color="#E32E2E" />}
+                  {selected && <Ionicons name="checkmark" size={19} color={theme.primary} />}
                 </Pressable>
               );
             })}

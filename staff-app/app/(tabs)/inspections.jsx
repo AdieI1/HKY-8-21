@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -14,12 +14,14 @@ import {
 import InspectionCard from "@/components/InspectionCard";
 import InspectionHeader from "@/components/InspectionHeader";
 import { getDeliveries, resolveImageUrl } from "../../services/api";
+import { useTheme } from "../../context/ThemeContext";
 
 const DEFAULT_IMAGE = require("../../assets/images/truckpic.jpg");
 
 export default function Inspections() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { theme, darkMode } = useTheme();
   const [activeTab, setActiveTab] = useState(params?.tab || "All Inspections");
   const [inspections, setInspections] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -59,12 +61,21 @@ export default function Inspections() {
         const plate = vehicle?.plate_number || `Delivery #${d?.delivery_id}`;
         const typeStr = brandModel || (vehicle?.type ? `${vehicle.type}` : "FUSO - Truck");
 
-        const timeStr = d?.created_at
-          ? new Date(d.created_at).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "10:00 AM";
+        const dateObj = d?.created_at
+          ? new Date(
+              String(d.created_at).includes(" ") && !String(d.created_at).includes("T")
+                ? String(d.created_at).replace(" ", "T")
+                : d.created_at
+            )
+          : new Date();
+
+        const rawMonth = dateObj.toLocaleDateString("en-US", { month: "short" });
+        const month = rawMonth === "Sep" ? "Sept" : rawMonth;
+        const dateStr = `${month} ${dateObj.getDate()}, ${dateObj.getFullYear()}`;
+        const timeStr = dateObj.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
 
         const resolvedUrl = resolveImageUrl(vehicle?.photo_url || vehicle?.photo);
         const imageSource = resolvedUrl ? { uri: resolvedUrl } : DEFAULT_IMAGE;
@@ -73,7 +84,7 @@ export default function Inspections() {
           id: d?.delivery_id,
           vehicle: plate,
           vehicleType: typeStr,
-          time: timeStr,
+          time: `${dateStr} • ${timeStr}`,
           inspectionType: type,
           status: "Pending",
           image: imageSource,
@@ -99,6 +110,13 @@ export default function Inspections() {
     }, [loadData])
   );
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData();
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadData();
@@ -110,7 +128,7 @@ export default function Inspections() {
       : inspections.filter((item) => item.inspectionType === activeTab);
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: theme.background }]}>
       {/* =================================
           HEADER
       ================================= */}
@@ -119,42 +137,65 @@ export default function Inspections() {
       {/* =================================
           OVERLAPPING CONTENT
       ================================= */}
-      <View style={styles.panel}>
+      <View
+        style={[
+          styles.panel,
+          {
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
+            borderWidth: darkMode ? 1 : 0,
+          },
+        ]}
+      >
         {/* =================================
             TABS
         ================================= */}
-        <View style={styles.tabsContainer}>
+        <View
+          style={[
+            styles.tabsContainer,
+            {
+              backgroundColor: theme.surface,
+              borderBottomColor: theme.border,
+            },
+          ]}
+        >
           <Tab
             title="All Inspections"
             active={activeTab === "All Inspections"}
             onPress={() => setActiveTab("All Inspections")}
+            activeColor={theme.primary}
+            inactiveColor={theme.secondaryText}
           />
 
           <Tab
             title="Pre-Trip"
             active={activeTab === "Pre-Trip"}
             onPress={() => setActiveTab("Pre-Trip")}
+            activeColor={theme.primary}
+            inactiveColor={theme.secondaryText}
           />
 
           <Tab
             title="Post-Trip"
             active={activeTab === "Post-Trip"}
             onPress={() => setActiveTab("Post-Trip")}
+            activeColor={theme.primary}
+            inactiveColor={theme.secondaryText}
           />
         </View>
 
         {/* =================================
             DATE
         ================================= */}
-        <View style={styles.dateContainer}>
-          <Text style={styles.dateText}>{todayDateStr}</Text>
+        <View style={[styles.dateContainer, { backgroundColor: theme.surface }]}>
+          <Text style={[styles.dateText, { color: theme.text }]}>{todayDateStr}</Text>
         </View>
 
         {/* =================================
             CARDS
         ================================= */}
         <ScrollView
-          style={styles.cardList}
+          style={[styles.cardList, { backgroundColor: theme.surface }]}
           contentContainerStyle={styles.cardListContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -173,8 +214,8 @@ export default function Inspections() {
           ) : filteredInspections.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Ionicons name="checkmark-circle-outline" size={46} color="#45B63A" />
-              <Text style={styles.emptyTitle}>No Pending Inspections</Text>
-              <Text style={styles.emptySubtitle}>
+              <Text style={[styles.emptyTitle, { color: theme.text }]}>No Pending Inspections</Text>
+              <Text style={[styles.emptySubtitle, { color: theme.secondaryText }]}>
                 {activeTab === "All Inspections"
                   ? "There are no pending inspections to be conducted."
                   : `There are no pending ${activeTab.toLowerCase()} inspections.`}
@@ -212,11 +253,18 @@ export default function Inspections() {
 /* =========================================
    TAB
 ========================================= */
-function Tab({ title, active, onPress }) {
+function Tab({ title, active, onPress, activeColor, inactiveColor }) {
   return (
     <Text
       onPress={onPress}
-      style={[styles.tabText, active && styles.tabTextActive]}
+      style={[
+        styles.tabText,
+        {
+          color: active ? activeColor || "#E53935" : inactiveColor || "#898A91",
+          borderBottomWidth: active ? 2 : 0,
+          borderBottomColor: active ? activeColor || "#E53935" : "transparent",
+        },
+      ]}
     >
       {title}
     </Text>
