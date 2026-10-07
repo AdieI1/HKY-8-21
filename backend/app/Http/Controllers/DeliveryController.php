@@ -9,6 +9,9 @@ use App\Models\DeliveryTracking;
 use App\Models\AppNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class DeliveryController extends Controller
 {
@@ -126,7 +129,15 @@ class DeliveryController extends Controller
 
     public function update(Request $request, Delivery $delivery)
     {
-        $delivery->update($request->all());
+        $data = $request->all();
+
+        if ($request->hasFile('area_permit')) {
+            $data['area_permit_path'] = $this->storeAreaPermitFile($request->file('area_permit'));
+        } elseif ($request->filled('area_permit') && (str_starts_with($request->input('area_permit'), 'data:') || str_starts_with($request->input('area_permit'), 'http'))) {
+            $data['area_permit_path'] = $this->storeAreaPermitFile($request->input('area_permit'));
+        }
+
+        $delivery->update($data);
 
         return $delivery
             ->fresh()
@@ -143,6 +154,69 @@ class DeliveryController extends Controller
                 'strandedVehicle',
                 'reliefIncident'
             ]);
+    }
+
+    public function uploadAreaPermit(Request $request, Delivery $delivery)
+    {
+        $permitPath = null;
+        if ($request->hasFile('area_permit')) {
+            $permitPath = $this->storeAreaPermitFile($request->file('area_permit'));
+        } elseif ($request->filled('area_permit')) {
+            $permitPath = $this->storeAreaPermitFile($request->input('area_permit'));
+        }
+
+        if (!$permitPath) {
+            return response()->json(['message' => 'Please provide a valid permit image or document.'], 422);
+        }
+
+        $delivery->update([
+            'area_permit_path' => $permitPath,
+            'area_permit_type' => $request->input('area_permit_type') ?: ($delivery->area_permit_type ?: 'Mindanao Regional Route Clearance'),
+            'permit_notes' => $request->input('permit_notes') ?: $delivery->permit_notes,
+        ]);
+
+        return response()->json([
+            'message' => 'Area delivery permit uploaded successfully.',
+            'delivery' => $delivery->fresh()->load(['request.customer', 'driver.user', 'vehicle']),
+        ]);
+    }
+
+    private function storeAreaPermitFile($fileInput, $folder = 'permits/area'): ?string
+    {
+        if (empty($fileInput)) {
+            return null;
+        }
+
+        if ($fileInput instanceof \Illuminate\Http\UploadedFile) {
+            $filename = 'area_permit_' . time() . '_' . Str::random(8) . '.' . $fileInput->getClientOriginalExtension();
+            return $fileInput->storeAs($folder, $filename, 'public');
+        }
+
+        if (is_string($fileInput) && str_starts_with($fileInput, 'data:')) {
+            try {
+                if (preg_match('/^data:(?:image|application)\/(\w+);base64,/', $fileInput, $matches)) {
+                    $ext = strtolower($matches[1]);
+                    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'pdf'])) {
+                        $ext = 'jpg';
+                    }
+                    $base64Data = substr($fileInput, strpos($fileInput, ',') + 1);
+                    $decoded = base64_decode($base64Data);
+                    if ($decoded !== false) {
+                        $filename = 'area_permit_' . time() . '_' . Str::random(8) . '.' . $ext;
+                        Storage::disk('public')->put($folder . '/' . $filename, $decoded);
+                        return $folder . '/' . $filename;
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Failed to decode area permit file: ' . $e->getMessage());
+            }
+        }
+
+        if (is_string($fileInput) && !str_starts_with($fileInput, 'data:')) {
+            return $fileInput;
+        }
+
+        return null;
     }
 
     /*
@@ -324,6 +398,9 @@ class DeliveryController extends Controller
             'remarks' => 'nullable|string|max:1000',
             'starting_odometer' => 'nullable|numeric|min:0',
             'odometer_reading' => 'nullable|numeric|min:0',
+            'area_permit' => 'nullable',
+            'area_permit_type' => 'nullable|string|max:100',
+            'permit_notes' => 'nullable|string|max:500',
         ]);
 
         $updated = DB::transaction(function () use (
@@ -468,6 +545,16 @@ class DeliveryController extends Controller
                 $newStatus = $wasOngoing ? 'out_for_delivery' : 'assigned';
             }
 
+            $areaPermitPath = $delivery->area_permit_path;
+            if ($request->hasFile('area_permit')) {
+                $areaPermitPath = $this->storeAreaPermitFile($request->file('area_permit'));
+            } elseif ($request->filled('area_permit')) {
+                $areaPermitPath = $this->storeAreaPermitFile($request->input('area_permit'));
+            }
+
+            $areaPermitType = $validated['area_permit_type'] ?? $delivery->area_permit_type;
+            $permitNotes = $validated['permit_notes'] ?? $delivery->permit_notes;
+
             $delivery->update([
                 'driver_id' => $request->driver_id,
                 'vehicle_id' => $request->vehicle_id,
@@ -489,6 +576,9 @@ class DeliveryController extends Controller
                 'stranded_driver_id' => $strandedDriverId,
                 'stranded_vehicle_id' => $strandedVehicleId,
                 'relief_incident_id' => $reliefIncidentId,
+                'area_permit_path' => $areaPermitPath,
+                'area_permit_type' => $areaPermitType,
+                'permit_notes' => $permitNotes,
             ]);
 
             if ($odometer !== null && $delivery->vehicle) {
@@ -788,6 +878,10 @@ class DeliveryController extends Controller
 
         $validated = $request->validate([
             'status' => 'required|in:accepted,arrived_pickup,loading_cargo,out_for_delivery,arrived_dropoff,unloading_cargo,returning_to_hq,completed',
+            'photo' => 'nullable',
+            'proof_of_delivery' => 'nullable',
+            'received_by' => 'nullable|string|max:150',
+            'delivery_notes' => 'nullable|string|max:1000',
         ]);
 
         $targetStatus = $validated['status'];
@@ -816,9 +910,138 @@ class DeliveryController extends Controller
             ], 422);
         }
 
+        // Handle proof of delivery if supplied during completion
+        if ($targetStatus === 'completed') {
+            $photoInput = $request->file('photo')
+                ?? $request->file('proof_of_delivery')
+                ?? $request->input('photo')
+                ?? $request->input('proof_of_delivery');
+
+            $podUpdates = ['delivered_at' => now()];
+
+            if ($photoInput) {
+                $path = $this->storeProofOfDeliveryImage($photoInput, $delivery);
+                if ($path) {
+                    $podUpdates['proof_of_delivery_path'] = $path;
+                    $podUpdates['receipt_photo'] = $path;
+                }
+            }
+
+            if ($request->filled('received_by')) {
+                $podUpdates['received_by'] = $request->input('received_by');
+            }
+
+            if ($request->filled('delivery_notes')) {
+                $podUpdates['delivery_notes'] = $request->input('delivery_notes');
+            }
+
+            $delivery->update($podUpdates);
+        }
+
         $this->setDeliveryStatus($delivery, $targetStatus);
 
         return response()->json($this->loadDriverDelivery($delivery));
+    }
+
+    public function submitProofOfDelivery(Request $request, Delivery $delivery)
+    {
+        $driver = $this->assignedDriver($request, $delivery);
+
+        if ($driver instanceof \Illuminate\Http\JsonResponse) {
+            return $driver;
+        }
+
+        $request->validate([
+            'photo' => 'nullable',
+            'proof_of_delivery' => 'nullable',
+            'received_by' => 'nullable|string|max:150',
+            'delivery_notes' => 'nullable|string|max:1000',
+            'complete_delivery' => 'nullable',
+        ]);
+
+        $photoInput = $request->file('photo')
+            ?? $request->file('proof_of_delivery')
+            ?? $request->input('photo')
+            ?? $request->input('proof_of_delivery');
+
+        if (!$photoInput && !$delivery->proof_of_delivery_path && !$delivery->receipt_photo) {
+            return response()->json([
+                'message' => 'Proof of delivery photo is required.'
+            ], 422);
+        }
+
+        $updates = [
+            'delivered_at' => now(),
+        ];
+
+        if ($photoInput) {
+            $path = $this->storeProofOfDeliveryImage($photoInput, $delivery);
+            if ($path) {
+                $updates['proof_of_delivery_path'] = $path;
+                $updates['receipt_photo'] = $path;
+            }
+        }
+
+        if ($request->filled('received_by')) {
+            $updates['received_by'] = $request->input('received_by');
+        }
+
+        if ($request->filled('delivery_notes')) {
+            $updates['delivery_notes'] = $request->input('delivery_notes');
+        }
+
+        $delivery->update($updates);
+
+        $shouldComplete = $request->has('complete_delivery')
+            ? filter_var($request->input('complete_delivery'), FILTER_VALIDATE_BOOLEAN)
+            : true;
+
+        if ($shouldComplete && $delivery->status !== 'completed') {
+            $this->setDeliveryStatus($delivery, 'completed');
+        }
+
+        return response()->json([
+            'message' => 'Proof of delivery recorded successfully.',
+            'delivery' => $this->loadDriverDelivery($delivery),
+        ]);
+    }
+
+    private function storeProofOfDeliveryImage($imageInput, Delivery $delivery): ?string
+    {
+        if (empty($imageInput)) {
+            return null;
+        }
+
+        if ($imageInput instanceof \Illuminate\Http\UploadedFile) {
+            $filename = 'pod_' . $delivery->delivery_id . '_' . time() . '_' . Str::random(8) . '.' . $imageInput->getClientOriginalExtension();
+            return $imageInput->storeAs('proof_of_delivery', $filename, 'public');
+        }
+
+        if (is_string($imageInput) && str_starts_with($imageInput, 'data:image/')) {
+            try {
+                if (preg_match('/^data:image\/(\w+);base64,/', $imageInput, $matches)) {
+                    $ext = strtolower($matches[1]);
+                    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp'])) {
+                        $ext = 'jpg';
+                    }
+                    $base64Data = substr($imageInput, strpos($imageInput, ',') + 1);
+                    $decoded = base64_decode($base64Data);
+                    if ($decoded !== false) {
+                        $filename = 'pod_' . $delivery->delivery_id . '_' . time() . '_' . Str::random(8) . '.' . $ext;
+                        Storage::disk('public')->put('proof_of_delivery/' . $filename, $decoded);
+                        return 'proof_of_delivery/' . $filename;
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Failed to decode proof of delivery image: ' . $e->getMessage());
+            }
+        }
+
+        if (is_string($imageInput) && !str_starts_with($imageInput, 'data:image/')) {
+            return $imageInput;
+        }
+
+        return null;
     }
 
     public function saveChecklist(Request $request, Delivery $delivery)

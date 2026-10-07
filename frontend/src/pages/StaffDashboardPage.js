@@ -218,6 +218,21 @@ function formatShortDriver(fullName) {
   return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
 }
 
+function toLocalDateIso(dateStr) {
+  if (!dateStr) return null;
+  if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return dateStr;
+  }
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) {
+    return String(dateStr).slice(0, 10);
+  }
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function getTodayIso() {
   const now = new Date();
   const yyyy = now.getFullYear();
@@ -229,42 +244,51 @@ function getTodayIso() {
 function getDeliveryDateRange(d) {
   let startDate = '';
   if (d.request?.scheduled_date) {
-    startDate = String(d.request.scheduled_date).slice(0, 10);
+    startDate = toLocalDateIso(d.request.scheduled_date);
   } else if (d.trip_date) {
-    startDate = String(d.trip_date).slice(0, 10);
+    startDate = toLocalDateIso(d.trip_date);
   } else if (d.start_time) {
-    startDate = String(d.start_time).slice(0, 10);
+    startDate = toLocalDateIso(d.start_time);
   } else if (d.created_at) {
-    startDate = String(d.created_at).slice(0, 10);
+    startDate = toLocalDateIso(d.created_at);
   }
 
   if (!startDate) return null;
 
   let endDate = startDate;
   const isCompleted = ['completed', 'delivered'].includes(d.status);
-  const isInTransit = ['out_for_delivery', 'in_transit'].includes(d.status);
+  const isActiveTrip = ['assigned', 'accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'arrived_dropoff', 'unloading_cargo', 'returning_to_hq'].includes(d.status);
   const isScheduled = Boolean(d.request?.is_scheduled || d.request?.scheduled_date);
 
+  let completionDate = null;
   if (isCompleted) {
-    if (d.end_time) {
-      endDate = String(d.end_time).slice(0, 10);
+    if (d.delivered_at) {
+      endDate = toLocalDateIso(d.delivered_at);
+    } else if (d.end_time) {
+      endDate = toLocalDateIso(d.end_time);
     } else if (d.updated_at) {
-      endDate = String(d.updated_at).slice(0, 10);
+      endDate = toLocalDateIso(d.updated_at);
     }
+    completionDate = endDate;
     if (endDate < startDate) endDate = startDate;
-  } else if (isScheduled && !isInTransit) {
-    // Scheduled deliveries that have NOT physically departed yet are strictly anchored to their scheduled date
+  } else if (isScheduled && !isActiveTrip) {
+    // Scheduled deliveries that have NOT physically been assigned or dispatched yet stay anchored to their scheduled date
     endDate = startDate;
-  } else if (isInTransit) {
-    // Active in-transit trips on the road span from start date up to today (local time)
+  } else if (isActiveTrip) {
+    // Active dispatched or in-transit deliveries span continuously from their start date up to today (local time)
     const todayIso = getTodayIso();
     endDate = todayIso >= startDate ? todayIso : startDate;
   } else {
-    // Standard assigned / accepted deliveries stay on their trip/start date until in transit
     endDate = startDate;
   }
 
-  return { startDate, endDate, isCompleted, isActive: isInTransit || ['assigned', 'accepted', 'loading_cargo', 'arrived_pickup'].includes(d.status) };
+  return {
+    startDate,
+    endDate,
+    completionDate,
+    isCompleted,
+    isActive: isActiveTrip,
+  };
 }
 
 function isIncidentResolved(inc) {
@@ -456,10 +480,11 @@ function StaffDashboardPage() {
           routeText = formatRoute(pAddr, dAddr);
         } else if (dayDeliveries.length > 0) {
           const activeDel = dayDeliveries.find((d) =>
-            ['assigned', 'accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'arrived_dropoff', 'unloading_cargo', 'delivered', 'returning_to_hq'].includes(d.status)
+            ['assigned', 'accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'arrived_dropoff', 'unloading_cargo', 'returning_to_hq'].includes(d.status)
           );
           const scheduledDel = dayDeliveries.find((d) =>
-            d.request?.is_scheduled || (d.request?.scheduled_date && String(d.request.scheduled_date).slice(0, 10) === day.iso)
+            !['completed', 'delivered'].includes(d.status) &&
+            (d.request?.is_scheduled || (d.request?.scheduled_date && String(d.request.scheduled_date).slice(0, 10) === day.iso))
           );
 
           if (activeDel) {
@@ -508,13 +533,41 @@ function StaffDashboardPage() {
               extraText = `+${dayDeliveries.length - 1} more trip`;
             }
           } else {
-            cellType = 'complete';
-            const firstDel = dayDeliveries[0];
-            statusText = 'Complete';
+            const completedOnDay = dayDeliveries.find((d) => {
+              const range = getDeliveryDateRange(d);
+              return range && (range.completionDate ? day.iso === range.completionDate : day.iso === range.endDate);
+            });
+            const firstDel = completedOnDay || dayDeliveries[0];
+            const isCompletedToday = Boolean(completedOnDay);
+
+            if (isCompletedToday) {
+              const wasDelayed = Boolean(
+                firstDel.is_delayed ||
+                (firstDel.request?.scheduled_date && toLocalDateIso(firstDel.request.scheduled_date) < day.iso)
+              );
+              if (wasDelayed) {
+                cellType = 'delayed';
+                statusText = 'Delayed (Complete)';
+              } else {
+                cellType = 'complete';
+                statusText = 'Complete';
+              }
+            } else {
+              // On days before the delivery concluded, it was actively traversing the route
+              const wasDelayed = Boolean(firstDel.is_delayed);
+              if (wasDelayed) {
+                cellType = 'delayed';
+                statusText = 'Delayed (On Route)';
+              } else {
+                cellType = 'on-route';
+                statusText = 'On Route';
+              }
+            }
+
             driverName = formatShortDriver(firstDel.driver?.user?.full_name);
             routeText = formatRoute(firstDel.request?.pickup_address, firstDel.request?.dropoff_address);
             if (dayDeliveries.length > 1) {
-              extraText = `${dayDeliveries.length} Trips Done`;
+              extraText = isCompletedToday ? `${dayDeliveries.length} Trips Done` : `+${dayDeliveries.length - 1} more trip`;
             }
           }
         } else if (dayMaintenance) {
@@ -2507,6 +2560,102 @@ function StaffDashboardPage() {
                                 Fuel Issued: {del.fuel_issued} {del.fuel_unit || 'L'}
                               </span>
                             )}
+                          </div>
+                        )}
+
+                        {/* Proof of Delivery (POD) Audit Section */}
+                        {(del.proof_of_delivery_url || del.receipt_photo) && (
+                          <div
+                            style={{
+                              background: '#f0fdf4',
+                              border: '1px solid #bbf7d0',
+                              borderRadius: '10px',
+                              padding: '12px 14px',
+                              marginBottom: '12px',
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                marginBottom: '8px',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: '11.5px',
+                                  fontWeight: 700,
+                                  color: '#166534',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                }}
+                              >
+                                <i className="fas fa-camera" style={{ color: '#16a34a' }}></i>
+                                PROOF OF DELIVERY (VERIFIED)
+                              </div>
+                              {del.delivered_at && (
+                                <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                  Delivered: {new Date(del.delivered_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              )}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                              <a
+                                href={del.proof_of_delivery_url || del.receipt_photo}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ display: 'block', flexShrink: 0 }}
+                              >
+                                <img
+                                  src={del.proof_of_delivery_url || del.receipt_photo}
+                                  alt="Proof of Delivery"
+                                  style={{
+                                    width: '84px',
+                                    height: '84px',
+                                    objectFit: 'cover',
+                                    borderRadius: '8px',
+                                    border: '1px solid #86efac',
+                                    cursor: 'pointer',
+                                  }}
+                                />
+                              </a>
+
+                              <div style={{ flex: 1, fontSize: '12px' }}>
+                                {del.received_by && (
+                                  <div style={{ marginBottom: '3px' }}>
+                                    <span style={{ color: '#64748b', fontWeight: 600 }}>Received By: </span>
+                                    <span style={{ color: '#0f172a', fontWeight: 700 }}>{del.received_by}</span>
+                                  </div>
+                                )}
+                                {del.delivery_notes && (
+                                  <div style={{ marginBottom: '3px' }}>
+                                    <span style={{ color: '#64748b', fontWeight: 600 }}>Notes: </span>
+                                    <span style={{ color: '#334155' }}>{del.delivery_notes}</span>
+                                  </div>
+                                )}
+                                <div style={{ marginTop: '5px' }}>
+                                  <a
+                                    href={del.proof_of_delivery_url || del.receipt_photo}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      fontSize: '11px',
+                                      color: '#2563eb',
+                                      textDecoration: 'none',
+                                      fontWeight: 600,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                    }}
+                                  >
+                                    <i className="fas fa-external-link-alt"></i> View Full-Size Proof
+                                  </a>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         )}
 

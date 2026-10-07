@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import NotificationBell from '../components/NotificationBell';
 import api from '../api/api-client';
+import reverb from '../utils/reverb';
 
 export default function SettingsPage() {
   const location = useLocation();
@@ -160,6 +161,25 @@ export default function SettingsPage() {
   useEffect(() => {
     loadSettings();
     loadBugReports();
+
+    // Real-time live updates via Laravel Reverb WebSocket
+    const unsubscribe = reverb.subscribe('system-notifications', 'notification.created', () => {
+      loadBugReports();
+    });
+
+    const handleFocus = () => {
+      if (!document.hidden) {
+        loadBugReports();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+    };
   }, [loadSettings, loadBugReports]);
 
   const handleSave = async (e) => {

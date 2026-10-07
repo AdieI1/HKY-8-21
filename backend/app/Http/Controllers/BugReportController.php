@@ -47,7 +47,7 @@ class BugReportController extends Controller
         try {
             $summary = Str::limit($report->description, 65);
             AppNotification::notify(
-                'admin',
+                'bug_report',
                 "New Bug Report ({$report->ticket_number})",
                 "{$report->reporter_name} ({$report->reporter_role}) reported: {$report->category} — {$summary}",
                 '/settings?tab=bugs'

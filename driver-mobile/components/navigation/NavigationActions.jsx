@@ -14,6 +14,7 @@ export default function NavigationActions({
   setNavigationState,
   onDeliveryCompleted,
   onStatusChange,
+  onRequestProofOfDelivery,
 }) {
   const [changing, setChanging] = useState(false);
   const getMainButtonText = () => {
@@ -42,13 +43,20 @@ export default function NavigationActions({
     }
 
     if (navigationState === "unloading") {
-      return "Finish Delivery";
+      return "Finish Delivery (Submit POD)";
     }
 
     return "Delivery Completed";
   };
 
   const handleMainAction = async () => {
+    if (navigationState === "unloading") {
+      if (onRequestProofOfDelivery) {
+        onRequestProofOfDelivery();
+        return;
+      }
+    }
+
     const transitions = {
       preview: ["in_transit_pickup", "accepted"],
       in_transit_pickup: ["arrived_pickup", "arrived_pickup"],

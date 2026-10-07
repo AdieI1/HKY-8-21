@@ -17,6 +17,8 @@ import CustomerInfo from "../../components/deliveryinfo/CustomerInfo";
 import CargoInfo from "../../components/deliveryinfo/CargoInfo";
 import RouteInfo from "../../components/deliveryinfo/RouteInfo";
 import StrandedVehicleInfo from "../../components/deliveryinfo/StrandedVehicleInfo";
+import ProofOfDeliveryCard from "../../components/deliveryinfo/ProofOfDeliveryCard";
+import DeliveryPermitsCard from "../../components/deliveryinfo/DeliveryPermitsCard";
 
 import { getDelivery } from "../../services/api";
 
@@ -193,7 +195,15 @@ export default function DeliveryDetails() {
           delivery={delivery}
         />
 
+        <DeliveryPermitsCard
+          delivery={delivery}
+        />
+
         <RouteInfo
+          delivery={delivery}
+        />
+
+        <ProofOfDeliveryCard
           delivery={delivery}
         />
       </ScrollView>

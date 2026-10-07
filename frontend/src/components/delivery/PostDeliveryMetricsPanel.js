@@ -168,6 +168,105 @@ function PostDeliveryMetricsPanel({ delivery, speedMetrics, onViewRouteMap, hide
         </div>
       )}
 
+      {/* PROOF OF DELIVERY (POD) AUDIT SECTION */}
+      <div className="panel-divider"></div>
+      <div className="panel-timeline-title">
+        <i className="fas fa-camera" style={{ marginRight: '6px' }}></i> PROOF OF DELIVERY (POD)
+      </div>
+
+      {delivery.proof_of_delivery_url || delivery.receipt_photo ? (
+        <div style={{
+          background: '#F0FDF4',
+          border: '1px solid #BBF7D0',
+          borderRadius: '8px',
+          padding: '12px',
+          marginTop: '8px',
+          marginBottom: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ fontSize: '12px', fontWeight: '700', color: '#166534', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <i className="fas fa-check-circle" style={{ color: '#16a34a' }}></i> Verified Delivery Photo
+            </span>
+            {delivery.delivered_at && (
+              <span style={{ fontSize: '11px', color: '#64748B' }}>
+                {new Date(delivery.delivered_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+            <a
+              href={delivery.proof_of_delivery_url || delivery.receipt_photo}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: 'block', flexShrink: 0 }}
+            >
+              <img
+                src={delivery.proof_of_delivery_url || delivery.receipt_photo}
+                alt="Proof of Delivery"
+                style={{
+                  width: '90px',
+                  height: '90px',
+                  objectFit: 'cover',
+                  borderRadius: '6px',
+                  border: '1px solid #86EFAC',
+                  cursor: 'pointer'
+                }}
+              />
+            </a>
+
+            <div style={{ flex: 1, fontSize: '12px' }}>
+              {delivery.received_by && (
+                <div style={{ marginBottom: '4px' }}>
+                  <span style={{ color: '#64748B', fontWeight: '600' }}>Received By: </span>
+                  <span style={{ color: '#0F172A', fontWeight: '700' }}>{delivery.received_by}</span>
+                </div>
+              )}
+              {delivery.delivery_notes && (
+                <div style={{ marginBottom: '4px' }}>
+                  <span style={{ color: '#64748B', fontWeight: '600' }}>Notes: </span>
+                  <span style={{ color: '#334155' }}>{delivery.delivery_notes}</span>
+                </div>
+              )}
+              <div style={{ marginTop: '6px' }}>
+                <a
+                  href={delivery.proof_of_delivery_url || delivery.receipt_photo}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    fontSize: '11px',
+                    color: '#2563EB',
+                    textDecoration: 'none',
+                    fontWeight: '600',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <i className="fas fa-external-link-alt"></i> View Full-Size Image
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          padding: '10px 12px',
+          background: '#F8FAFC',
+          borderRadius: '6px',
+          border: '1px dashed #CBD5E1',
+          fontSize: '12px',
+          color: '#64748B',
+          marginTop: '8px',
+          marginBottom: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <i className="fas fa-info-circle"></i> No proof of delivery photo was attached for this trip.
+        </div>
+      )}
+
       <button className="btn-view-location post-delivery-btn" onClick={onViewRouteMap}>
         <i className="fas fa-map-marked-alt"></i> View Completed Route &amp; GPS Breadcrumbs
       </button>

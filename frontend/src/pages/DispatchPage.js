@@ -123,6 +123,11 @@ function DispatchPage() {
   const [fuelLiters, setFuelLiters] = useState('');
   const [fuelReceiptNo, setFuelReceiptNo] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [areaPermitType, setAreaPermitType] = useState('Mindanao Regional Route Clearance');
+  const [areaPermitPreview, setAreaPermitPreview] = useState(null);
+  const [areaPermitBase64, setAreaPermitBase64] = useState(null);
+  const [permitNotes, setPermitNotes] = useState('');
+  const [viewingPermitImage, setViewingPermitImage] = useState(null);
 
   const [dispatching, setDispatching] = useState(false);
   const [dispatchError, setDispatchError] = useState('');
@@ -370,10 +375,21 @@ function DispatchPage() {
     setFuelLiters(delivery.fuel_issued !== null && delivery.fuel_issued !== undefined ? String(delivery.fuel_issued) : '');
     setFuelReceiptNo(delivery.fuel_receipt_no || '');
     setRemarks(delivery.remarks || '');
+    setAreaPermitType(delivery.area_permit_type || 'Mindanao Regional Route Clearance');
+    setAreaPermitPreview(delivery.area_permit_url || null);
+    setAreaPermitBase64(null);
+    setPermitNotes(delivery.permit_notes || '');
+    setViewingPermitImage(null);
     setDispatchError('');
     setDispatchWarning('');
   };
-  const closeAssignPanel = () => setSelectedDelivery(null);
+  const closeAssignPanel = () => {
+    setSelectedDelivery(null);
+    setAreaPermitPreview(null);
+    setAreaPermitBase64(null);
+    setPermitNotes('');
+    setViewingPermitImage(null);
+  };
 
   // Auto-open assign modal/panel when deep-linked with ?delivery_id=... or ?request_id=...
   useEffect(() => {
@@ -442,6 +458,9 @@ function DispatchPage() {
         fuel_issued: fuelLiters || null,
         fuel_receipt_no: fuelReceiptNo || null,
         remarks: remarks.trim() || null,
+        area_permit: areaPermitBase64 || null,
+        area_permit_type: areaPermitType || null,
+        permit_notes: permitNotes.trim() || null,
       });
     } catch (err) {
       const errors = err.response?.data?.errors;
@@ -451,6 +470,26 @@ function DispatchPage() {
       setDispatching(false);
       return;
     }
+
+  const handleUploadAreaPermitForDispatched = async () => {
+    if (!selectedDelivery || !areaPermitBase64) return;
+    setDispatching(true);
+    setDispatchError('');
+    try {
+      await api.post(`/deliveries/${selectedDelivery.delivery_id}/area-permit`, {
+        area_permit: areaPermitBase64,
+        area_permit_type: areaPermitType,
+        permit_notes: permitNotes.trim() || null,
+      });
+      await loadData();
+      setDispatchWarning('Area Delivery Permit updated successfully.');
+      setTimeout(() => setDispatchWarning(''), 4000);
+    } catch (err) {
+      setDispatchError(err.response?.data?.message || 'Failed to update Area Delivery Permit.');
+    } finally {
+      setDispatching(false);
+    }
+  };
 
 
     const warnings = [];
@@ -1012,6 +1051,36 @@ function DispatchPage() {
                 </div>
               </div>
 
+              {/* Item Delivery Permit */}
+              <div className="tt-field tt-full" style={{ marginTop: '10px' }}>
+                <label className="tt-label">Item Delivery Permit (Commodity / Quarantine Clearance)</label>
+                {selectedDelivery.request?.item_permit_url ? (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <i className="fas fa-check-circle" style={{ color: '#16A34A', fontSize: 15 }}></i>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#15803D' }}>
+                          {selectedDelivery.request?.item_permit_type || 'Cargo Quarantine Clearance Attached'}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#166534' }}>Official Soft Copy Available</div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setViewingPermitImage({ url: selectedDelivery.request?.item_permit_url, title: selectedDelivery.request?.item_permit_type || 'Item Delivery Permit' })}
+                      style={{ background: '#16A34A', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      <i className="fas fa-eye" style={{ marginRight: 4 }}></i> View
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ padding: '8px 12px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 12, color: '#64748B', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <i className="fas fa-info-circle" style={{ color: '#94A3B8' }}></i>
+                    <span>No commodity quarantine permit required for this item (Standard Cargo).</span>
+                  </div>
+                )}
+              </div>
+
               {/* Route Information */}
               <div className="tt-section-header">
                 <i className="fas fa-map-marker-alt tt-section-icon"></i>
@@ -1041,6 +1110,112 @@ function DispatchPage() {
               </div>
               <div className="tt-distance">
                 Distance: {routeDistanceKm != null ? `${Number(routeDistanceKm).toFixed(1)} Kilometers` : `${selectedDelivery.request?.distance_km ?? '—'} Kilometers`}
+              </div>
+
+              {/* Area / Route Delivery Permit */}
+              <div className="tt-section-header">
+                <i className="fas fa-shield-alt tt-section-icon"></i>
+                <span>AREA / ROUTE DELIVERY PERMIT (MINDANAO ROUTE)</span>
+              </div>
+              <div className="tt-field tt-full">
+                <label className="tt-label">Route Clearance Type</label>
+                <select
+                  className="tt-select"
+                  value={areaPermitType}
+                  onChange={(e) => setAreaPermitType(e.target.value)}
+                  disabled={isDispatched && !areaPermitPreview}
+                >
+                  <option value="Mindanao Regional Route Clearance">Mindanao Regional Route Clearance</option>
+                  <option value="LGU Checkpoint Travel Authority">LGU Checkpoint Travel Authority</option>
+                  <option value="PNP Highway Escort / Clearance Pass">PNP Highway Escort / Clearance Pass</option>
+                  <option value="Inter-Provincial Transshipment Permit">Inter-Provincial Transshipment Permit</option>
+                  <option value="Port & Sea Ferry Crossing Pass">Port & Sea Ferry Crossing Pass</option>
+                  <option value="Special Territorial Travel Permit">Special Territorial Travel Permit</option>
+                </select>
+              </div>
+
+              <div className="tt-field tt-full" style={{ marginTop: '10px' }}>
+                <label className="tt-label">Permit Soft Copy (Photo / Scanned Document)</label>
+                {areaPermitPreview ? (
+                  <div style={{ border: '1px solid #CBD5E1', borderRadius: 8, padding: 10, background: '#F8FAFC' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#0369A1', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <i className="fas fa-file-shield" style={{ color: '#0284C7' }}></i>
+                        Soft Copy Attached
+                      </span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => setViewingPermitImage({ url: areaPermitPreview, title: areaPermitType })}
+                          style={{ background: '#0284C7', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          <i className="fas fa-expand"></i> View
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setAreaPermitPreview(null); setAreaPermitBase64(null); }}
+                          style={{ background: '#EF4444', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          Replace
+                        </button>
+                      </div>
+                    </div>
+                    <img
+                      src={areaPermitPreview}
+                      alt="Area Permit Preview"
+                      style={{ width: '100%', maxHeight: 130, objectFit: 'contain', borderRadius: 6, background: '#fff', border: '1px solid #E2E8F0' }}
+                    />
+                    {isDispatched && areaPermitBase64 && (
+                      <button
+                        type="button"
+                        onClick={handleUploadAreaPermitForDispatched}
+                        disabled={dispatching}
+                        style={{ width: '100%', marginTop: 8, background: '#059669', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        {dispatching ? 'Saving Permit...' : 'Save Updated Permit Soft Copy'}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ border: '1px dashed #CBD5E1', borderRadius: 8, padding: 12, background: '#F8FAFC', textAlign: 'center' }}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      id="area-permit-file-input"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            setAreaPermitBase64(reader.result);
+                            setAreaPermitPreview(reader.result);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                    <label
+                      htmlFor="area-permit-file-input"
+                      style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: '#0284C7', fontWeight: 600, fontSize: 12 }}
+                    >
+                      <i className="fas fa-cloud-arrow-up" style={{ fontSize: 24 }}></i>
+                      <span>Click to upload Permit Soft Copy (JPG, PNG)</span>
+                      <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 400 }}>Driver can display this at PNP / LGU checkpoints</span>
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              <div className="tt-field tt-full" style={{ marginTop: '10px' }}>
+                <label className="tt-label">Permit Notes / Checkpoint Reminders</label>
+                <input
+                  className="tt-input"
+                  type="text"
+                  placeholder="e.g. Valid until Oct 15, present at Bukidnon quarantine checkpoint"
+                  value={permitNotes}
+                  onChange={(e) => setPermitNotes(e.target.value)}
+                />
               </div>
 
               {/* Trip Information */}
@@ -1180,6 +1355,65 @@ function DispatchPage() {
             {dispatchWarning && (
               <p className="dispatch-success-text" style={{ color: '#c0392b', marginTop: 8 }}>{dispatchWarning}</p>
             )}
+          </div>
+        </div>
+      )}
+      {/* Permit Document Soft Copy Viewer Modal */}
+      {viewingPermitImage && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.8)',
+            zIndex: 10000,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+          onClick={() => setViewingPermitImage(null)}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 12,
+              maxWidth: 700,
+              width: '100%',
+              overflow: 'hidden',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid #E2E8F0', background: '#F8FAFC' }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: '#0F172A', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <i className="fas fa-certificate" style={{ color: '#0284C7' }}></i>
+                <span>{viewingPermitImage.title || 'Delivery Permit Soft Copy'}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingPermitImage(null)}
+                style={{ background: 'none', border: 'none', fontSize: 18, color: '#64748B', cursor: 'pointer' }}
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div style={{ padding: 16, textAlign: 'center', background: '#0F172A', display: 'flex', justifyContent: 'center' }}>
+              <img
+                src={viewingPermitImage.url}
+                alt="Delivery Permit"
+                style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 4 }}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 16px', background: '#F8FAFC' }}>
+              <button
+                type="button"
+                onClick={() => setViewingPermitImage(null)}
+                style={{ padding: '7px 16px', background: '#334155', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}
+              >
+                Close Viewer
+              </button>
+            </div>
           </div>
         </div>
       )}

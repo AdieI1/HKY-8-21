@@ -14,6 +14,9 @@ class Delivery extends Model
         'vehicle_id',
         'assigned_by',
         'permit_id',
+        'area_permit_path',
+        'area_permit_type',
+        'permit_notes',
         'status',
         'trip_date',
         'estimated_duration_days',
@@ -30,6 +33,10 @@ class Delivery extends Model
         'fuel_receipt_no',
         'remarks',
         'receipt_photo',
+        'proof_of_delivery_path',
+        'received_by',
+        'delivery_notes',
+        'delivered_at',
         'payment_verification',
         'start_time',
         'end_time',
@@ -51,12 +58,51 @@ class Delivery extends Model
         'estimated_duration_days' => 'integer',
         'estimated_delivery_date' => 'datetime',
         'delay_notified_at' => 'datetime',
+        'delivered_at' => 'datetime',
         'start_time' => 'datetime',
         'end_time' => 'datetime',
         'trip_date' => 'date:Y-m-d',
     ];
 
-    protected $appends = ['distance_travelled', 'fuel_consumed', 'is_delayed', 'target_eta'];
+    protected $appends = [
+        'distance_travelled',
+        'fuel_consumed',
+        'is_delayed',
+        'target_eta',
+        'proof_of_delivery_url',
+        'area_permit_url',
+        'item_permit_url',
+    ];
+
+    public function getProofOfDeliveryUrlAttribute()
+    {
+        $path = $this->proof_of_delivery_path ?: $this->receipt_photo;
+        if (!$path) {
+            return null;
+        }
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return str_replace('/api/storage/', '/storage/', $path);
+        }
+        $url = url('storage/' . ltrim($path, '/'));
+        return str_replace('/api/storage/', '/storage/', $url);
+    }
+
+    public function getAreaPermitUrlAttribute()
+    {
+        if (!$this->area_permit_path) {
+            return null;
+        }
+        if (str_starts_with($this->area_permit_path, 'http://') || str_starts_with($this->area_permit_path, 'https://')) {
+            return str_replace('/api/storage/', '/storage/', $this->area_permit_path);
+        }
+        $url = url('storage/' . ltrim($this->area_permit_path, '/'));
+        return str_replace('/api/storage/', '/storage/', $url);
+    }
+
+    public function getItemPermitUrlAttribute()
+    {
+        return $this->request?->item_permit_url ?? null;
+    }
 
     public function getTargetEtaAttribute()
     {

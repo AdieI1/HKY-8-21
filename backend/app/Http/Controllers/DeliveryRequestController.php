@@ -12,9 +12,49 @@ use Illuminate\Http\Request;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class DeliveryRequestController extends Controller
 {
+    private function storePermitFile($fileInput, $folder = 'permits/items'): ?string
+    {
+        if (empty($fileInput)) {
+            return null;
+        }
+
+        if ($fileInput instanceof \Illuminate\Http\UploadedFile) {
+            $filename = 'item_permit_' . time() . '_' . Str::random(8) . '.' . $fileInput->getClientOriginalExtension();
+            return $fileInput->storeAs($folder, $filename, 'public');
+        }
+
+        if (is_string($fileInput) && str_starts_with($fileInput, 'data:image/')) {
+            try {
+                if (preg_match('/^data:image\/(\w+);base64,/', $fileInput, $matches)) {
+                    $ext = strtolower($matches[1]);
+                    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp'])) {
+                        $ext = 'jpg';
+                    }
+                    $base64Data = substr($fileInput, strpos($fileInput, ',') + 1);
+                    $decoded = base64_decode($base64Data);
+                    if ($decoded !== false) {
+                        $filename = 'item_permit_' . time() . '_' . Str::random(8) . '.' . $ext;
+                        Storage::disk('public')->put($folder . '/' . $filename, $decoded);
+                        return $folder . '/' . $filename;
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Failed to decode item permit image: ' . $e->getMessage());
+            }
+        }
+
+        if (is_string($fileInput) && !str_starts_with($fileInput, 'data:image/')) {
+            return $fileInput;
+        }
+
+        return null;
+    }
     public function index(Request $request)
     {
         $query = DeliveryRequest::with('customer')->latest('request_id');
@@ -47,7 +87,8 @@ class DeliveryRequestController extends Controller
             'is_scheduled' => 'nullable|boolean',
             'scheduled_date' => 'nullable|date',
             'scheduled_time_slot' => 'nullable|string|max:100',
-            'status' => 'required|in:draft,pending,approved,rejected'
+            'status' => 'required|in:draft,pending,approved,rejected',
+            'item_permit_type' => 'nullable|string|max:100',
         ]);
 
         $data = $request->all();
@@ -57,6 +98,12 @@ class DeliveryRequestController extends Controller
             $data['is_scheduled'] = false;
             $data['scheduled_date'] = null;
             $data['scheduled_time_slot'] = null;
+        }
+
+        if ($request->hasFile('item_permit')) {
+            $data['item_permit_path'] = $this->storePermitFile($request->file('item_permit'));
+        } elseif ($request->filled('item_permit')) {
+            $data['item_permit_path'] = $this->storePermitFile($request->input('item_permit'));
         }
 
         return DeliveryRequest::create($data);
@@ -95,6 +142,8 @@ class DeliveryRequestController extends Controller
             'account_name' => 'nullable|string|max:100',
             'account_number' => 'nullable|string|max:50',
             'payment_receipt' => 'nullable|file|image|max:10240',
+            'item_permit' => 'nullable',
+            'item_permit_type' => 'nullable|string|max:100',
             'is_scheduled' => 'nullable|boolean',
             'scheduled_date' => 'nullable|date',
             'scheduled_time_slot' => 'nullable|string|max:100',
@@ -117,6 +166,13 @@ class DeliveryRequestController extends Controller
             $receiptPath = null;
             if ($request->hasFile('payment_receipt')) {
                 $receiptPath = $request->file('payment_receipt')->store('receipts', 'public');
+            }
+
+            $permitPath = null;
+            if ($request->hasFile('item_permit')) {
+                $permitPath = $this->storePermitFile($request->file('item_permit'));
+            } elseif ($request->filled('item_permit')) {
+                $permitPath = $this->storePermitFile($request->input('item_permit'));
             }
 
             $totalPrice = $request->total_price;
@@ -147,6 +203,8 @@ class DeliveryRequestController extends Controller
                 'payment_term' => $request->payment_term,
                 'payment_method' => $request->payment_method,
                 'payment_receipt_path' => $receiptPath,
+                'item_permit_path' => $permitPath,
+                'item_permit_type' => $request->item_permit_type,
                 'bank_name' => $request->bank_name,
                 'account_name' => $request->account_name,
                 'account_number' => $request->account_number,
@@ -188,6 +246,8 @@ class DeliveryRequestController extends Controller
             'payment_term' => "$fieldRule|in:downpayment,full",
             'payment_method' => "$fieldRule|in:bank_transfer,cash",
             'payment_receipt' => 'nullable|image|max:5120',
+            'item_permit' => 'nullable',
+            'item_permit_type' => 'nullable|string|max:100',
             'is_scheduled' => 'nullable|boolean',
             'scheduled_date' => 'nullable|date',
             'scheduled_time_slot' => 'nullable|string|max:100',
@@ -220,6 +280,12 @@ class DeliveryRequestController extends Controller
                 ->store('payment-receipts', 'public');
         }
 
+        if ($request->hasFile('item_permit')) {
+            $validated['item_permit_path'] = $this->storePermitFile($request->file('item_permit'));
+        } elseif ($request->filled('item_permit')) {
+            $validated['item_permit_path'] = $this->storePermitFile($request->input('item_permit'));
+        }
+
         $validated['is_scheduled'] = $request->boolean('is_scheduled');
         $validated['scheduled_date'] = $request->boolean('is_scheduled') ? $request->scheduled_date : null;
         $validated['scheduled_time_slot'] = $request->boolean('is_scheduled') ? $request->scheduled_time_slot : null;
@@ -250,9 +316,41 @@ class DeliveryRequestController extends Controller
 
     public function update(Request $request, DeliveryRequest $deliveryRequest)
     {
-        $deliveryRequest->update($request->all());
+        $data = $request->all();
 
-        return $deliveryRequest;
+        if ($request->hasFile('item_permit')) {
+            $data['item_permit_path'] = $this->storePermitFile($request->file('item_permit'));
+        } elseif ($request->filled('item_permit') && (str_starts_with($request->input('item_permit'), 'data:') || str_starts_with($request->input('item_permit'), 'http'))) {
+            $data['item_permit_path'] = $this->storePermitFile($request->input('item_permit'));
+        }
+
+        $deliveryRequest->update($data);
+
+        return $deliveryRequest->fresh()->load('customer');
+    }
+
+    public function uploadItemPermit(Request $request, DeliveryRequest $deliveryRequest)
+    {
+        $permitPath = null;
+        if ($request->hasFile('item_permit')) {
+            $permitPath = $this->storePermitFile($request->file('item_permit'));
+        } elseif ($request->filled('item_permit')) {
+            $permitPath = $this->storePermitFile($request->input('item_permit'));
+        }
+
+        if (!$permitPath) {
+            return response()->json(['message' => 'Please provide a valid permit image or document.'], 422);
+        }
+
+        $deliveryRequest->update([
+            'item_permit_path' => $permitPath,
+            'item_permit_type' => $request->input('item_permit_type') ?: ($deliveryRequest->item_permit_type ?: 'Quarantine / Special Cargo Clearance'),
+        ]);
+
+        return response()->json([
+            'message' => 'Item delivery permit uploaded successfully.',
+            'request' => $deliveryRequest->fresh()->load('customer'),
+        ]);
     }
 
     /**

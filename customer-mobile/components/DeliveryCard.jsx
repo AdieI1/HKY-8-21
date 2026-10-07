@@ -276,6 +276,52 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule })
           </TouchableOpacity>
         </View>
       )}
+
+      {delivery.status === "delivered" && delivery.proof_of_delivery_url && (
+        <View style={styles.podSection}>
+          <View style={styles.podHeader}>
+            <Ionicons name="shield-checkmark" size={15} color="#059669" />
+            <Text style={styles.podTitle}>Proof of Delivery (Verified)</Text>
+          </View>
+          <Image
+            source={{ uri: delivery.proof_of_delivery_url }}
+            style={styles.podImage}
+            resizeMode="cover"
+          />
+          {delivery.received_by ? (
+            <Text style={styles.podReceivedBy}>
+              Received by: <Text style={{ fontWeight: "700", color: "#1E293B" }}>{delivery.received_by}</Text>
+            </Text>
+          ) : null}
+        </View>
+      )}
+
+      {(delivery.item_permit_url || delivery.area_permit_url) && (
+        <View style={styles.permitsSection}>
+          <View style={styles.permitHeader}>
+            <Ionicons name="shield-checkmark" size={13} color="#0284C7" />
+            <Text style={styles.permitHeaderTitle}>Official Delivery Clearances</Text>
+          </View>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+            {delivery.item_permit_url ? (
+              <View style={styles.permitTag}>
+                <Ionicons name="cube-outline" size={11} color="#0369A1" />
+                <Text style={styles.permitTagText}>
+                  {delivery.item_permit_type || "Item Quarantine Pass"}
+                </Text>
+              </View>
+            ) : null}
+            {delivery.area_permit_url ? (
+              <View style={[styles.permitTag, { backgroundColor: "#ECFDF5", borderColor: "#A7F3D0" }]}>
+                <Ionicons name="map-outline" size={11} color="#047857" />
+                <Text style={[styles.permitTagText, { color: "#065F46" }]}>
+                  {delivery.area_permit_type || "Route Transit Pass"}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -608,5 +654,73 @@ const styles = StyleSheet.create({
     color: "#92400E",
     flex: 1,
     lineHeight: 15,
+  },
+  podSection: {
+    marginTop: 10,
+    marginHorizontal: 16,
+    marginBottom: 14,
+    padding: 10,
+    backgroundColor: "#F0FDF4",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    borderRadius: 8,
+  },
+  podHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  podTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#166534",
+  },
+  podImage: {
+    width: "100%",
+    height: 140,
+    borderRadius: 6,
+    backgroundColor: "#1E293B",
+  },
+  podReceivedBy: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 6,
+  },
+  permitsSection: {
+    marginTop: 6,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 8,
+    backgroundColor: "#F0F9FF",
+    borderWidth: 1,
+    borderColor: "#BAE6FD",
+    borderRadius: 8,
+  },
+  permitHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  permitHeaderTitle: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#0369A1",
+  },
+  permitTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#E0F2FE",
+    borderWidth: 1,
+    borderColor: "#7DD3FC",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  permitTagText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#0369A1",
   },
 });

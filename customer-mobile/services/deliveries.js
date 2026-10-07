@@ -60,6 +60,9 @@ export const formatDeliveryRequest = (request) => {
     is_delayed: Boolean(delivery?.is_delayed),
     pickup_address: request.pickup_address || "",
     dropoff_address: request.dropoff_address || "",
+    proof_of_delivery_url: delivery?.proof_of_delivery_url || delivery?.receipt_photo || null,
+    received_by: delivery?.received_by || null,
+    delivered_at: delivery?.delivered_at || null,
   };
 };
 

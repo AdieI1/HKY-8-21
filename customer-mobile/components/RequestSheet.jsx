@@ -81,6 +81,8 @@ export default function RequestSheet({
       cargo_type: cargo.cargoType || null,
       fragility: fragilityMap[cargo.fragility] || null,
       weight: cargo.weight ? Number(cargo.weight) : null,
+      item_permit: cargo.permit || null,
+      item_permit_type: cargo.permitType || null,
       pickup_address: pickup?.address || null,
       pickup_lat: pickup?.latitude ?? null,
       pickup_lng: pickup?.longitude ?? null,

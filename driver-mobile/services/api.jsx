@@ -203,6 +203,68 @@ export const updateDriverDeliveryStatus = async (deliveryId, status) => {
     return postToDelivery(deliveryId, "driver-status", { status });
 };
 
+export const submitProofOfDelivery = async (deliveryId, { photo, receivedBy, deliveryNotes, completeDelivery = true }) => {
+    const token = await getToken();
+    if (!token) throw new Error("Not authenticated.");
+
+    const headers = {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+    };
+
+    if (photo && typeof photo === "object" && photo.uri) {
+        const formData = new FormData();
+        formData.append("photo", {
+            uri: photo.uri,
+            name: photo.fileName || `pod-${deliveryId}.jpg`,
+            type: photo.mimeType || "image/jpeg",
+        });
+        if (receivedBy) formData.append("received_by", receivedBy);
+        if (deliveryNotes) formData.append("delivery_notes", deliveryNotes);
+        formData.append("complete_delivery", completeDelivery ? "1" : "0");
+
+        const response = await fetch(`${API_URL}/deliveries/${deliveryId}/proof-of-delivery`, {
+            method: "POST",
+            headers,
+            body: formData,
+        });
+
+        const data = await safeJson(response);
+        if (!response.ok) {
+            throw new Error(
+                data?.message ||
+                Object.values(data?.errors || {})?.[0]?.[0] ||
+                "Failed to submit proof of delivery."
+            );
+        }
+        return data;
+    } else {
+        headers["Content-Type"] = "application/json";
+        const body = {
+            photo: typeof photo === "string" ? photo : null,
+            received_by: receivedBy || null,
+            delivery_notes: deliveryNotes || null,
+            complete_delivery: completeDelivery,
+        };
+
+        const response = await fetch(`${API_URL}/deliveries/${deliveryId}/proof-of-delivery`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+        });
+
+        const data = await safeJson(response);
+        if (!response.ok) {
+            throw new Error(
+                data?.message ||
+                Object.values(data?.errors || {})?.[0]?.[0] ||
+                "Failed to submit proof of delivery."
+            );
+        }
+        return data;
+    }
+};
+
 export const saveDeliveryChecklist = async (deliveryId, checklist) => {
     return postToDelivery(deliveryId, "checklist", checklist);
 };
@@ -436,23 +498,51 @@ export const getRouteWeather = async (originLat, originLng, destLat, destLng) =>
 
 export const reportBug = async ({ category, description, deviceInfo }) => {
     const token = await getToken();
+    const savedUser = await getSavedUser();
     const headers = {
         "Content-Type": "application/json",
         Accept: "application/json",
+        "ngrok-skip-browser-warning": "true",
     };
     if (token) {
         headers.Authorization = `Bearer ${token}`;
     }
-    const response = await fetch(`${API_URL}/bug-reports`, {
+
+    const reporterName =
+        savedUser?.full_name ||
+        (savedUser?.first_name ? `${savedUser.first_name} ${savedUser.last_name || ""}`.trim() : null) ||
+        savedUser?.username ||
+        "Driver";
+
+    const payload = {
+        category,
+        description,
+        app_source: "driver-app",
+        device_info: deviceInfo || "Driver Mobile App",
+        reporter_name: reporterName,
+        reporter_role: "driver",
+    };
+
+    let url = token ? `${API_URL}/bug-reports` : `${API_URL}/bug-reports/public`;
+
+    let response = await fetch(url, {
         method: "POST",
         headers,
-        body: JSON.stringify({
-            category,
-            description,
-            app_source: "driver-app",
-            device_info: deviceInfo || "Driver Mobile App",
-        }),
+        body: JSON.stringify(payload),
     });
+
+    if (response.status === 401 && token) {
+        response = await fetch(`${API_URL}/bug-reports/public`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+                "ngrok-skip-browser-warning": "true",
+            },
+            body: JSON.stringify(payload),
+        });
+    }
+
     const data = await safeJson(response);
     if (!response.ok) {
         throw new Error(data?.message || "Failed to submit bug report.");

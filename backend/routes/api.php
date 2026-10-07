@@ -35,7 +35,13 @@ use App\Http\Controllers\BugReportController;
 |--------------------------------------------------------------------------
 | PUBLIC ROUTES
 |--------------------------------------------------------------------------
-*/
+Route::get('/storage/{path}', function ($path) {
+    $fullPath = storage_path('app/public/' . $path);
+    if (!file_exists($fullPath)) {
+        abort(404);
+    }
+    return response()->file($fullPath);
+})->where('path', '.*');
 
 Route::get('/weather', [
     WeatherController::class,
@@ -201,6 +207,14 @@ Route::middleware('auth:sanctum')->group(function () {
         ]
     );
 
+    Route::post(
+        'delivery-requests/{deliveryRequest}/item-permit',
+        [
+            DeliveryRequestController::class,
+            'uploadItemPermit'
+        ]
+    );
+
 
     /*
     |--------------------------------------------------------------------------
@@ -276,6 +290,22 @@ Route::middleware('auth:sanctum')->group(function () {
         [
             DeliveryController::class,
             'updateDriverStatus'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/proof-of-delivery',
+        [
+            DeliveryController::class,
+            'submitProofOfDelivery'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/area-permit',
+        [
+            DeliveryController::class,
+            'uploadAreaPermit'
         ]
     );
 

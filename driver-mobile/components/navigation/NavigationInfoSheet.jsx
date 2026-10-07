@@ -13,6 +13,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import NavigationActions from "./NavigationActions";
 import TripTicket from "../TripTicket";
+import ProofOfDeliveryModal from "../ProofOfDeliveryModal";
+import DeliveryPermitsModal from "../DeliveryPermitsModal";
 import { formatShortAddress } from "../../utils/address";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -31,6 +33,10 @@ export default function NavigationInfoSheet({
   ).current;
 
   const [ticketVisible, setTicketVisible] =
+    useState(false);
+  const [podVisible, setPodVisible] =
+    useState(false);
+  const [permitsVisible, setPermitsVisible] =
     useState(false);
 
   const openSheet = () => {
@@ -192,14 +198,23 @@ export default function NavigationInfoSheet({
             </View>
           </View>
 
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
             <TouchableOpacity
-              style={[styles.ticketButton, { flex: 1, marginTop: 0 }]}
+              style={[styles.ticketButton, { flex: 1.1, marginTop: 0 }]}
               onPress={() => setTicketVisible(true)}
               activeOpacity={0.8}
             >
-              <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
+              <Ionicons name="document-text-outline" size={16} color="#FFFFFF" />
               <Text style={styles.ticketButtonText}>Trip Ticket</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.ticketButton, { flex: 1.2, marginTop: 0, backgroundColor: "#0284C7" }]}
+              onPress={() => setPermitsVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="shield-checkmark-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.ticketButtonText}>Permits</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -213,16 +228,38 @@ export default function NavigationInfoSheet({
               }}
               activeOpacity={0.8}
             >
-              <Ionicons name="warning-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.ticketButtonText}>Report Issue</Text>
+              <Ionicons name="warning-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.ticketButtonText}>Report</Text>
             </TouchableOpacity>
           </View>
+
+          {(navigationState === "unloading" || navigationState === "arrived_dropoff") && (
+            <TouchableOpacity
+              style={[
+                styles.ticketButton,
+                {
+                  marginTop: 10,
+                  backgroundColor: "#059669",
+                  flexDirection: "row",
+                  justifyContent: "center",
+                },
+              ]}
+              onPress={() => setPodVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
+              <Text style={[styles.ticketButtonText, { fontWeight: "700" }]}>
+                Submit Proof of Delivery (POD)
+              </Text>
+            </TouchableOpacity>
+          )}
 
           <NavigationActions
             navigationState={navigationState}
             setNavigationState={setNavigationState}
             onDeliveryCompleted={onDeliveryCompleted}
             onStatusChange={onStatusChange}
+            onRequestProofOfDelivery={() => setPodVisible(true)}
           />
         </ScrollView>
       </Animated.View>
@@ -231,6 +268,25 @@ export default function NavigationInfoSheet({
         visible={ticketVisible}
         onClose={() => setTicketVisible(false)}
         delivery={delivery}
+      />
+
+      <DeliveryPermitsModal
+        visible={permitsVisible}
+        onClose={() => setPermitsVisible(false)}
+        delivery={delivery}
+      />
+
+      <ProofOfDeliveryModal
+        visible={podVisible}
+        onClose={() => setPodVisible(false)}
+        delivery={delivery}
+        onSuccess={(updatedDelivery) => {
+          setPodVisible(false);
+          setNavigationState("completed");
+          if (onDeliveryCompleted) {
+            onDeliveryCompleted(updatedDelivery);
+          }
+        }}
       />
     </>
   );

@@ -97,6 +97,7 @@ export default function Navigation() {
     const distance = Number(request.distance_km || 0);
 
     return {
+      ...backendDelivery,
       id: backendDelivery.delivery_id,
       delivery_id: backendDelivery.delivery_id,
       requestId: `RQ${String(request.request_id || "").padStart(5, "0")}`,

@@ -52,6 +52,7 @@ export default function CreateRequestModal({
   const [showPassword, setShowPassword] = useState(false);
   const [locating, setLocating] = useState('');
   const [receiptPreview, setReceiptPreview] = useState(null);
+  const [itemPermitPreview, setItemPermitPreview] = useState(null);
   const [pricingRates, setPricingRates] = useState({
     base_labor_fee: 800,
     distance_rate: 80,
@@ -64,6 +65,7 @@ export default function CreateRequestModal({
       setFormError('');
       setErrors({});
       setReceiptPreview(null);
+      setItemPermitPreview(null);
 
       api.get('/system-settings')
         .then((res) => {
@@ -283,6 +285,8 @@ export default function CreateRequestModal({
       formData.append('cargo_type', form.cargo_type);
       formData.append('fragility', form.fragility);
       if (form.weight) formData.append('weight', form.weight);
+      if (form.item_permit) formData.append('item_permit', form.item_permit);
+      if (form.item_permit_type) formData.append('item_permit_type', form.item_permit_type);
       if (form.pickup?.address) formData.append('pickup_address', form.pickup.address);
       if (form.pickup?.lat != null) formData.append('pickup_lat', form.pickup.lat);
       if (form.pickup?.lng != null) formData.append('pickup_lng', form.pickup.lng);
@@ -536,6 +540,71 @@ export default function CreateRequestModal({
                   {errors.weight && <span className="input-missing-tag">Missing output</span>}
                 </div>
                 {errors.weight && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.weight}</div>}
+              </div>
+
+              {/* Item Delivery Permit */}
+              <div className="form-group" style={{ background: '#F8FAFC', padding: 12, borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#1E293B', fontWeight: 600 }}>
+                  <span><i className="fas fa-shield-halved" style={{ color: '#0284C7', marginRight: 6 }}></i> Item Delivery Permit (Quarantine / Clearance):</span>
+                  <span style={{ fontSize: 11, fontWeight: 400, color: '#64748B' }}>Optional / Regulated Cargo</span>
+                </label>
+                <div style={{ marginTop: 6 }}>
+                  <select
+                    className="form-select"
+                    value={form.item_permit_type || 'Cargo Quarantine Clearance'}
+                    onChange={(e) => handleInputChange('item_permit_type', e.target.value)}
+                  >
+                    <option value="Cargo Quarantine Clearance">DA-BAI Quarantine Clearance (Livestock / Meat / Poultry)</option>
+                    <option value="DENR Permit to Transport">DENR Permit to Transport (Forestry / Wildlife Products)</option>
+                    <option value="BPI Plant Quarantine Pass">BPI Plant Quarantine Pass (Agricultural / Seedlings)</option>
+                    <option value="BFAR Fish Inspection Certificate">BFAR Fish & Fishery Products Inspection Certificate</option>
+                    <option value="Hazardous / Regulated Commodity Permit">Hazardous / Regulated Commodity Transit Permit</option>
+                    <option value="General Cargo Clearance">General Cargo Clearance</option>
+                  </select>
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  {itemPermitPreview ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', padding: 8, borderRadius: 6, border: '1px solid #CBD5E1' }}>
+                      <img src={itemPermitPreview} alt="Permit Preview" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4 }} />
+                      <div style={{ flex: 1, fontSize: 12, color: '#334155' }}>
+                        <div style={{ fontWeight: 600 }}>Permit Soft Copy Attached</div>
+                        <div style={{ fontSize: 11, color: '#64748B' }}>{form.item_permit?.name || 'Uploaded Document'}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleInputChange('item_permit', null);
+                          setItemPermitPreview(null);
+                        }}
+                        style={{ background: '#FEE2E2', color: '#DC2626', border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      className="form-input"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          handleInputChange('item_permit', file);
+                          if (file.type.startsWith('image/')) {
+                            const reader = new FileReader();
+                            reader.onload = () => setItemPermitPreview(reader.result);
+                            reader.readAsDataURL(file);
+                          } else {
+                            setItemPermitPreview('/file-icon.png');
+                          }
+                        }
+                      }}
+                    />
+                  )}
+                  <span style={{ fontSize: 11, color: '#64748B', display: 'block', marginTop: 4 }}>
+                    Soft copy is accessible to the driver on checkpoint inspections in Mindanao routes.
+                  </span>
+                </div>
               </div>
 
               <h3 className="section-title-form" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

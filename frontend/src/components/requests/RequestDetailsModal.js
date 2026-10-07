@@ -49,6 +49,38 @@ export default function RequestDetailsModal({
                   )}
                 </div>
               </div>
+
+              <div className="permit-section" style={{ marginTop: 14 }}>
+                <span className="receipt-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, fontWeight: 600, color: '#334155' }}>
+                  <span><i className="fas fa-certificate" style={{ color: '#0284C7', marginRight: 6 }}></i> Item Delivery Permit:</span>
+                  {selectedRequest.item_permit_url && (
+                    <span style={{ fontSize: 11, color: '#15803D', fontWeight: 600 }}>Attached</span>
+                  )}
+                </span>
+                <div style={{ padding: 10, border: '1px solid #E2E8F0', borderRadius: 6, background: '#F8FAFC' }}>
+                  {selectedRequest.item_permit_url ? (
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#0369A1', marginBottom: 6 }}>
+                        {selectedRequest.item_permit_type || 'Cargo Quarantine Clearance'}
+                      </div>
+                      <a href={selectedRequest.item_permit_url} target="_blank" rel="noreferrer" title="Click to view full permit document">
+                        <img
+                          src={selectedRequest.item_permit_url}
+                          alt="Item Delivery Permit"
+                          style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 6, objectFit: 'contain', background: '#fff', border: '1px solid #CBD5E1' }}
+                        />
+                      </a>
+                      <div style={{ fontSize: 11, color: '#64748B', marginTop: 4, textAlign: 'center' }}>
+                        Click image to view high-res soft copy
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ color: '#888', fontSize: 12 }}>
+                      No commodity quarantine permit attached. (Standard cargo)
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="request-right">

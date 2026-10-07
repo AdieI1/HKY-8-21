@@ -198,6 +198,7 @@ class NotificationController extends Controller
             'fuel_alert', 'fuel' => 'fas fa-gas-pump',
             'inventory_alert', 'parts' => 'fas fa-boxes',
             'incident' => 'fas fa-exclamation-triangle',
+            'bug_report' => 'fas fa-bug',
             default => 'fas fa-bell',
         };
     }
@@ -213,6 +214,7 @@ class NotificationController extends Controller
             'fuel_alert', 'fuel' => '#f97316',
             'inventory_alert', 'parts' => '#f59e0b',
             'incident' => '#ef4444',
+            'bug_report' => '#d1000c',
             default => '#3b82f6',
         };
     }

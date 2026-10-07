@@ -1,12 +1,14 @@
-import React from "react";
+import React, { useState } from "react";
 import {
     StyleSheet,
     View,
     Text,
     TouchableOpacity,
 } from "react-native";
+import VehicleInfoModal from "../VehicleInfoModal";
 
 export default function CargoInfo({ delivery }) {
+    const [vehicleModalVisible, setVehicleModalVisible] = useState(false);
     const request = delivery?.request;
     const vehicle = delivery?.vehicle;
 
@@ -95,14 +97,19 @@ export default function CargoInfo({ delivery }) {
             </Text>
 
             <TouchableOpacity
-                onPress={() => {
-                    // Add your navigation here
-                }}
+                onPress={() => setVehicleModalVisible(true)}
+                activeOpacity={0.7}
             >
                 <Text style={styles.link}>
                     View Vehicle Information
                 </Text>
             </TouchableOpacity>
+
+            <VehicleInfoModal
+                visible={vehicleModalVisible}
+                onClose={() => setVehicleModalVisible(false)}
+                vehicle={vehicle}
+            />
         </View>
     );
 }

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import {
   Alert,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -110,10 +111,11 @@ export default function Settings() {
     }
     try {
       setSubmittingBug(true);
+      const osType = Platform.OS === "android" ? "Android" : Platform.OS === "ios" ? "iOS" : "Mobile";
       await reportBug({
         category: bugCategory,
         description: bugDescription.trim(),
-        deviceInfo: "Driver Mobile App (Navigation Console)",
+        deviceInfo: `Driver Mobile App (${osType} • Navigation Console)`,
       });
       setBugModalVisible(false);
       setBugDescription("");
@@ -121,8 +123,8 @@ export default function Settings() {
         "Report Submitted",
         "Thank you! Your bug report has been forwarded to the IT dispatch operations team."
       );
-    } catch {
-      Alert.alert("Error", "Could not submit bug report. Please try again.");
+    } catch (err) {
+      Alert.alert("Error", err?.message || "Could not submit bug report. Please try again.");
     } finally {
       setSubmittingBug(false);
     }
