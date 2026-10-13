@@ -24,6 +24,8 @@ class User extends Authenticatable
         'profile_photo_path',
         'password',
         'status',
+        'verification_code',
+        'verification_code_expires_at',
     ];
 
     protected $appends = [
@@ -47,10 +49,12 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'verification_code',
     ];
 
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'verification_code_expires_at' => 'datetime',
         'password' => 'hashed',
     ];
 

@@ -35,6 +35,8 @@ use App\Http\Controllers\BugReportController;
 |--------------------------------------------------------------------------
 | PUBLIC ROUTES
 |--------------------------------------------------------------------------
+*/
+
 Route::get('/storage/{path}', function ($path) {
     $fullPath = storage_path('app/public/' . $path);
     if (!file_exists($fullPath)) {
@@ -174,6 +176,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('customer/email/resend', [
         CustomerAuthController::class,
         'resend'
+    ]);
+
+    Route::post('customer/email/verify-code', [
+        CustomerAuthController::class,
+        'verifyCode'
     ]);
 
     Route::get('customer/email/status', [

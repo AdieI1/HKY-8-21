@@ -143,6 +143,20 @@ export const register = async (username, email, password, passwordConfirmation) 
   return await saveSession(data);
 };
 
+export const verifyCode = async (code) => {
+  const data = await request("/customer/email/verify-code", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+  if (data?.user) {
+    authUser = data.user;
+    try {
+      await AsyncStorage.setItem(USER_KEY, JSON.stringify(data.user));
+    } catch { }
+  }
+  return data;
+};
+
 export const resendVerification = async () => {
   return request("/customer/email/resend", { method: "POST" });
 };

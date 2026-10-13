@@ -1,371 +1,550 @@
-import { Ionicons } from "@expo/vector-icons";
-import DateTimePicker from "@react-native-community/datetimepicker";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
-import { Alert, Dimensions, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { completeAccountSetup } from "../services/api";
+import React, { useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  TextInput,
+  TouchableOpacity,
+  Image,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  useWindowDimensions,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { updateCustomerProfile } from '../services/api';
+import ErrorModal from '../components/ErrorModal';
+import SweetToast from '../components/SweetToast';
 
-const { width, height } = Dimensions.get("window");
+const DefaultProfile = require('../assets/images/defaultavatar.png');
+const PersonInfoIcon = require('../assets/images/personediticon.png');
 
-const Defaultprofile = require("../assets/images/defaultavatar.png");
-const PersonInfoIcon = require("../assets/images/personediticon.png");
-
-const AccountSetup = () => {
+export default function AccountSetup() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { width } = useWindowDimensions();
 
-  const [Phone, setPhone] = useState("");
-  const [Fname, setFname] = useState("");
-  const [Lname, setLname] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const [phone, setPhone] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [gender, setGender] = useState('');
+  const [showGenderDropdown, setShowGenderDropdown] = useState(false);
 
-  const [Gender, setGender] = useState("");
-  const [showGender, setShowGender] = useState(false);
-
-  const [DOB, setDOB] = useState(null);
+  const [dob, setDob] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  const handlePhoneChange = (text) => {
-    const cleaned = text.replace(/[^0-9]/g, "");
-    if (cleaned.length <= 11) setPhone(cleaned);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Feedback states
+  const [errorModal, setErrorModal] = useState({ visible: false, message: '' });
+  const [toastMessage, setToastMessage] = useState('');
+
+  const pickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        setErrorModal({
+          visible: true,
+          message: 'Permission to access your gallery is required to choose a profile photo.',
+        });
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setPhoto(result.assets[0]);
+      }
+    } catch {
+      setErrorModal({
+        visible: true,
+        message: 'Unable to select photo. Please try again.',
+      });
+    }
   };
 
-  const handleContinue = async () => {
-    try {
-      const data = await completeAccountSetup(Fname, Lname, Phone);
-      Alert.alert(
-        "Account Ready",
-        `Your username is ${data.username || params.username}. Use it when logging in.`
-      );
-      router.replace("/(tabs)/home");
-    } catch (error) {
-      Alert.alert("Unable to Save Account", error?.message || "Please complete the required fields.");
+  const handlePhoneChange = (text) => {
+    const cleaned = text.replace(/[^0-9]/g, '');
+    if (cleaned.length <= 11) {
+      setPhone(cleaned);
     }
   };
 
   const formatDate = (date) => {
-    if (!(date instanceof Date)) return "Open Calendar";
-
-    const mm = (date.getMonth() + 1).toString().padStart(2, "0");
-    const dd = date.getDate().toString().padStart(2, "0");
+    if (!(date instanceof Date)) return 'Open Calendar';
+    const mm = (date.getMonth() + 1).toString().padStart(2, '0');
+    const dd = date.getDate().toString().padStart(2, '0');
     const yyyy = date.getFullYear();
-
     return `${mm}/${dd}/${yyyy}`;
   };
 
+  const handleContinue = async () => {
+    const trimmedFirst = firstName.trim();
+    const trimmedLast = lastName.trim();
+    const trimmedPhone = phone.trim();
+
+    if (!trimmedPhone) {
+      setErrorModal({
+        visible: true,
+        message: 'Please enter your phone number.',
+      });
+      return;
+    }
+
+    if (trimmedPhone.length < 11 || !trimmedPhone.startsWith('09')) {
+      setErrorModal({
+        visible: true,
+        message: 'Please enter a valid 11-digit mobile number starting with 09 (e.g. 09123456789).',
+      });
+      return;
+    }
+
+    if (!trimmedFirst) {
+      setErrorModal({
+        visible: true,
+        message: 'Please enter your first name.',
+      });
+      return;
+    }
+
+    if (!trimmedLast) {
+      setErrorModal({
+        visible: true,
+        message: 'Please enter your last name.',
+      });
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      await updateCustomerProfile({
+        first_name: trimmedFirst,
+        last_name: trimmedLast,
+        phone: trimmedPhone,
+        gender: gender || null,
+        date_of_birth: dob ? formatDate(dob) : null,
+        photo: photo || null,
+      });
+
+      setToastMessage('Profile completed! Welcome to HJY Trucking Services.');
+
+      setTimeout(() => {
+        router.replace('/(tabs)/home');
+      }, 1200);
+    } catch (error) {
+      setErrorModal({
+        visible: true,
+        message: error?.message || 'Unable to save profile details. Please try again.',
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-
-        {/* HEADER */}
-        <View style={styles.card}>
-          <Text style={styles.Header}>Profile Setup</Text>
-        </View>
-
-        {/* PROFILE */}
-        <View style={styles.avatarCard}>
-          <View style={styles.profileWrapper}>
-            <Image source={Defaultprofile} style={styles.profileImage} />
-            <TouchableOpacity style={styles.addPhotoBtn}>
-              <Ionicons name="add" size={width * 0.06} color="#CDD1E0" />
+    <SafeAreaView style={styles.safe}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Top Pill Header matching Figma */}
+          <View style={styles.topHeaderPill}>
+            <TouchableOpacity
+              style={styles.pillBackBtn}
+              onPress={() => router.back()}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
             </TouchableOpacity>
+            <Text style={styles.pillHeaderText}>Profile Setup</Text>
+            <View style={{ width: 32 }} />
           </View>
 
-          <View style={styles.InfoContainer}>
-            <Text style={styles.title}>
-              Lets finish setting up your profile!
-            </Text>
-            <Text style={styles.subtitle}>
-              Tell us more about yourself!
-            </Text>
-          </View>
-        </View>
-
-        {/* PERSONAL INFO */}
-        <View style={styles.InfoHeader}>
-
-          <View style={styles.TextHeading}>
-            <Image source={PersonInfoIcon} style={styles.InfoIcon} />
-            <Text style={styles.headerText}>Personal Information</Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          {/* PHONE */}
-          <Text style={styles.infoLabel}>Phone Number</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Phone Number"
-            value={Phone}
-            onChangeText={handlePhoneChange}
-            keyboardType="phone-pad"
-            maxLength={11}
-          />
-
-          {/* FIRST NAME */}
-          <Text style={styles.infoLabel}>First Name</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="First Name"
-            value={Fname}
-            onChangeText={setFname}
-          />
-
-          {/* LAST NAME */}
-          <Text style={styles.infoLabel}>Last Name</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Last Name"
-            value={Lname}
-            onChangeText={setLname}
-          />
-
-          {/* GENDER */}
-          <Text style={styles.infoLabel}>Gender</Text>
-
-          <TouchableOpacity
-            style={styles.inputDropdown}
-            onPress={() => setShowGender(!showGender)}
-          >
-            <Text style={{ color: Gender ? "#000" : "#888", flex: 1 }}>
-              {Gender || "Select Gender"}
-            </Text>
-
-            <Ionicons
-              name={showGender ? "chevron-up" : "chevron-down"}
-              size={18}
-              color="#3A3A3B"
-            />
-          </TouchableOpacity>
-
-          {showGender && (
-            <View style={styles.dropdown}>
-              <TouchableOpacity onPress={() => { setGender("Male"); setShowGender(false); }}>
-                <Text style={styles.dropdownItem}>Male</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={() => { setGender("Female"); setShowGender(false); }}>
-                <Text style={styles.dropdownItem}>Female</Text>
+          {/* Avatar Section matching Figma */}
+          <View style={styles.avatarSection}>
+            <View style={styles.avatarWrapper}>
+              <Image
+                source={photo?.uri ? { uri: photo.uri } : DefaultProfile}
+                style={styles.avatarImage}
+              />
+              <TouchableOpacity
+                style={styles.addPhotoBtn}
+                onPress={pickImage}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add" size={18} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
-          )}
 
-          {/* DATE OF BIRTH */}
-          <Text style={styles.infoLabel}>Date of Birth</Text>
+            <View style={styles.avatarTextContainer}>
+              <Text style={styles.avatarTitle}>
+                Lets finish setting{'\n'}up your Profile!
+              </Text>
+              <Text style={styles.avatarSubtitle}>Tell us a bit about yourself!</Text>
+            </View>
+          </View>
 
-          <TouchableOpacity
-            style={styles.calendar}
-            onPress={() => setShowDatePicker(true)}
-          >
-            <Ionicons name="calendar-outline" size={20} color="#3A3A3B" />
-            <Text style={styles.calendarText}>
-              {formatDate(DOB)}
-            </Text>
-          </TouchableOpacity>
+          {/* Personal Information Card matching Figma */}
+          <View style={styles.card}>
+            {/* Card Header with red person icon */}
+            <View style={styles.cardHeader}>
+              <View style={styles.cardHeaderIconCircle}>
+                <Ionicons name="person" size={16} color="#E53935" />
+              </View>
+              <Text style={styles.cardHeaderText}>Personal Information</Text>
+            </View>
+            <View style={styles.cardDivider} />
 
-          {showDatePicker && (
-            <DateTimePicker
-              value={DOB instanceof Date ? DOB : new Date()}
-              mode="date"
-              display="default"
-              maximumDate={new Date()}
-              onChange={(event, selectedDate) => {
-                setShowDatePicker(false);
-
-                if (event.type === "set" && selectedDate instanceof Date) {
-                  setDOB(selectedDate);
-                }
-              }}
+            {/* Phone Number */}
+            <Text style={styles.label}>Phone number:</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter Phone Number"
+              placeholderTextColor="#94A3B8"
+              value={phone}
+              onChangeText={handlePhoneChange}
+              keyboardType="phone-pad"
+              maxLength={11}
             />
-          )}
 
-          {/* CONTINUE */}
-          <TouchableOpacity
-            style={styles.ContinueBtn}
-            onPress={handleContinue}
-          >
-            <Text style={styles.Btntext}>Continue</Text>
-          </TouchableOpacity>
+            {/* First Name */}
+            <Text style={styles.label}>First Name:</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter First name"
+              placeholderTextColor="#94A3B8"
+              value={firstName}
+              onChangeText={setFirstName}
+            />
 
-        </View>
-      </ScrollView>
+            {/* Last Name */}
+            <Text style={styles.label}>Last Name:</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter Last name"
+              placeholderTextColor="#94A3B8"
+              value={lastName}
+              onChangeText={setLastName}
+            />
+
+            {/* Gender Dropdown */}
+            <Text style={styles.label}>Gender:</Text>
+            <TouchableOpacity
+              style={styles.dropdownTrigger}
+              onPress={() => setShowGenderDropdown(!showGenderDropdown)}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.dropdownText,
+                  gender ? { color: '#0F172A' } : { color: '#94A3B8' },
+                ]}
+              >
+                {gender || 'Select Gender'}
+              </Text>
+              <Ionicons
+                name={showGenderDropdown ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color="#64748B"
+              />
+            </TouchableOpacity>
+
+            {showGenderDropdown && (
+              <View style={styles.dropdownMenu}>
+                {['Male', 'Female', 'Prefer not to say'].map((item) => (
+                  <TouchableOpacity
+                    key={item}
+                    style={styles.dropdownMenuItem}
+                    onPress={() => {
+                      setGender(item);
+                      setShowGenderDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownMenuItemText}>{item}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* Date of Birth */}
+            <Text style={styles.label}>Date of Birth:</Text>
+            <TouchableOpacity
+              style={styles.datePickerTrigger}
+              onPress={() => setShowDatePicker(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="calendar-outline"
+                size={20}
+                color="#64748B"
+                style={{ marginRight: 10 }}
+              />
+              <Text
+                style={[
+                  styles.dateText,
+                  dob ? { color: '#0F172A' } : { color: '#94A3B8' },
+                ]}
+              >
+                {formatDate(dob)}
+              </Text>
+            </TouchableOpacity>
+
+            {showDatePicker && (
+              <DateTimePicker
+                value={dob instanceof Date ? dob : new Date(2000, 0, 1)}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                maximumDate={new Date()}
+                onChange={(event, selectedDate) => {
+                  setShowDatePicker(false);
+                  if (event.type === 'set' && selectedDate) {
+                    setDob(selectedDate);
+                  }
+                }}
+              />
+            )}
+
+            {/* Continue Button */}
+            <TouchableOpacity
+              style={[styles.continueBtn, submitting && { opacity: 0.7 }]}
+              onPress={handleContinue}
+              disabled={submitting}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.continueBtnText}>
+                {submitting ? 'Saving...' : 'Continue'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* Custom Error Modal */}
+      <ErrorModal
+        visible={errorModal.visible}
+        message={errorModal.message}
+        onClose={() => setErrorModal({ visible: false, message: '' })}
+      />
+
+      {/* Sweet Toast Feedback */}
+      <SweetToast
+        visible={Boolean(toastMessage)}
+        message={toastMessage}
+        onDismiss={() => setToastMessage('')}
+      />
     </SafeAreaView>
   );
-};
-
-export default AccountSetup;
-
-/* ---------------- STYLES ---------------- */
+}
 
 const styles = StyleSheet.create({
-  container: {
+  safe: {
     flex: 1,
-    backgroundColor: "#D6DAE8",
+    backgroundColor: '#E2E8F0',
   },
-
-  Header: {
-    textAlign: "center",
-    fontSize: width * 0.06,
-    color: "#273342",
-    fontWeight: "600",
-  },
-
-  card: {
-    backgroundColor: "#E9ECF2",
-    borderRadius: width * 0.03,
-    padding: width * 0.04,
-    alignItems: "center",
-    margin: width * 0.04,
-    elevation: 6,
-  },
-
-  avatarCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: width * 0.04,
-    marginTop: height * 0.01,
-  },
-
-  profileWrapper: {
-    position: "relative",
-  },
-
-  profileImage: {
-    width: width * 0.28,
-    height: width * 0.28,
-    borderRadius: width * 0.14,
-    borderWidth: 2,
-    borderColor: "#8E94A3",
-  },
-
-  addPhotoBtn: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: width * 0.1,
-    height: width * 0.1,
-    backgroundColor: "#8E94A3",
-    borderRadius: width * 0.05,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  InfoContainer: {
+  keyboardView: {
     flex: 1,
-    marginLeft: width * 0.04,
   },
-
-  title: {
-    fontSize: width * 0.045,
-    fontWeight: "bold",
-    color: "#273342",
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 40,
   },
-
-  subtitle: {
-    fontSize: width * 0.032,
-    color: "#6E7384",
-    marginTop: 4,
-  },
-
-  InfoHeader: {
-    backgroundColor: "#E9ECF2",
-    borderRadius: width * 0.03,
-    padding: width * 0.04,
-    margin: width * 0.04,
-    elevation: 6,
-  },
-
-  TextHeading: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  headerText: {
-    fontSize: width * 0.042,
-    fontWeight: "600",
-    marginLeft: width * 0.02,
-    color: "#2C2C2C",
-  },
-
-  InfoIcon: {
-    width: width * 0.06,
-    height: width * 0.06,
-    resizeMode: "contain",
-  },
-
-  divider: {
-    marginTop: height * 0.01,
-    height: 1,
-    backgroundColor: "#D1D1D1",
-    width: "100%",
-  },
-
-  infoLabel: {
-    marginTop: height * 0.015,
-    marginBottom: 5,
-    fontSize: width * 0.035,
-    fontWeight: "600",
-    color: "#273342",
-  },
-
-  input: {
-    backgroundColor: "#D2D6E0",
-    borderRadius: width * 0.02,
-    padding: width * 0.035,
-    fontSize: width * 0.035,
-    color: "#3A3A3B",
-    marginTop: 5,
-  },
-
-  inputDropdown: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#D2D6E0",
-    borderRadius: width * 0.02,
-    padding: width * 0.035,
-    marginTop: 5,
-  },
-
-  dropdown: {
-    backgroundColor: "#D2D6E0",
-    borderRadius: width * 0.02,
-    marginTop: 5,
-    padding: 10,
-  },
-
-  dropdownItem: {
-    padding: 10,
-    fontSize: width * 0.035,
-    color: "#333",
-  },
-
-  calendar: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#D2D6E0",
-    borderRadius: width * 0.02,
-    padding: width * 0.035,
-    marginTop: 5,
-    gap: 10,
-  },
-
-  calendarText: {
-    fontSize: width * 0.035,
-    color: "#3A3A3B",
-  },
-
-  ContinueBtn: {
-    backgroundColor: "#DE2226",
-    padding: width * 0.035,
-    borderRadius: width * 0.02,
-    marginTop: 20,
+  topHeaderPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
     elevation: 3,
   },
-
-  Btntext: {
-    textAlign: "center",
-    color: "#fff",
-    fontSize: width * 0.04,
-    fontWeight: "bold",
+  pillBackBtn: {
+    backgroundColor: '#E53935',
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pillHeaderText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  avatarSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    paddingHorizontal: 6,
+  },
+  avatarWrapper: {
+    position: 'relative',
+    marginRight: 16,
+  },
+  avatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#CBD5E1',
+  },
+  addPhotoBtn: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#64748B',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarTextContainer: {
+    flex: 1,
+  },
+  avatarTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#1E293B',
+    lineHeight: 25,
+    marginBottom: 4,
+  },
+  avatarSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.07,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  cardHeaderIconCircle: {
+    marginRight: 8,
+  },
+  cardHeaderText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  cardDivider: {
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginBottom: 18,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#0F172A',
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  dropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  dropdownText: {
+    fontSize: 14,
+  },
+  dropdownMenu: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginTop: -8,
+    marginBottom: 14,
+    overflow: 'hidden',
+    elevation: 4,
+  },
+  dropdownMenuItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  dropdownMenuItemText: {
+    fontSize: 14,
+    color: '#1E293B',
+  },
+  datePickerTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  dateText: {
+    fontSize: 14,
+  },
+  continueBtn: {
+    backgroundColor: '#E53935',
+    borderRadius: 12,
+    paddingVertical: 15,
+    alignItems: 'center',
+    shadowColor: '#E53935',
+    shadowOpacity: 0.35,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  continueBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

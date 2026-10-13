@@ -1,278 +1,416 @@
-import {StyleSheet,Text,View,TextInput,TouchableOpacity,ImageBackground,useWindowDimensions,Alert} from 'react-native'
-import React, { useState } from 'react'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { useRouter } from 'expo-router'
-import { Ionicons } from '@expo/vector-icons'
-import { register } from '../services/api'
+import React, { useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  TextInput,
+  TouchableOpacity,
+  ImageBackground,
+  useWindowDimensions,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { register } from '../services/api';
+import ErrorModal from '../components/ErrorModal';
+import SweetToast from '../components/SweetToast';
+import TermsModal from '../components/TermsModal';
+import PasswordStrengthMeter, { getPasswordStrength } from '../components/PasswordStrengthMeter';
 
-const bg = require('../assets/images/mobileTruckBackground.png')
+const bg = require('../assets/images/mobileTruckBackground.png');
 
 export default function CreateAccount() {
-  const router = useRouter()
-  const { width, height } = useWindowDimensions()
+  const router = useRouter();
+  const { width, height } = useWindowDimensions();
 
-  // password toggle visibility
-  const [showPass, setShowPass] = useState(false)
-  //confirm button toggle
-  const [showConfirm, setShowConfirm] = useState(false)
+  const [showPass, setShowPass] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
-  // checkbox toggle
-  const [accepted, setAccepted] = useState(false)
-  const [username, setUsername] = useState("")
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
-  const [submitting, setSubmitting] = useState(false)
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [accepted, setAccepted] = useState(true);
+
+  const [submitting, setSubmitting] = useState(false);
+
+  // Modals & feedback
+  const [errorModal, setErrorModal] = useState({ visible: false, message: '' });
+  const [showTerms, setShowTerms] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  const validateEmail = (val) => {
+    return /\S+@\S+\.\S+/.test(val);
+  };
 
   const handleCreateAccount = async () => {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
+      setErrorModal({
+        visible: true,
+        message: 'Please enter your email address to continue.',
+      });
+      return;
+    }
+
+    if (!validateEmail(trimmedEmail)) {
+      setErrorModal({
+        visible: true,
+        message: 'Please enter a valid email address (e.g. name@gmail.com).',
+      });
+      return;
+    }
+
+    if (!password) {
+      setErrorModal({
+        visible: true,
+        message: 'Please enter a secure password.',
+      });
+      return;
+    }
+
+    if (password.length < 8) {
+      setErrorModal({
+        visible: true,
+        message: 'Password must be at least 8 characters long.',
+      });
+      return;
+    }
+
+    const { score } = getPasswordStrength(password);
+    if (score < 2) {
+      setErrorModal({
+        visible: true,
+        message: 'Please choose a stronger password containing numbers and letters.',
+      });
+      return;
+    }
+
     if (password !== confirmPassword) {
-      Alert.alert("Invalid Password", "Passwords do not match.")
-      return
+      setErrorModal({
+        visible: true,
+        message: 'Passwords do not match. Please re-enter your confirm password.',
+      });
+      return;
+    }
+
+    if (!accepted) {
+      setErrorModal({
+        visible: true,
+        message: 'Please agree to the Terms and Agreements to create an account.',
+      });
+      return;
     }
 
     try {
-      setSubmitting(true)
-      const data = await register(username.trim(), email.trim(), password, confirmPassword)
+      setSubmitting(true);
+      // Auto-derive username from email on the backend
+      const data = await register('', trimmedEmail, password, confirmPassword);
 
-      router.push({
-        pathname: "/accountsetup",
-        params: { username: data.username },
-      })
+      setToastMessage('Account created! A 6-digit code was sent to your email.');
+
+      setTimeout(() => {
+        router.push({
+          pathname: '/email-verification',
+          params: {
+            email: trimmedEmail,
+            username: data?.username || '',
+          },
+        });
+      }, 1200);
     } catch (error) {
-      Alert.alert("Unable to Create Account", error?.message || "Please check your details.")
+      setErrorModal({
+        visible: true,
+        message: error?.message || 'Unable to create your account. Please check your details.',
+      });
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ImageBackground source={bg} style={[styles.container, { padding: width * 0.05 }]} blurRadius={8}>
-
-        {/* Back Button */}
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={36} color="#fff" marginBottom="20" />
-        </TouchableOpacity>
-
-        {/* header */}
-        <Text style={[styles.title, { fontSize: width * 0.1 }]}>
-          Create your{'\n'}Account.
-        </Text>
-
-        <Text style={[styles.subtitle, { fontSize: width * 0.045 }]}>
-          You are just one step away from becoming{'\n'}one of our valued customers.
-        </Text>
-
-        {/* Inputs */}
-        <View style={styles.form}>
-
-          <TextInput placeholder="Username" placeholderTextColor="#aaa"
-            style={[styles.input, {
-              padding: height * 0.018,
-              borderRadius: width * 0.03
-            }]}
-            value={username}
-            onChangeText={setUsername}
-            autoCapitalize="none" />
-
-          <TextInput placeholder="Email Address" placeholderTextColor="#aaa"
-            style={[styles.input, {
-              padding: height * 0.018,
-              borderRadius: width * 0.03
-            }]}
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none" />
-
-          {/* Password */}
-          <View style={[styles.inputWrapper, {
-            borderRadius: width * 0.03,
-            paddingHorizontal: width * 0.04
-          }]}>
-            <TextInput
-              placeholder="Password"
-              placeholderTextColor="#aaa"
-              secureTextEntry={!showPass}
-              style={[styles.inputFlex, { paddingVertical: height * 0.018 }]}
-              value={password}
-              onChangeText={setPassword}
-            />
-            <TouchableOpacity onPress={() => setShowPass(!showPass)}>
-              <Ionicons name={showPass ? "eye" : "eye-off"} size={20} color="#aaa" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Confirm Password */}
-          <View style={[styles.inputWrapper, {
-            borderRadius: width * 0.03,
-            paddingHorizontal: width * 0.04
-          }]}>
-            <TextInput
-              placeholder="Confirm Password"
-              placeholderTextColor="#aaa"
-              secureTextEntry={!showConfirm}
-              style={[styles.inputFlex, { paddingVertical: height * 0.018 }]}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-            />
-            <TouchableOpacity onPress={() => setShowConfirm(!showConfirm)}>
-              <Ionicons name={showConfirm ? "eye" : "eye-off"} size={20} color="#aaa" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Checkbox */}
-          <TouchableOpacity
-            style={[styles.termsRow, { marginBottom: height * 0.02 }]}
-            onPress={() => setAccepted(!accepted)}
+      <ImageBackground source={bg} style={styles.background} blurRadius={6}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardView}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <View style={[
-              styles.checkbox,
-              {
-                width: width * 0.06,
-                height: width * 0.06,
-                marginRight: width * 0.02
-              },
-              accepted && styles.checkedBox
-            ]}>
-              {accepted && (
-                <Ionicons name="checkmark" size={16} color="#fff" />
-              )}
-            </View>
-
-            <Text style={[styles.termsText, { fontSize: width * 0.04 }]}>
-              I accept{' '}
-              <Text style={styles.link}>Terms and Agreements</Text>
-            </Text>
-          </TouchableOpacity>
-
-          {/* Button */}
-          <TouchableOpacity
-            style={[
-              styles.button,
-              {
-                padding: height * 0.02,
-                borderRadius: width * 0.035
-              },
-              (!accepted || submitting) && { opacity: 0.5 }
-            ]}
-            disabled={!accepted || submitting}
-            onPress={handleCreateAccount}
-          >
-            <Text style={[styles.buttonText, { fontSize: width * 0.05 }]}>
-              Create Account
-            </Text>
-          </TouchableOpacity>
-
-          {/* Login */}
-          <TouchableOpacity
-              onPress={() => router.push("/login-page")}>
-          <Text style={[styles.login, { marginTop: height * 0.02 }]} >
-            Already have an account?{' '}
-            <Text
-              style={styles.loginBold}
-            
+            {/* Back Button */}
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={styles.backBtn}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             >
-              Login
-            </Text>
-          </Text>
-          </TouchableOpacity>
+              <Ionicons name="arrow-back" size={32} color="#fff" />
+            </TouchableOpacity>
 
-        </View>
+            <View style={styles.formContainer}>
+              {/* Header */}
+              <Text style={styles.title}>Create your{'\n'}Account.</Text>
+              <Text style={styles.subtitle}>
+                You’re just one step away from becoming one of our valued customers.
+              </Text>
 
+              {/* Email Address */}
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  placeholder="Email Address"
+                  placeholderTextColor="#888"
+                  style={styles.inputFlex}
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                />
+              </View>
+
+              {/* Password */}
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  placeholder="Password"
+                  placeholderTextColor="#888"
+                  secureTextEntry={!showPass}
+                  style={styles.inputFlex}
+                  value={password}
+                  onChangeText={setPassword}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPass(!showPass)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons
+                    name={showPass ? 'eye-outline' : 'eye-off-outline'}
+                    size={22}
+                    color="#aaa"
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Password Strength Meter */}
+              <PasswordStrengthMeter password={password} />
+
+              {/* Confirm Password */}
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  placeholder="Confirm Password"
+                  placeholderTextColor="#888"
+                  secureTextEntry={!showConfirm}
+                  style={styles.inputFlex}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity
+                  onPress={() => setShowConfirm(!showConfirm)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons
+                    name={showConfirm ? 'eye-outline' : 'eye-off-outline'}
+                    size={22}
+                    color="#aaa"
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Terms and Agreements Row */}
+              <View style={styles.termsRow}>
+                <TouchableOpacity
+                  style={styles.checkboxTouch}
+                  onPress={() => setAccepted(!accepted)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.checkbox, accepted && styles.checkedBox]}>
+                    {accepted && <Ionicons name="checkmark" size={14} color="#fff" />}
+                  </View>
+                  <Text style={styles.termsText}>I accept </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={() => setShowTerms(true)} activeOpacity={0.7}>
+                  <Text style={styles.link}>Terms and Agreements.</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Create Account Button */}
+              <TouchableOpacity
+                style={[
+                  styles.button,
+                  submitting && { opacity: 0.7 },
+                ]}
+                disabled={submitting}
+                onPress={handleCreateAccount}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.buttonText}>
+                  {submitting ? 'Creating Account...' : 'Create Account'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Footer Login link */}
+              <View style={styles.loginRow}>
+                <Text style={styles.loginPrompt}>Already have an account? </Text>
+                <TouchableOpacity onPress={() => router.push('/login-page')}>
+                  <Text style={styles.loginLink}>Login</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+
+        {/* Custom Error Modal */}
+        <ErrorModal
+          visible={errorModal.visible}
+          message={errorModal.message}
+          onClose={() => setErrorModal({ visible: false, message: '' })}
+        />
+
+        {/* Terms and Agreements Modal */}
+        <TermsModal
+          visible={showTerms}
+          onClose={() => setShowTerms(false)}
+        />
+
+        {/* Sweet Toast Feedback */}
+        <SweetToast
+          visible={Boolean(toastMessage)}
+          message={toastMessage}
+          onDismiss={() => setToastMessage('')}
+        />
       </ImageBackground>
     </SafeAreaView>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#000' },
-
-  container: {
+  safe: {
     flex: 1,
-    justifyContent: 'center'
+    backgroundColor: '#000',
   },
-
+  background: {
+    flex: 1,
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 36,
+  },
+  backBtn: {
+    alignSelf: 'flex-start',
+    marginBottom: 20,
+    marginTop: 8,
+  },
+  formContainer: {
+    width: '100%',
+    paddingBottom: 10,
+  },
   title: {
-    color: '#fff',
-    fontWeight: 'bold',
+    color: '#ffffff',
+    fontSize: 34,
+    fontWeight: '800',
+    lineHeight: 40,
+    marginBottom: 10,
   },
-
   subtitle: {
-    color: '#dbd8d8',
+    color: '#CBD5E1',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 24,
   },
-
-  form: {
-    marginTop: 20
-  },
-
-  input: {
-    backgroundColor: '#333',
-    color: '#fff',
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#F7373C'
-  },
-
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#333',
-    marginBottom: 12,
+    backgroundColor: 'rgba(30, 41, 59, 0.75)',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#F7373C'
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    paddingHorizontal: 16,
+    marginBottom: 14,
+    minHeight: 52,
   },
-
   inputFlex: {
     flex: 1,
-    color: '#fff',
+    color: '#ffffff',
+    fontSize: 15,
+    paddingVertical: 14,
   },
-
   termsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center'
+    flexWrap: 'wrap',
+    marginTop: 4,
+    marginBottom: 22,
   },
-
+  checkboxTouch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   checkbox: {
-    borderWidth: 2,
-    borderColor: '#fff',
-    borderRadius: 4,
-    alignItems: 'center',
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: '#94A3B8',
     justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
   },
-
   checkedBox: {
-    backgroundColor: '#DE2226',
-    borderColor: '#DE2226',
+    backgroundColor: '#E53935',
+    borderColor: '#E53935',
   },
-
   termsText: {
-    color: '#ccc',
+    color: '#E2E8F0',
+    fontSize: 13,
   },
-
   link: {
+    color: '#FFFFFF',
+    fontWeight: '700',
     textDecorationLine: 'underline',
-    color: '#fff',
+    fontSize: 13,
   },
-
   button: {
-    backgroundColor: '#DE2226',
+    backgroundColor: '#E53935',
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    shadowColor: '#E53935',
+    shadowOpacity: 0.35,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 4,
+    marginBottom: 20,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  loginRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
   },
-
-  buttonText: {
-    color: '#fff',
-    fontWeight: 'bold',
+  loginPrompt: {
+    color: '#CBD5E1',
+    fontSize: 14,
   },
-
-  login: {
-    color: '#ccc',
-    textAlign: 'center',
-    fontSize: 16
+  loginLink: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
-
-  loginBold: {
-    color: '#fff',
-    fontWeight: 'bold'
-  }
-})
+});
