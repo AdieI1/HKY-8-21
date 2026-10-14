@@ -38,6 +38,15 @@ class Delivery extends Model
         'delivery_notes',
         'delivered_at',
         'payment_verification',
+        'collection_receipt_no',
+        'collection_receipt_amount',
+        'collection_receipt_payment_mode',
+        'collection_receipt_path',
+        'collection_receipt_issued_at',
+        'collection_receipt_issued_by',
+        'collection_receipt_notes',
+        'cancellation_reason',
+        'cancelled_by',
         'start_time',
         'end_time',
         'is_relief',
@@ -62,6 +71,8 @@ class Delivery extends Model
         'start_time' => 'datetime',
         'end_time' => 'datetime',
         'trip_date' => 'date:Y-m-d',
+        'collection_receipt_amount' => 'decimal:2',
+        'collection_receipt_issued_at' => 'datetime',
     ];
 
     protected $appends = [
@@ -72,6 +83,9 @@ class Delivery extends Model
         'proof_of_delivery_url',
         'area_permit_url',
         'item_permit_url',
+        'collection_receipt_url',
+        'has_accident_incident',
+        'active_incident',
     ];
 
     public function getProofOfDeliveryUrlAttribute()
@@ -102,6 +116,46 @@ class Delivery extends Model
     public function getItemPermitUrlAttribute()
     {
         return $this->request?->item_permit_url ?? null;
+    }
+
+    public function getCollectionReceiptUrlAttribute()
+    {
+        if (!$this->collection_receipt_path) {
+            return null;
+        }
+        if (str_starts_with($this->collection_receipt_path, 'http://') || str_starts_with($this->collection_receipt_path, 'https://')) {
+            return str_replace('/api/storage/', '/storage/', $this->collection_receipt_path);
+        }
+        $url = url('storage/' . ltrim($this->collection_receipt_path, '/'));
+        return str_replace('/api/storage/', '/storage/', $url);
+    }
+
+    public function getHasAccidentIncidentAttribute()
+    {
+        if (in_array($this->status, ['accident', 'broken'])) {
+            return true;
+        }
+        return IncidentReport::where('delivery_id', $this->delivery_id)
+            ->whereNotIn('status', ['resolved'])
+            ->exists();
+    }
+
+    public function getActiveIncidentAttribute()
+    {
+        return IncidentReport::where('delivery_id', $this->delivery_id)
+            ->whereNotIn('status', ['resolved'])
+            ->latest('incident_id')
+            ->first();
+    }
+
+    public function receiptIssuer()
+    {
+        return $this->belongsTo(User::class, 'collection_receipt_issued_by', 'user_id');
+    }
+
+    public function canceller()
+    {
+        return $this->belongsTo(User::class, 'cancelled_by', 'user_id');
     }
 
     public function getTargetEtaAttribute()

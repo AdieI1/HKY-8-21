@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
@@ -37,6 +38,103 @@ function formatDateTime(dateString) {
 
 function driverCode(id) {
   return `DR${String(id).padStart(3, '0')}`;
+}
+
+function deliveryCode(id) {
+  return `DLV${String(id).padStart(4, '0')}`;
+}
+
+function isDeliveryRescheduled(del) {
+  if (!del) return false;
+  const s = (del.status || '').toLowerCase();
+  const reqStatus = (del.request?.status || '').toLowerCase();
+  const rescheduleStatus = (del.request?.reschedule_status || '').toLowerCase();
+  return (
+    s === 'rescheduled' ||
+    reqStatus === 'rescheduled' ||
+    rescheduleStatus === 'rescheduled' ||
+    rescheduleStatus === 'proposed' ||
+    rescheduleStatus === 'accepted' ||
+    Boolean(del.request?.reschedule_proposed_date)
+  );
+}
+
+function classifyDelivery(del) {
+  if (!del) {
+    return {
+      category: 'completed',
+      badge: 'Delivered',
+      color: '#15803d',
+      bg: '#dcfce7',
+      border: '#bbf7d0',
+      icon: 'fa-check-circle',
+      reason: '',
+      incident: null,
+    };
+  }
+
+  const s = (del.status || '').toLowerCase();
+  const reqStatus = (del.request?.status || '').toLowerCase();
+  const incidents = Array.isArray(del.incidents) ? del.incidents : [];
+  const hasIncident = incidents.length > 0 || Boolean(del.has_accident_incident) || Boolean(del.relief_incident_id);
+
+  // 1. Terminal Failed / Cancelled / Accident
+  if (
+    s === 'cancelled' ||
+    s === 'failed' ||
+    s === 'rejected' ||
+    reqStatus === 'cancelled' ||
+    (hasIncident && s !== 'delivered' && s !== 'completed')
+  ) {
+    const isAccident =
+      hasIncident ||
+      (del.cancellation_reason || '').toLowerCase().includes('accident') ||
+      (del.cancellation_reason || '').toLowerCase().includes('breakdown') ||
+      (del.cancellation_reason || '').toLowerCase().includes('relief');
+
+    return {
+      category: 'failed',
+      badge: isAccident ? 'Accident / Failure' : 'Cancelled',
+      color: '#b91c1c',
+      bg: '#fee2e2',
+      border: '#fecaca',
+      icon: isAccident ? 'fa-triangle-exclamation' : 'fa-times-circle',
+      reason:
+        del.cancellation_reason ||
+        (incidents[0]?.incident_type ? `Incident: ${incidents[0].incident_type}` : isAccident ? 'Vehicle issue / Accident reported' : 'Delivery Cancelled'),
+      incident: incidents[0] || null,
+    };
+  }
+
+  // 2. Terminal Completed / Delivered
+  if (s === 'delivered' || s === 'completed') {
+    return {
+      category: 'completed',
+      badge: 'Delivered',
+      color: '#15803d',
+      bg: '#dcfce7',
+      border: '#bbf7d0',
+      icon: 'fa-check-circle',
+      reason: 'Successfully completed',
+      incident: null,
+    };
+  }
+
+  // 3. Ongoing / Dispatched / Active / Assigned / Scheduled
+  const isMoving = ['in_transit', 'in transit', 'out_for_delivery', 'departed', 'started', 'arrived_pickup', 'loading_cargo', 'arrived_dropoff', 'unloading_cargo'].includes(s);
+  const isDispatched = ['dispatched', 'on_delivery'].includes(s);
+
+  return {
+    category: 'ongoing',
+    isMoving,
+    badge: isMoving ? 'In Transit' : isDispatched ? 'Dispatched' : 'Assigned',
+    color: isMoving ? '#1d4ed8' : '#4338ca',
+    bg: isMoving ? '#dbeafe' : '#e0e7ff',
+    border: isMoving ? '#bfdbfe' : '#c7d2fe',
+    icon: isMoving ? 'fa-truck-fast' : isDispatched ? 'fa-clipboard-check' : 'fa-calendar-check',
+    reason: isMoving ? 'Delivery in progress' : isDispatched ? 'Dispatched to driver' : 'Assigned to driver',
+    incident: null,
+  };
 }
 
 function availabilityLabel(driver) {
@@ -94,6 +192,7 @@ function splitFullName(fullName) {
 }
 
 function DriversPage() {
+  const navigate = useNavigate();
   const [drivers, setDrivers] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -152,6 +251,8 @@ function DriversPage() {
 
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [detailsDriver, setDetailsDriver] = useState(null);
+  const [driverDeliveryFilter, setDriverDeliveryFilter] = useState('all'); // 'all' | 'ongoing' | 'completed' | 'failed'
+  const [driverDeliveryPage, setDriverDeliveryPage] = useState(1);
 
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [archivingDriver, setArchivingDriver] = useState(null);
@@ -536,9 +637,19 @@ function DriversPage() {
     }
   };
 
-  const openDetails = (driver) => {
+  const openDetails = async (driver) => {
     setDetailsDriver(driver);
+    setDriverDeliveryFilter('all');
+    setDriverDeliveryPage(1);
     setShowDetailsModal(true);
+    try {
+      const res = await api.get(`/drivers/${driver.driver_id}`);
+      if (res.data) {
+        setDetailsDriver(res.data);
+      }
+    } catch (err) {
+      console.warn('Could not fetch detailed driver data:', err);
+    }
   };
 
   const openArchiveModal = (driver) => {
@@ -959,7 +1070,26 @@ function DriversPage() {
       {showDetailsModal && detailsDriver && (() => {
         const parsedName = splitFullName(detailsDriver.user?.full_name);
         const driverDeliveries = detailsDriver.deliveries || [];
-        const completedTrips = driverDeliveries.filter((d) => (d.status || '').toLowerCase() === 'delivered').length;
+
+        const ongoingDeliveries = driverDeliveries.filter((d) => classifyDelivery(d).category === 'ongoing');
+        const completedDeliveries = driverDeliveries.filter((d) => classifyDelivery(d).category === 'completed');
+        const failedDeliveries = driverDeliveries.filter((d) => classifyDelivery(d).category === 'failed');
+
+        const activeOngoingDelivery = ongoingDeliveries[0] || null;
+
+        const filteredDeliveries = driverDeliveries.filter((d) => {
+          if (driverDeliveryFilter === 'ongoing') return classifyDelivery(d).category === 'ongoing';
+          if (driverDeliveryFilter === 'completed') return classifyDelivery(d).category === 'completed';
+          if (driverDeliveryFilter === 'failed') return classifyDelivery(d).category === 'failed';
+          return true;
+        });
+
+        const DELIVERY_PAGE_SIZE = 5;
+        const totalDeliveryPages = Math.max(1, Math.ceil(filteredDeliveries.length / DELIVERY_PAGE_SIZE));
+        const safeDeliveryPage = Math.min(driverDeliveryPage, totalDeliveryPages);
+        const paginatedDeliveries = filteredDeliveries.slice((safeDeliveryPage - 1) * DELIVERY_PAGE_SIZE, safeDeliveryPage * DELIVERY_PAGE_SIZE);
+
+        const completedTrips = completedDeliveries.length;
         const acceptedAssignments = driverDeliveries.length;
         const declinedAssignments = 0;
 
@@ -1183,15 +1313,19 @@ function DriversPage() {
                       <div className="driver-info-kv-list">
                         <div className="driver-info-kv-row">
                           <span className="driver-info-kv-key">Completed Trips</span>
-                          <span className="driver-info-kv-val">{completedTrips}</span>
+                          <span className="driver-info-kv-val" style={{ fontWeight: 700, color: '#16a34a' }}>{completedDeliveries.length}</span>
                         </div>
                         <div className="driver-info-kv-row">
-                          <span className="driver-info-kv-key">Declined Assignments</span>
-                          <span className="driver-info-kv-val">{declinedAssignments}</span>
+                          <span className="driver-info-kv-key">Ongoing Trip</span>
+                          <span className="driver-info-kv-val" style={{ fontWeight: 700, color: ongoingDeliveries.length > 0 ? '#2563eb' : '#64748b' }}>
+                            {ongoingDeliveries.length > 0 ? '1 Active' : 'None'}
+                          </span>
                         </div>
                         <div className="driver-info-kv-row">
-                          <span className="driver-info-kv-key">Accepted Assignments</span>
-                          <span className="driver-info-kv-val">{acceptedAssignments}</span>
+                          <span className="driver-info-kv-key">Failed / Accidents</span>
+                          <span className="driver-info-kv-val" style={{ fontWeight: 700, color: failedDeliveries.length > 0 ? '#b91c1c' : '#64748b' }}>
+                            {failedDeliveries.length}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -1305,6 +1439,277 @@ function DriversPage() {
                         </div>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Recent Deliveries & Trip History */}
+                  <div className="driver-info-card driver-recent-deliveries-card">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                      <h4 className="driver-info-card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <i className="fas fa-history" style={{ color: '#991b1b' }}></i>
+                        Driver Delivery History &amp; Status
+                      </h4>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: '#f1f5f9', color: '#475569' }}>
+                          {driverDeliveries.length} Total {driverDeliveries.length === 1 ? 'Trip' : 'Trips'}
+                        </span>
+                        {activeOngoingDelivery && (
+                          <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: '#dbeafe', color: '#1d4ed8' }}>
+                            ● Active Delivery
+                          </span>
+                        )}
+                        {completedDeliveries.length > 0 && (
+                          <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: '#dcfce7', color: '#15803d' }}>
+                            {completedDeliveries.length} Completed
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Active / Ongoing Delivery Spotlight Banner */}
+                    {activeOngoingDelivery && (() => {
+                      const activeInfo = classifyDelivery(activeOngoingDelivery);
+                      return (
+                        <div className="driver-active-delivery-banner">
+                          <div className="banner-left">
+                            {activeInfo.isMoving ? (
+                              <div className="live-status-pill">
+                                <span className="live-status-dot"></span>
+                                IN TRANSIT • MOVING
+                              </div>
+                            ) : (
+                              <div className="live-status-pill" style={{ background: '#e0e7ff', color: '#4338ca' }}>
+                                <i className="fas fa-clipboard-check" style={{ marginRight: 4 }}></i>
+                                DISPATCHED • AWAITING DEPARTURE
+                              </div>
+                            )}
+                            <div className="banner-code-title">
+                              <span className="banner-code">{deliveryCode(activeOngoingDelivery.delivery_id)}</span>
+                              <span className="banner-cargo">
+                                {activeOngoingDelivery.request?.item_name || activeOngoingDelivery.request?.cargo_type || 'Cargo'}
+                              </span>
+                              {activeOngoingDelivery.request?.service_type && (
+                                <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: '#e0e7ff', color: '#3730a3' }}>
+                                  {activeOngoingDelivery.request.service_type}
+                                </span>
+                              )}
+                              {activeOngoingDelivery.request?.customer?.full_name && (
+                                <span className="banner-customer">• Client: {activeOngoingDelivery.request.customer.full_name}</span>
+                              )}
+                            </div>
+                            <div className="banner-route">
+                              <span title={activeOngoingDelivery.request?.pickup_address}>
+                                <i className="fas fa-map-marker-alt" style={{ color: '#16a34a', marginRight: 4 }}></i>
+                                {activeOngoingDelivery.request?.pickup_address || 'Origin'}
+                              </span>
+                              <i className="fas fa-arrow-right" style={{ color: '#94a3b8', fontSize: 11 }}></i>
+                              <span title={activeOngoingDelivery.request?.dropoff_address || activeOngoingDelivery.request?.delivery_address}>
+                                <i className="fas fa-flag-checkered" style={{ color: '#dc2626', marginRight: 4 }}></i>
+                                {activeOngoingDelivery.request?.dropoff_address || activeOngoingDelivery.request?.delivery_address || 'Destination'}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="banner-right">
+                            <div className="banner-vehicle-info">
+                              <i className="fas fa-truck" style={{ color: '#475569' }}></i>
+                              <span>
+                                {activeOngoingDelivery.vehicle
+                                  ? `${activeOngoingDelivery.vehicle.model} (${activeOngoingDelivery.vehicle.plate_number})`
+                                  : 'Assigned Vehicle'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Filter Tabs */}
+                    <div className="driver-deliveries-tabs">
+                      <button
+                        type="button"
+                        className={`driver-tab-btn ${driverDeliveryFilter === 'all' ? 'active' : ''}`}
+                        onClick={() => {
+                          setDriverDeliveryFilter('all');
+                          setDriverDeliveryPage(1);
+                        }}
+                      >
+                        All Trips <span className="tab-pill">{driverDeliveries.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`driver-tab-btn ${driverDeliveryFilter === 'ongoing' ? 'active ongoing' : ''}`}
+                        onClick={() => {
+                          setDriverDeliveryFilter('ongoing');
+                          setDriverDeliveryPage(1);
+                        }}
+                      >
+                        <span className="tab-dot ongoing"></span> Ongoing <span className="tab-pill">{ongoingDeliveries.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`driver-tab-btn ${driverDeliveryFilter === 'completed' ? 'active completed' : ''}`}
+                        onClick={() => {
+                          setDriverDeliveryFilter('completed');
+                          setDriverDeliveryPage(1);
+                        }}
+                      >
+                        <span className="tab-dot completed"></span> Completed <span className="tab-pill">{completedDeliveries.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`driver-tab-btn ${driverDeliveryFilter === 'failed' ? 'active failed' : ''}`}
+                        onClick={() => {
+                          setDriverDeliveryFilter('failed');
+                          setDriverDeliveryPage(1);
+                        }}
+                      >
+                        <span className="tab-dot failed"></span> Failed / Accidents <span className="tab-pill">{failedDeliveries.length}</span>
+                      </button>
+                    </div>
+
+                    {filteredDeliveries.length === 0 ? (
+                      <div style={{ padding: '24px 16px', textAlign: 'center', background: '#f8fafc', borderRadius: 8, border: '1px dashed #cbd5e1' }}>
+                        <i className="fas fa-truck" style={{ fontSize: 26, color: '#94a3b8', marginBottom: 8, display: 'block' }}></i>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#64748b' }}>
+                          {driverDeliveries.length === 0
+                            ? 'No deliveries recorded for this driver yet.'
+                            : `No ${driverDeliveryFilter.replace('_', ' ')} deliveries found for this driver.`}
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="driver-deliveries-table-container">
+                          <table className="driver-deliveries-table">
+                            <thead>
+                              <tr>
+                                <th>Code</th>
+                                <th>Service &amp; Cargo</th>
+                                <th>Route</th>
+                                <th>Vehicle</th>
+                                <th>Date</th>
+                                <th style={{ textAlign: 'center' }}>Status / Reason</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {paginatedDeliveries.map((del) => {
+                                const info = classifyDelivery(del);
+                                const req = del.request || {};
+                                const cargo = req.item_name || req.cargo_type || 'General Cargo';
+                                const serviceType = req.service_type || 'Standard Delivery';
+                                const pickup = req.pickup_address || del.pickup || '—';
+                                const dropoff = req.dropoff_address || req.delivery_address || del.dropoff || '—';
+                                const dateStr = formatDate(del.delivered_at || del.end_time || del.trip_date || del.created_at);
+
+                                return (
+                                  <tr key={del.delivery_id}>
+                                    <td style={{ fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                                      {deliveryCode(del.delivery_id)}
+                                    </td>
+                                    <td>
+                                      <div style={{ fontWeight: 600, color: '#1e293b' }}>{cargo}</div>
+                                      <div style={{ fontSize: 11, color: '#64748b' }}>
+                                        {serviceType}
+                                        {req.customer?.full_name ? ` • ${req.customer.full_name}` : ''}
+                                      </div>
+                                    </td>
+                                    <td style={{ maxWidth: 220 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                                        <span style={{ color: '#16a34a', fontWeight: 'bold' }}>●</span>
+                                        <span style={{ color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 190 }} title={pickup}>
+                                          {pickup}
+                                        </span>
+                                      </div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 2 }}>
+                                        <span style={{ color: '#dc2626', fontWeight: 'bold' }}>●</span>
+                                        <span style={{ color: '#334155', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 190 }} title={dropoff}>
+                                          {dropoff}
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td style={{ whiteSpace: 'nowrap', color: '#334155' }}>
+                                      {del.vehicle ? (
+                                        <div>
+                                          <div style={{ fontWeight: 600 }}>{del.vehicle.model || 'Vehicle'}</div>
+                                          <div style={{ fontSize: 11, color: '#64748b' }}>{del.vehicle.plate_number}</div>
+                                        </div>
+                                      ) : (
+                                        <span style={{ color: '#94a3b8' }}>Unassigned</span>
+                                      )}
+                                    </td>
+                                    <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 12 }}>
+                                      {dateStr}
+                                    </td>
+                                    <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                                        <span
+                                          style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 4,
+                                            padding: '3px 9px',
+                                            borderRadius: 12,
+                                            fontSize: 11,
+                                            fontWeight: 700,
+                                            background: info.bg,
+                                            color: info.color,
+                                            border: `1px solid ${info.border}`,
+                                          }}
+                                        >
+                                          <i className={`fas ${info.icon}`} style={{ fontSize: 10 }}></i>
+                                          {info.badge}
+                                        </span>
+
+                                        {/* Failure reason if failed */}
+                                        {info.category === 'failed' && info.reason && (
+                                          <span
+                                            style={{
+                                              fontSize: 10.5,
+                                              color: info.color,
+                                              fontWeight: 500,
+                                              maxWidth: 170,
+                                              whiteSpace: 'nowrap',
+                                              overflow: 'hidden',
+                                              textOverflow: 'ellipsis',
+                                            }}
+                                            title={info.reason}
+                                          >
+                                            {info.reason}
+                                          </span>
+                                        )}
+
+                                        {/* Incident report button if accident/failure has incident */}
+                                        {info.incident && (
+                                          <button
+                                            type="button"
+                                            className="btn-incident-link"
+                                            onClick={() => setSelectedPrintIncident(info.incident)}
+                                            title="View & Print Official Incident Report"
+                                          >
+                                            <i className="fas fa-file-invoice"></i> Incident Report
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {filteredDeliveries.length > 0 && (
+                          <div style={{ marginTop: 12 }}>
+                            <Pagination
+                              currentPage={safeDeliveryPage}
+                              totalPages={totalDeliveryPages}
+                              totalItems={filteredDeliveries.length}
+                              pageSize={DELIVERY_PAGE_SIZE}
+                              onPageChange={setDriverDeliveryPage}
+                              showAlways={true}
+                            />
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

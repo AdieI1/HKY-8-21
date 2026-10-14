@@ -10,6 +10,20 @@ function requestCode(id) {
   return `REQ${String(id).padStart(4, '0')}`;
 }
 
+const DISPATCHED_IN_TRANSIT_STATUSES = [
+  'accepted',
+  'arrived_pickup',
+  'loading_cargo',
+  'out_for_delivery',
+  'on_delivery',
+  'in_transit',
+  'in transit',
+  'arrived_dropoff',
+  'unloading_cargo',
+  'returning_to_hq',
+  'delivered',
+];
+
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -126,6 +140,9 @@ function DispatchPage() {
   const [areaPermitType, setAreaPermitType] = useState('Mindanao Regional Route Clearance');
   const [areaPermitPreview, setAreaPermitPreview] = useState(null);
   const [areaPermitBase64, setAreaPermitBase64] = useState(null);
+  const [itemPermitType, setItemPermitType] = useState('DA-BAI Quarantine Clearance');
+  const [itemPermitPreview, setItemPermitPreview] = useState(null);
+  const [itemPermitBase64, setItemPermitBase64] = useState(null);
   const [permitNotes, setPermitNotes] = useState('');
   const [viewingPermitImage, setViewingPermitImage] = useState(null);
 
@@ -239,16 +256,21 @@ function DispatchPage() {
 
   const getDeliveryStatus = useCallback((d) => {
     const overdue = isOverdue(d);
-    if (!d.driver_id || d.status === 'pending') {
+    const s = (d.status || '').toLowerCase();
+
+    if (s === 'completed') {
+      return { label: 'Completed', key: 'completed', isOverdue: false };
+    }
+    // No driver assigned or explicitly pending dispatch
+    if (!d.driver_id || s === 'pending') {
       return { label: 'Pending', key: 'pending', isOverdue: overdue };
     }
-    if (d.status === 'assigned') {
-      return { label: 'Awaiting Dispatch', key: 'awaiting', isOverdue: overdue };
+    // Driver assigned, awaiting departure
+    if (s === 'assigned') {
+      return { label: 'Awaiting Transit', key: 'awaiting', isOverdue: overdue };
     }
-    if (['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit'].includes(d.status)) {
-      return { label: 'Dispatched', key: 'dispatched', isOverdue: false };
-    }
-    return { label: 'Pending', key: 'pending', isOverdue: overdue };
+    // Driver has accepted and is executing the delivery (in transit, loading, unloading, relief, etc.)
+    return { label: 'Dispatched', key: 'dispatched', isOverdue: false };
   }, [isOverdue]);
 
   const kpiCounts = useMemo(() => {
@@ -258,15 +280,16 @@ function DispatchPage() {
     let dispatched = 0;
 
     deliveries.forEach((d) => {
-      if (d.status === 'completed') return;
+      const s = (d.status || '').toLowerCase();
+      if (s === 'completed') return;
 
       if (isOverdue(d)) overdue++;
 
-      if (!d.driver_id || d.status === 'pending') {
+      if (!d.driver_id || s === 'pending') {
         pending++;
-      } else if (d.status === 'assigned') {
+      } else if (s === 'assigned') {
         awaiting++;
-      } else if (['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit'].includes(d.status)) {
+      } else {
         dispatched++;
       }
     });
@@ -279,14 +302,17 @@ function DispatchPage() {
     if (activeFilter === 'overdue') {
       list = deliveries.filter(isOverdue);
     } else if (activeFilter === 'awaiting') {
-      list = deliveries.filter((d) => d.status === 'assigned');
+      list = deliveries.filter((d) => (d.status || '').toLowerCase() === 'assigned');
     } else if (activeFilter === 'dispatched') {
-      list = deliveries.filter((d) => ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit'].includes(d.status));
+      list = deliveries.filter((d) => {
+        const s = (d.status || '').toLowerCase();
+        return Boolean(d.driver_id) && s !== 'pending' && s !== 'assigned' && s !== 'completed';
+      });
     } else if (activeFilter === 'pending') {
-      list = deliveries.filter((d) => !d.driver_id || d.status === 'pending');
+      list = deliveries.filter((d) => !d.driver_id || (d.status || '').toLowerCase() === 'pending');
     } else {
       // Default: show all active deliveries
-      list = deliveries.filter((d) => d.status !== 'completed');
+      list = deliveries.filter((d) => (d.status || '').toLowerCase() !== 'completed');
     }
 
     if (sortBy === 'date-desc') {
@@ -378,6 +404,9 @@ function DispatchPage() {
     setAreaPermitType(delivery.area_permit_type || 'Mindanao Regional Route Clearance');
     setAreaPermitPreview(delivery.area_permit_url || null);
     setAreaPermitBase64(null);
+    setItemPermitType(delivery.request?.item_permit_type || 'DA-BAI Quarantine Clearance');
+    setItemPermitPreview(delivery.request?.item_permit_url || null);
+    setItemPermitBase64(null);
     setPermitNotes(delivery.permit_notes || '');
     setViewingPermitImage(null);
     setDispatchError('');
@@ -387,6 +416,8 @@ function DispatchPage() {
     setSelectedDelivery(null);
     setAreaPermitPreview(null);
     setAreaPermitBase64(null);
+    setItemPermitPreview(null);
+    setItemPermitBase64(null);
     setPermitNotes('');
     setViewingPermitImage(null);
   };
@@ -417,7 +448,7 @@ function DispatchPage() {
 
   const isDispatched = Boolean(
     selectedDelivery &&
-    ['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'delivered', 'completed'].includes(selectedDelivery.status)
+    (DISPATCHED_IN_TRANSIT_STATUSES.includes((selectedDelivery.status || '').toLowerCase()) || selectedDelivery.status === 'completed')
   );
 
   const assignedDriver = useMemo(() => {
@@ -461,6 +492,8 @@ function DispatchPage() {
         area_permit: areaPermitBase64 || null,
         area_permit_type: areaPermitType || null,
         permit_notes: permitNotes.trim() || null,
+        item_permit: itemPermitBase64 || null,
+        item_permit_type: itemPermitType || null,
       });
     } catch (err) {
       const errors = err.response?.data?.errors;
@@ -486,6 +519,25 @@ function DispatchPage() {
       setTimeout(() => setDispatchWarning(''), 4000);
     } catch (err) {
       setDispatchError(err.response?.data?.message || 'Failed to update Area Delivery Permit.');
+    } finally {
+      setDispatching(false);
+    }
+  };
+
+  const handleUploadItemPermitForDispatched = async () => {
+    if (!selectedDelivery || !itemPermitBase64) return;
+    setDispatching(true);
+    setDispatchError('');
+    try {
+      await api.post(`/deliveries/${selectedDelivery.delivery_id}/item-permit`, {
+        item_permit: itemPermitBase64,
+        item_permit_type: itemPermitType,
+      });
+      await loadData();
+      setDispatchWarning('Item Delivery Permit updated successfully.');
+      setTimeout(() => setDispatchWarning(''), 4000);
+    } catch (err) {
+      setDispatchError(err.response?.data?.message || 'Failed to update Item Delivery Permit.');
     } finally {
       setDispatching(false);
     }
@@ -578,10 +630,10 @@ function DispatchPage() {
             <div
               className={`dispatch-stat-card${activeFilter === 'awaiting' ? ' active active-awaiting' : ''}`}
               onClick={() => setActiveFilter((prev) => (prev === 'awaiting' ? 'all' : 'awaiting'))}
-              title="Click to filter Awaiting Dispatch requests"
+              title="Click to filter Awaiting Transit requests"
             >
               <div className="dispatch-stat-number awaiting">{kpiCounts.awaiting}</div>
-              <span className="dispatch-stat-label">Awaiting Dispatch</span>
+              <span className="dispatch-stat-label">Awaiting Transit</span>
             </div>
 
             <div
@@ -600,7 +652,7 @@ function DispatchPage() {
                 {activeFilter === 'overdue'
                   ? 'Overdue Delivery Requests'
                   : activeFilter === 'awaiting'
-                  ? 'Awaiting Dispatch (Assigned to Drivers)'
+                  ? 'Awaiting Transit (Assigned to Drivers)'
                   : activeFilter === 'dispatched'
                   ? 'Dispatched Deliveries (Active In-Transit)'
                   : activeFilter === 'pending'
@@ -676,7 +728,13 @@ function DispatchPage() {
                           <td>
                             <button
                               className="btn-assign"
-                              style={d.status === 'assigned' ? { background: '#2563EB' } : (['accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit'].includes(d.status) ? { background: '#475569' } : {})}
+                              style={
+                                d.status === 'assigned'
+                                  ? { background: '#2563EB' }
+                                  : (DISPATCHED_IN_TRANSIT_STATUSES.includes((d.status || '').toLowerCase())
+                                      ? { background: '#475569' }
+                                      : {})
+                              }
                               onClick={() => openAssignPanel(d)}
                             >
                               {!d.driver_id || d.status === 'pending' ? 'Assign' : (d.status === 'assigned' ? 'Reassign' : 'View Ticket')}
@@ -1052,31 +1110,94 @@ function DispatchPage() {
               </div>
 
               {/* Item Delivery Permit */}
-              <div className="tt-field tt-full" style={{ marginTop: '10px' }}>
-                <label className="tt-label">Item Delivery Permit (Commodity / Quarantine Clearance)</label>
-                {selectedDelivery.request?.item_permit_url ? (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <i className="fas fa-check-circle" style={{ color: '#16A34A', fontSize: 15 }}></i>
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#15803D' }}>
-                          {selectedDelivery.request?.item_permit_type || 'Cargo Quarantine Clearance Attached'}
-                        </div>
-                        <div style={{ fontSize: 11, color: '#166534' }}>Official Soft Copy Available</div>
+              <div className="tt-field tt-full" style={{ marginTop: '12px' }}>
+                <label className="tt-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span><i className="fas fa-shield-halved" style={{ color: '#0284C7', marginRight: 5 }}></i> Item Delivery Permit (Commodity / Quarantine Clearance)</span>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: '#64748B' }}>Optional / Regulated Cargo</span>
+                </label>
+                <div style={{ marginTop: 6, marginBottom: 8 }}>
+                  <select
+                    className="tt-select"
+                    value={itemPermitType}
+                    onChange={(e) => setItemPermitType(e.target.value)}
+                    disabled={isDispatched && !itemPermitBase64}
+                  >
+                    <option value="DA-BAI Quarantine Clearance">DA-BAI Quarantine Clearance (Livestock / Meat / Poultry)</option>
+                    <option value="DENR Permit to Transport">DENR Permit to Transport (Forestry / Wildlife Products)</option>
+                    <option value="BPI Plant Quarantine Pass">BPI Plant Quarantine Pass (Agricultural / Seedlings)</option>
+                    <option value="BFAR Fish Inspection Certificate">BFAR Fish & Fishery Products Inspection Certificate</option>
+                    <option value="Hazardous / Regulated Commodity Permit">Hazardous / Regulated Commodity Transit Permit</option>
+                    <option value="General Cargo Clearance">General Cargo Clearance</option>
+                  </select>
+                </div>
+
+                {itemPermitPreview ? (
+                  <div style={{ border: '1px solid #CBD5E1', borderRadius: 8, padding: 10, background: '#F8FAFC' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#0369A1', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <i className="fas fa-file-shield" style={{ color: '#0284C7' }}></i>
+                        {itemPermitType || 'Permit Soft Copy Attached'}
+                      </span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={() => setViewingPermitImage({ url: itemPermitPreview, title: itemPermitType || 'Item Delivery Permit' })}
+                          style={{ background: '#0284C7', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          <i className="fas fa-expand"></i> View
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setItemPermitPreview(null); setItemPermitBase64(null); }}
+                          style={{ background: '#EF4444', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          Replace
+                        </button>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setViewingPermitImage({ url: selectedDelivery.request?.item_permit_url, title: selectedDelivery.request?.item_permit_type || 'Item Delivery Permit' })}
-                      style={{ background: '#16A34A', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                    >
-                      <i className="fas fa-eye" style={{ marginRight: 4 }}></i> View
-                    </button>
+                    <img
+                      src={itemPermitPreview}
+                      alt="Item Permit Preview"
+                      style={{ width: '100%', maxHeight: 120, objectFit: 'contain', borderRadius: 6, background: '#fff', border: '1px solid #E2E8F0' }}
+                    />
+                    {isDispatched && itemPermitBase64 && (
+                      <button
+                        type="button"
+                        onClick={handleUploadItemPermitForDispatched}
+                        disabled={dispatching}
+                        style={{ width: '100%', marginTop: 8, background: '#059669', color: '#fff', border: 'none', borderRadius: 6, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        {dispatching ? 'Saving Item Permit...' : 'Save Updated Item Permit Soft Copy'}
+                      </button>
+                    )}
                   </div>
                 ) : (
-                  <div style={{ padding: '8px 12px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, fontSize: 12, color: '#64748B', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <i className="fas fa-info-circle" style={{ color: '#94A3B8' }}></i>
-                    <span>No commodity quarantine permit required for this item (Standard Cargo).</span>
+                  <div style={{ border: '1px dashed #CBD5E1', borderRadius: 8, padding: 12, background: '#F8FAFC', textAlign: 'center' }}>
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      id="item-permit-file-input"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            setItemPermitBase64(reader.result);
+                            setItemPermitPreview(reader.result);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                    <label
+                      htmlFor="item-permit-file-input"
+                      style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: '#0284C7', fontWeight: 600, fontSize: 12 }}
+                    >
+                      <i className="fas fa-cloud-arrow-up" style={{ fontSize: 24 }}></i>
+                      <span>Click to upload Item Permit Soft Copy (Quarantine / Clearance)</span>
+                      <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 400 }}>Driver can display this at DA / PNP highway inspection checkpoints</span>
+                    </label>
                   </div>
                 )}
               </div>

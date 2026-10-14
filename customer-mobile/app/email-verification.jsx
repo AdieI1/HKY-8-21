@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { verifyCode, resendVerification } from '../services/api';
+import { verifyCode, resendVerification, isProfileSetupCompleted } from '../services/api';
 import ErrorModal from '../components/ErrorModal';
 import SweetToast from '../components/SweetToast';
 
@@ -58,15 +58,10 @@ export default function EmailVerification() {
       setToastMessage('Email verified successfully!');
 
       setTimeout(() => {
-        if (data?.user?.phone) {
+        if (data?.user && isProfileSetupCompleted(data.user)) {
           router.replace('/(tabs)/home');
         } else {
-          router.push({
-            pathname: '/accountsetup',
-            params: {
-              username: String(params.username || data?.user?.username || ''),
-            },
-          });
+          router.replace('/accountsetup');
         }
       }, 1000);
     } catch (error) {

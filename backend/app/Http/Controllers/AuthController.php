@@ -54,13 +54,16 @@ class AuthController extends Controller
             \Illuminate\Support\Facades\Log::warning('Broadcast login error: ' . $e->getMessage());
         }
 
+        $isCustomer = strcasecmp($user->role?->role_name ?? '', 'Customer') === 0;
+
         return response()->json([
             'user' => $user,
             'token' => $token,
             'token_type' => 'Bearer',
             'requires_verification' =>
-                strcasecmp($user->role?->role_name ?? '', 'Customer') === 0 &&
-                !$user->email_verified_at,
+                $isCustomer && !$user->email_verified_at,
+            'requires_profile_setup' =>
+                $isCustomer && !$user->profile_completed,
         ]);
     }
 

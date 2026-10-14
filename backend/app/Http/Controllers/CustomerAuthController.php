@@ -51,7 +51,7 @@ class CustomerAuthController extends Controller
         } else {
             $user = User::create([
                 'role_id' => $customerRole->role_id,
-                'full_name' => $username,
+                'full_name' => null,
                 'email' => $validated['email'],
                 'username' => $username,
                 'phone' => null,
@@ -76,6 +76,7 @@ class CustomerAuthController extends Controller
             'token' => $token,
             'token_type' => 'Bearer',
             'requires_verification' => true,
+            'requires_profile_setup' => true,
             'email_sent' => $emailSent,
         ], $created ? 201 : 200);
     }
@@ -177,6 +178,7 @@ class CustomerAuthController extends Controller
             'message' => 'Email verified successfully!',
             'verified' => true,
             'user' => $user->fresh()->load('role'),
+            'requires_profile_setup' => !$user->fresh()->profile_completed,
         ]);
     }
 
@@ -211,6 +213,7 @@ class CustomerAuthController extends Controller
 
         return response()->json([
             'verified' => (bool) $user->email_verified_at,
+            'requires_profile_setup' => !$user->profile_completed,
             'user' => $user->load('role'),
         ]);
     }
@@ -262,6 +265,7 @@ class CustomerAuthController extends Controller
             'message' => 'Profile updated successfully.',
             'user' => $user->fresh()->load('role'),
             'username' => $user->username,
+            'profile_completed' => (bool) $user->fresh()->profile_completed,
         ]);
     }
 

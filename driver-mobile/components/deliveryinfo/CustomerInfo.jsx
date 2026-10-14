@@ -85,15 +85,31 @@ export default function CustomerInfo({ delivery }) {
                 </Text>
             </View>
 
+            {/* Receiving Contact Person */}
+            {request?.receiver_name ? (
+                <View style={styles.receiverBox}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                        <Ionicons name="person-circle-outline" size={17} color="#DE2226" />
+                        <Text style={styles.receiverLabel}>RECEIVING CONTACT PERSON:</Text>
+                    </View>
+                    <Text style={styles.receiverNameText}>{request.receiver_name}</Text>
+                    {request.receiver_phone ? (
+                        <Text style={styles.receiverPhoneText}>
+                            <Text style={styles.bold}>Phone:</Text> {request.receiver_phone}
+                        </Text>
+                    ) : null}
+                </View>
+            ) : null}
+
             {/* Customer name */}
-            <Text style={styles.customerName}>
-                {customerName}
+            <Text style={[styles.customerName, request?.receiver_name ? { fontSize: 13, color: "#6B7280", marginTop: 6 } : null]}>
+                {request?.receiver_name ? `Booked by Customer: ${customerName}` : customerName}
             </Text>
 
             {/* Contact number */}
             <Text style={styles.contact}>
                 <Text style={styles.bold}>
-                    Contact Number:
+                    {request?.receiver_name ? "Customer Phone:" : "Contact Number:"}
                 </Text>{" "}
                 {contactNumber}
             </Text>
@@ -139,6 +155,36 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: "#30313A",
         marginLeft: 5,
+    },
+
+    receiverBox: {
+        backgroundColor: "#FFFFFF",
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: "#FCA5A5",
+        padding: 10,
+        marginTop: 8,
+        marginBottom: 4,
+    },
+
+    receiverLabel: {
+        fontSize: 11,
+        fontWeight: "800",
+        color: "#DC2626",
+        letterSpacing: 0.5,
+    },
+
+    receiverNameText: {
+        fontSize: 18,
+        fontWeight: "800",
+        color: "#1E293B",
+        marginTop: 2,
+    },
+
+    receiverPhoneText: {
+        fontSize: 13,
+        color: "#475569",
+        marginTop: 3,
     },
 
     customerName: {

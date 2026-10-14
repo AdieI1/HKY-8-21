@@ -52,7 +52,6 @@ export default function CreateRequestModal({
   const [showPassword, setShowPassword] = useState(false);
   const [locating, setLocating] = useState('');
   const [receiptPreview, setReceiptPreview] = useState(null);
-  const [itemPermitPreview, setItemPermitPreview] = useState(null);
   const [pricingRates, setPricingRates] = useState({
     base_labor_fee: 800,
     distance_rate: 80,
@@ -65,7 +64,6 @@ export default function CreateRequestModal({
       setFormError('');
       setErrors({});
       setReceiptPreview(null);
-      setItemPermitPreview(null);
 
       api.get('/system-settings')
         .then((res) => {
@@ -283,16 +281,19 @@ export default function CreateRequestModal({
       formData.append('password', form.password);
       if (form.item_name) formData.append('item_name', form.item_name);
       formData.append('cargo_type', form.cargo_type);
+      formData.append('service_type', form.service_type || 'standard');
+      if (form.container_number) formData.append('container_number', form.container_number);
+      if (form.seal_number) formData.append('seal_number', form.seal_number);
       formData.append('fragility', form.fragility);
       if (form.weight) formData.append('weight', form.weight);
-      if (form.item_permit) formData.append('item_permit', form.item_permit);
-      if (form.item_permit_type) formData.append('item_permit_type', form.item_permit_type);
       if (form.pickup?.address) formData.append('pickup_address', form.pickup.address);
       if (form.pickup?.lat != null) formData.append('pickup_lat', form.pickup.lat);
       if (form.pickup?.lng != null) formData.append('pickup_lng', form.pickup.lng);
       if (form.dropoff?.address) formData.append('dropoff_address', form.dropoff.address);
       if (form.dropoff?.lat != null) formData.append('dropoff_lat', form.dropoff.lat);
       if (form.dropoff?.lng != null) formData.append('dropoff_lng', form.dropoff.lng);
+      if (form.receiver_name) formData.append('receiver_name', form.receiver_name);
+      if (form.receiver_phone) formData.append('receiver_phone', form.receiver_phone);
       if (form.distance_km) formData.append('distance_km', form.distance_km);
       formData.append('total_price', form.total_price || 0);
       formData.append('payment_term', form.payment_term);
@@ -514,9 +515,58 @@ export default function CreateRequestModal({
               </div>
 
               <div className="form-group">
+                <label>Service Type:</label>
+                <select className="form-select" value={form.service_type || 'standard'} onChange={(e) => handleInputChange('service_type', e.target.value)}>
+                  <option value="standard">Standard Trucking Delivery</option>
+                  <option value="stuffing">Container Stuffing (Cargo Loading)</option>
+                  <option value="pulling">Container Pull-Out / Pulling (Depot/Port Retrieval)</option>
+                </select>
+              </div>
+
+              {(form.service_type === 'stuffing' || form.service_type === 'pulling') && (
+                <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', padding: '12px', marginBottom: '14px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#0369a1', marginBottom: '8px' }}>
+                    <i className="fas fa-box-archive" style={{ marginRight: '6px' }}></i>
+                    {form.service_type === 'stuffing' ? 'Container Stuffing Information' : 'Container Pull-Out Information'}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: '600', color: '#475569', display: 'block', marginBottom: '4px' }}>Container Number</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. MSCU1234567"
+                        value={form.container_number || ''}
+                        onChange={(e) => handleInputChange('container_number', e.target.value.toUpperCase())}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: '600', color: '#475569', display: 'block', marginBottom: '4px' }}>Seal Number</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. SL987654"
+                        value={form.seal_number || ''}
+                        onChange={(e) => handleInputChange('seal_number', e.target.value.toUpperCase())}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="form-group">
                 <label>Cargo Type:</label>
                 <select className="form-select" value={form.cargo_type} onChange={(e) => handleInputChange('cargo_type', e.target.value)}>
-                  <option>Construction</option><option>Electronics</option><option>Furniture</option><option>Food</option><option>Other</option>
+                  <option value="Construction Materials & Parts">Construction Materials & Parts</option>
+                  <option value="Electronics & Devices">Electronics & Devices</option>
+                  <option value="Food & Perishables">Food & Perishables</option>
+                  <option value="Vehicles & Automotive Parts">Vehicles & Automotive Parts</option>
+                  <option value="Hardware & Industrial Tools">Hardware & Industrial Tools</option>
+                  <option value="Fitness & Gym Equipment">Fitness & Gym Equipment</option>
+                  <option value="Glassware & Ceramics">Glassware & Ceramics</option>
+                  <option value="Chemicals & Hazardous Goods">Chemicals & Hazardous Goods</option>
+                  <option value="Furniture & Household Goods">Furniture & Household Goods</option>
+                  <option value="General Cargo / Other">General Cargo / Other</option>
                 </select>
               </div>
 
@@ -542,72 +592,7 @@ export default function CreateRequestModal({
                 {errors.weight && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.weight}</div>}
               </div>
 
-              {/* Item Delivery Permit */}
-              <div className="form-group" style={{ background: '#F8FAFC', padding: 12, borderRadius: 8, border: '1px solid #E2E8F0' }}>
-                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#1E293B', fontWeight: 600 }}>
-                  <span><i className="fas fa-shield-halved" style={{ color: '#0284C7', marginRight: 6 }}></i> Item Delivery Permit (Quarantine / Clearance):</span>
-                  <span style={{ fontSize: 11, fontWeight: 400, color: '#64748B' }}>Optional / Regulated Cargo</span>
-                </label>
-                <div style={{ marginTop: 6 }}>
-                  <select
-                    className="form-select"
-                    value={form.item_permit_type || 'Cargo Quarantine Clearance'}
-                    onChange={(e) => handleInputChange('item_permit_type', e.target.value)}
-                  >
-                    <option value="Cargo Quarantine Clearance">DA-BAI Quarantine Clearance (Livestock / Meat / Poultry)</option>
-                    <option value="DENR Permit to Transport">DENR Permit to Transport (Forestry / Wildlife Products)</option>
-                    <option value="BPI Plant Quarantine Pass">BPI Plant Quarantine Pass (Agricultural / Seedlings)</option>
-                    <option value="BFAR Fish Inspection Certificate">BFAR Fish & Fishery Products Inspection Certificate</option>
-                    <option value="Hazardous / Regulated Commodity Permit">Hazardous / Regulated Commodity Transit Permit</option>
-                    <option value="General Cargo Clearance">General Cargo Clearance</option>
-                  </select>
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  {itemPermitPreview ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', padding: 8, borderRadius: 6, border: '1px solid #CBD5E1' }}>
-                      <img src={itemPermitPreview} alt="Permit Preview" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4 }} />
-                      <div style={{ flex: 1, fontSize: 12, color: '#334155' }}>
-                        <div style={{ fontWeight: 600 }}>Permit Soft Copy Attached</div>
-                        <div style={{ fontSize: 11, color: '#64748B' }}>{form.item_permit?.name || 'Uploaded Document'}</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleInputChange('item_permit', null);
-                          setItemPermitPreview(null);
-                        }}
-                        style={{ background: '#FEE2E2', color: '#DC2626', border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ) : (
-                    <input
-                      type="file"
-                      accept="image/*,.pdf"
-                      className="form-input"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          handleInputChange('item_permit', file);
-                          if (file.type.startsWith('image/')) {
-                            const reader = new FileReader();
-                            reader.onload = () => setItemPermitPreview(reader.result);
-                            reader.readAsDataURL(file);
-                          } else {
-                            setItemPermitPreview('/file-icon.png');
-                          }
-                        }
-                      }}
-                    />
-                  )}
-                  <span style={{ fontSize: 11, color: '#64748B', display: 'block', marginTop: 4 }}>
-                    Soft copy is accessible to the driver on checkpoint inspections in Mindanao routes.
-                  </span>
-                </div>
-              </div>
-
-              <h3 className="section-title-form" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 className="section-title-form" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 24, marginBottom: 14 }}>
                 <span>Delivery Location:</span>
                 <span className="mindanao-lock-badge" style={{ fontSize: 10 }}>
                   <i className="fas fa-lock"></i> Mindanao Only
@@ -660,6 +645,28 @@ export default function CreateRequestModal({
                   </button>
                 </div>
                 {errors.dropoff && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.dropoff}</div>}
+              </div>
+
+              <div className="form-group" style={{ position: 'relative' }}>
+                <label>Receiver (Contact Person Name):</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Juan Dela Cruz (leave blank if same as customer)"
+                  value={form.receiver_name || ''}
+                  onChange={(e) => handleInputChange('receiver_name', e.target.value)}
+                />
+              </div>
+
+              <div className="form-group" style={{ position: 'relative' }}>
+                <label>Receiver Contact Phone:</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. 0912 345 6789"
+                  value={form.receiver_phone || ''}
+                  onChange={(e) => handleInputChange('receiver_phone', e.target.value)}
+                />
               </div>
 
               <PinRouteMap

@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   Dimensions,
   Image,
@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { getCurrentCustomer, getSavedUser } from "../services/api";
+import { getCurrentCustomer, getSavedUser, refreshCustomerProfile } from "../services/api";
 
 const { width, height } = Dimensions.get("window");
 const pfpplaceholder = require("../assets/images/profilepic.png");
@@ -22,19 +22,30 @@ export default function AppHeader({
 }) {
   const [customer, setCustomer] = useState(getCurrentCustomer());
 
-  useEffect(() => {
-    let active = true;
-    getSavedUser().then((user) => {
-      if (active && user) {
-        setCustomer(user);
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      getSavedUser().then((user) => {
+        if (active && user) {
+          setCustomer(user);
+        }
+      });
+      refreshCustomerProfile().then((user) => {
+        if (active && user) {
+          setCustomer(user);
+        }
+      });
+      return () => {
+        active = false;
+      };
+    }, [])
+  );
 
-  const customerName = name || customer?.full_name || customer?.username || "Customer";
+  const customerName =
+    name ||
+    (customer?.full_name && String(customer.full_name).trim().length > 0
+      ? String(customer.full_name).trim()
+      : "Customer");
   return (
     <LinearGradient
       colors={["#4F0A11", "#9E1E21"]}

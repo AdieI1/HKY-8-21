@@ -649,7 +649,7 @@ function StaffDashboardPage() {
         systemLogs = Array.isArray(logRes.data) ? logRes.data : [];
       }
 
-      const activeDel = deliveries.filter((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status)).length;
+      const activeDel = deliveries.filter((d) => ['assigned', 'accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'arrived_dropoff', 'unloading_cargo', 'returning_to_hq'].includes(d.status)).length;
       const scheduledDelCount = deliveries.filter(
         (d) => (d.request?.is_scheduled || d.request?.scheduled_date) && !['completed', 'cancelled'].includes(d.status)
       ).length + requests.filter(
@@ -776,7 +776,7 @@ function StaffDashboardPage() {
       // ── Connected Dynamic Vehicles Summary ──
       const activeDeliveryVehIds = new Set(
         deliveries
-          .filter((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status))
+          .filter((d) => ['assigned', 'accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'arrived_dropoff', 'unloading_cargo', 'returning_to_hq'].includes(d.status))
           .map((d) => Number(d.vehicle_id))
           .filter(Boolean)
       );
@@ -801,7 +801,7 @@ function StaffDashboardPage() {
       // ── Dynamic Drivers Summary ──
       const activeDeliveryDriverIds = new Set(
         deliveries
-          .filter((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status))
+          .filter((d) => ['assigned', 'accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'arrived_dropoff', 'unloading_cargo', 'returning_to_hq'].includes(d.status))
           .map((d) => Number(d.driver_id))
           .filter(Boolean)
       );
@@ -899,7 +899,7 @@ function StaffDashboardPage() {
       // 3. Driver Availability (Only show 'on break' if not on an active delivery)
       const activeDriverIds = new Set(
         deliveries
-          .filter((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status))
+          .filter((d) => ['assigned', 'accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'arrived_dropoff', 'unloading_cargo', 'returning_to_hq'].includes(d.status))
           .map((d) => Number(d.driver_id))
       );
 

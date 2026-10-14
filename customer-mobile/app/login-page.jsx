@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { login } from "../services/api";
+import { login, isProfileSetupCompleted } from "../services/api";
 import ErrorModal from "../components/ErrorModal";
 import SweetToast from "../components/SweetToast";
 
@@ -24,7 +24,7 @@ const truckBg = require("../assets/images/mobileTruckBackground.png");
 export default function LoginScreen() {
   const [secure, setSecure] = useState(true);
   const [remember, setRemember] = useState(false);
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -35,11 +35,11 @@ export default function LoginScreen() {
   const router = useRouter();
 
   const handleLogin = async () => {
-    const trimmedUser = username.trim();
-    if (!trimmedUser) {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
       setErrorModal({
         visible: true,
-        message: "Please enter your username or email address.",
+        message: "Please enter your email address.",
       });
       return;
     }
@@ -54,7 +54,7 @@ export default function LoginScreen() {
 
     try {
       setSubmitting(true);
-      const data = await login(trimmedUser, password);
+      const data = await login(trimmedEmail, password);
 
       if (data?.requires_verification) {
         setErrorModal({
@@ -66,11 +66,19 @@ export default function LoginScreen() {
           router.push({
             pathname: "/email-verification",
             params: {
-              email: data?.user?.email || "",
-              username: data?.user?.username || trimmedUser,
+              email: data?.user?.email || trimmedEmail,
             },
           });
         }, 1500);
+        return;
+      }
+
+      const profileComplete = isProfileSetupCompleted(data?.user);
+      if (data?.requires_profile_setup || !profileComplete) {
+        setToastMessage("Please complete your profile to continue.");
+        setTimeout(() => {
+          router.replace("/accountsetup");
+        }, 600);
         return;
       }
 
@@ -81,7 +89,7 @@ export default function LoginScreen() {
     } catch (error) {
       setErrorModal({
         visible: true,
-        message: error?.message || "Invalid username or password. Please try again.",
+        message: error?.message || "Invalid email or password. Please try again.",
       });
     } finally {
       setSubmitting(false);
@@ -107,13 +115,14 @@ export default function LoginScreen() {
                 Let us keep your shipments moving.
               </Text>
 
-              {/* Username / Email */}
+              {/* Email Address */}
               <TextInput
-                placeholder="Username or Email"
+                placeholder="Email Address"
                 placeholderTextColor="#bbb"
                 style={styles.input}
-                value={username}
-                onChangeText={setUsername}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
                 autoCapitalize="none"
               />
 

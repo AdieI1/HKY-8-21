@@ -48,9 +48,10 @@ function isOverdue(request) {
 
 const EMPTY_FORM = {
   first_name: '', last_name: '', phone: '', email: '', username: '', password: '', confirmPassword: '',
-  item_name: '', cargo_type: 'Construction', fragility: 'low', weight: '',
-  item_permit: null, item_permit_type: 'Cargo Quarantine Clearance',
+  item_name: '', cargo_type: 'Construction Materials & Parts', fragility: 'low', weight: '',
+  service_type: 'standard', container_number: '', seal_number: '',
   pickup: { address: '', lat: null, lng: null }, dropoff: { address: '', lat: null, lng: null },
+  receiver_name: '', receiver_phone: '',
   distance_km: '', total_price: 800, payment_term: 'downpayment', payment_method: 'bank_transfer',
   bank_name: '', account_name: '', account_number: '', payment_receipt: null,
   is_scheduled: false, scheduled_date: '', scheduled_time_slot: '09:00 AM',

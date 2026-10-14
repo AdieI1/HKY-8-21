@@ -9,7 +9,6 @@ import {
   Alert,
   Dimensions,
   Image,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -19,13 +18,15 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { getCurrentCustomer, getSavedUser, logout, updateCustomerProfile, reportBug } from "../../services/api";
+import { getCurrentCustomer, getSavedUser, refreshCustomerProfile, logout, updateCustomerProfile } from "../../services/api";
+import { useTheme } from "../../context/ThemeContext";
 
 const { width, height } = Dimensions.get("window");
 const pfpplaceholder = require("../../assets/images/profilepic.png");
 
 const Profile = () => {
   const router = useRouter();
+  const { isDark, colors } = useTheme();
   const [customer, setCustomer] = useState(getCurrentCustomer() || {});
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -38,39 +39,10 @@ const Profile = () => {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  const [bugModalVisible, setBugModalVisible] = useState(false);
-  const [bugCategory, setBugCategory] = useState("Booking & Requests");
-  const [bugDescription, setBugDescription] = useState("");
-  const [submittingBug, setSubmittingBug] = useState(false);
-
-  const handleSubmitBug = async () => {
-    if (!bugDescription.trim()) {
-      Alert.alert("Required", "Please describe the problem you encountered.");
-      return;
-    }
-    try {
-      setSubmittingBug(true);
-      await reportBug({
-        category: bugCategory,
-        description: bugDescription.trim(),
-        deviceInfo: "Customer Mobile App",
-      });
-      setBugModalVisible(false);
-      setBugDescription("");
-      Alert.alert(
-        "Report Submitted",
-        "Thank you! Your bug report has been forwarded to logistics support."
-      );
-    } catch {
-      Alert.alert("Error", "Could not submit bug report. Please try again.");
-    } finally {
-      setSubmittingBug(false);
-    }
-  };
 
   const populateForm = (user) => {
     if (!user) return;
-    const nameParts = String(user.full_name || user.username || "").trim().split(/\s+/);
+    const nameParts = String(user.full_name || "").trim().split(/\s+/);
     setFirstName(nameParts[0] || "");
     setLastName(nameParts.slice(1).join(" ") || "");
     setPhone(user.phone || "");
@@ -81,7 +53,7 @@ const Profile = () => {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      getSavedUser().then((user) => {
+      refreshCustomerProfile().then((user) => {
         if (active && user) {
           setCustomer(user);
           populateForm(user);
@@ -107,7 +79,29 @@ const Profile = () => {
         quality: 0.8,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setSelectedPhoto(result.assets[0]);
+        const picked = result.assets[0];
+        setSelectedPhoto(picked);
+        setSaving(true);
+        try {
+          const res = await updateCustomerProfile({
+            first_name: firstName,
+            last_name: lastName,
+            phone: phone,
+            gender: gender,
+            date_of_birth: dob,
+            photo: picked,
+          });
+          if (res?.user) {
+            setCustomer(res.user);
+            populateForm(res.user);
+          }
+          Alert.alert("Success", "Profile photo updated successfully!");
+        } catch (uploadErr) {
+          Alert.alert("Upload Failed", uploadErr?.message || "Failed to update profile picture.");
+        } finally {
+          setSaving(false);
+          setSelectedPhoto(null);
+        }
       }
     } catch {
       Alert.alert("Error", "Failed to select image.");
@@ -169,37 +163,34 @@ const Profile = () => {
   };
 
   const handleSettingsPress = () => {
-    Alert.alert("Settings", "Account Options", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Log Out",
-        style: "destructive",
-        onPress: async () => {
-          await logout();
-          router.replace("/login-page");
-        },
-      },
-    ]);
+    router.push("/settings");
   };
 
   const avatarUri = selectedPhoto?.uri || customer.profile_photo_url;
-  const displayName = customer.full_name || customer.username || "Customer";
+  const displayName =
+    customer.full_name && String(customer.full_name).trim().length > 0
+      ? String(customer.full_name).trim()
+      : "Customer";
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bg }]}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        style={{ flex: 1, backgroundColor: colors.bg }}
+        contentContainerStyle={{ paddingBottom: 120, backgroundColor: colors.bg }}
+      >
         {/* GRADIENT HEADER */}
         <LinearGradient colors={["#4F0A11", "#9E1E21"]} style={styles.container}>
           {/* HEADER BAR */}
-          <View style={styles.headerBar}>
+          <View style={[styles.headerBar, { backgroundColor: isDark ? colors.card : "#FFFFFF", borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
             <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
               <Ionicons name="arrow-back" size={18} color="#fff" />
             </TouchableOpacity>
 
-            <Text style={styles.headerTitle}>User Profile</Text>
+            <Text style={[styles.headerTitle, { color: isDark ? "#EF4444" : "#CA2A30" }]}>User Profile</Text>
 
             <TouchableOpacity onPress={handleSettingsPress} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="settings-outline" size={26} color="#CA2A30" />
+              <Ionicons name="settings-outline" size={26} color={isDark ? "#EF4444" : "#CA2A30"} />
             </TouchableOpacity>
           </View>
 
@@ -221,72 +212,73 @@ const Profile = () => {
         </LinearGradient>
 
         {/* PERSONAL INFORMATION CARD */}
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
           <View style={styles.sectionHeader}>
             <Ionicons name="person-outline" size={18} color="#CA2A30" />
-            <Text style={styles.sectionTitle}>Personal Information</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Personal Information</Text>
           </View>
 
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
           {/* PHONE NUMBER */}
           <View style={styles.infoRow}>
-            <Text style={styles.label}>Phone number</Text>
-            <View style={styles.valueRow}>
+            <Text style={[styles.label, { color: colors.textMuted }]}>Phone number</Text>
+            <View style={[styles.valueRow, { backgroundColor: isDark ? "#0F172A" : "#D2D6E0" }]}>
               {isEditing ? (
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { color: colors.text }]}
                   value={phone}
                   onChangeText={(t) => setPhone(t.replace(/[^0-9]/g, "").slice(0, 11))}
                   keyboardType="phone-pad"
+                  maxLength={11}
                   placeholder="09817281099"
-                  placeholderTextColor="#777987"
+                  placeholderTextColor={colors.textSubtle}
                 />
               ) : (
-                <Text style={styles.valueText}>{phone || "N/A"}</Text>
+                <Text style={[styles.valueText, { color: isDark ? "#F8FAFC" : "#444451" }]}>{phone || "N/A"}</Text>
               )}
             </View>
           </View>
 
           {/* FIRST NAME */}
           <View style={styles.infoRow}>
-            <Text style={styles.label}>First Name</Text>
-            <View style={styles.valueRow}>
+            <Text style={[styles.label, { color: colors.textMuted }]}>First Name</Text>
+            <View style={[styles.valueRow, { backgroundColor: isDark ? "#0F172A" : "#D2D6E0" }]}>
               {isEditing ? (
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { color: colors.text }]}
                   value={firstName}
                   onChangeText={setFirstName}
                   placeholder="First Name"
-                  placeholderTextColor="#777987"
+                  placeholderTextColor={colors.textSubtle}
                 />
               ) : (
-                <Text style={styles.valueText}>{firstName || "N/A"}</Text>
+                <Text style={[styles.valueText, { color: isDark ? "#F8FAFC" : "#444451" }]}>{firstName || "N/A"}</Text>
               )}
             </View>
           </View>
 
           {/* LAST NAME */}
           <View style={styles.infoRow}>
-            <Text style={styles.label}>Last Name</Text>
-            <View style={styles.valueRow}>
+            <Text style={[styles.label, { color: colors.textMuted }]}>Last Name</Text>
+            <View style={[styles.valueRow, { backgroundColor: isDark ? "#0F172A" : "#D2D6E0" }]}>
               {isEditing ? (
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { color: colors.text }]}
                   value={lastName}
                   onChangeText={setLastName}
                   placeholder="Last Name"
-                  placeholderTextColor="#777987"
+                  placeholderTextColor={colors.textSubtle}
                 />
               ) : (
-                <Text style={styles.valueText}>{lastName || "N/A"}</Text>
+                <Text style={[styles.valueText, { color: isDark ? "#F8FAFC" : "#444451" }]}>{lastName || "N/A"}</Text>
               )}
             </View>
           </View>
 
           {/* GENDER */}
           <View style={styles.infoRow}>
-            <Text style={styles.label}>Gender</Text>
+            <Text style={[styles.label, { color: colors.textMuted }]}>Gender</Text>
             {isEditing ? (
               <View style={styles.genderRow}>
                 {["Male", "Female"].map((g) => (
@@ -300,22 +292,22 @@ const Profile = () => {
                 ))}
               </View>
             ) : (
-              <View style={styles.valueRow}>
-                <Text style={styles.valueText}>{gender || "N/A"}</Text>
+              <View style={[styles.valueRow, { backgroundColor: isDark ? "#0F172A" : "#D2D6E0" }]}>
+                <Text style={[styles.valueText, { color: isDark ? "#F8FAFC" : "#444451" }]}>{gender || "N/A"}</Text>
               </View>
             )}
           </View>
 
           {/* DATE OF BIRTH */}
           <View style={styles.infoRow}>
-            <Text style={styles.label}>Date of Birth</Text>
+            <Text style={[styles.label, { color: colors.textMuted }]}>Date of Birth</Text>
             <TouchableOpacity
               onPress={() => isEditing && setShowDatePicker(true)}
               activeOpacity={isEditing ? 0.7 : 1}
-              style={styles.valueRow}
+              style={[styles.valueRow, { backgroundColor: isDark ? "#0F172A" : "#D2D6E0" }]}
             >
-              <Ionicons name="calendar-outline" size={16} color="#555" style={{ marginRight: 6 }} />
-              <Text style={styles.valueText}>{dob || "05/16/98"}</Text>
+              <Ionicons name="calendar-outline" size={16} color={colors.textMuted} style={{ marginRight: 6 }} />
+              <Text style={[styles.valueText, { color: isDark ? "#F8FAFC" : "#444451" }]}>{dob || "05/16/98"}</Text>
             </TouchableOpacity>
           </View>
 
@@ -353,84 +345,24 @@ const Profile = () => {
                 <Text style={styles.editText}>Edit Profile</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.bugBtn}
-                onPress={() => setBugModalVisible(true)}
+                style={[
+                  styles.settingsBtn,
+                  {
+                    backgroundColor: isDark ? "#1E293B" : "#F8FAFC",
+                    borderColor: colors.cardBorder,
+                  },
+                ]}
+                onPress={() => router.push("/settings")}
                 activeOpacity={0.85}
               >
-                <Ionicons name="bug-outline" size={18} color="#CA2A30" />
-                <Text style={styles.bugBtnText}>Report a Problem / Bug</Text>
+                <Ionicons name="settings-outline" size={18} color={colors.textMuted} />
+                <Text style={[styles.settingsBtnText, { color: colors.text }]}>Settings & Preferences</Text>
               </TouchableOpacity>
             </View>
           )}
         </View>
       </ScrollView>
 
-      {/* BUG REPORT MODAL */}
-      <Modal
-        visible={bugModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setBugModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Ionicons name="bug-outline" size={20} color="#CA2A30" />
-                <Text style={styles.modalTitle}>Report an Issue / Bug</Text>
-              </View>
-              <TouchableOpacity onPress={() => setBugModalVisible(false)} hitSlop={10}>
-                <Ionicons name="close" size={22} color="#666" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: height * 0.6 }}>
-              <Text style={styles.modalLabel}>Issue Category</Text>
-              <View style={styles.modalCategoryRow}>
-                {["Booking & Requests", "Tracking & Map", "Profile & Account", "Billing / Pricing", "Other"].map((cat) => (
-                  <TouchableOpacity
-                    key={cat}
-                    style={[styles.modalCatChip, bugCategory === cat && styles.modalCatChipActive]}
-                    onPress={() => setBugCategory(cat)}
-                  >
-                    <Text style={[styles.modalCatChipText, bugCategory === cat && styles.modalCatChipTextActive]}>
-                      {cat}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={[styles.modalLabel, { marginTop: 14 }]}>Describe the Problem</Text>
-              <TextInput
-                style={styles.modalInput}
-                placeholder="What happened? Please describe the issue in detail..."
-                placeholderTextColor="#999"
-                multiline
-                numberOfLines={4}
-                value={bugDescription}
-                onChangeText={setBugDescription}
-                textAlignVertical="top"
-              />
-
-              <TouchableOpacity
-                style={styles.modalSubmitBtn}
-                onPress={handleSubmitBug}
-                disabled={submittingBug}
-                activeOpacity={0.85}
-              >
-                {submittingBug ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="send" size={16} color="#fff" style={{ marginRight: 6 }} />
-                    <Text style={styles.modalSubmitText}>Submit Bug Report</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 };
@@ -467,8 +399,8 @@ const styles = StyleSheet.create({
   genderChipTextActive: { color: "#FFFFFF" },
   editBtn: { backgroundColor: "#E53935", paddingVertical: 14, borderRadius: 12, flexDirection: "row", justifyContent: "center", alignItems: "center" },
   editText: { color: "#fff", fontSize: width * 0.04, fontWeight: "600", marginLeft: 6 },
-  bugBtn: { backgroundColor: "#FFF5F5", borderWidth: 1, borderColor: "#FED7D7", paddingVertical: 13, borderRadius: 12, flexDirection: "row", justifyContent: "center", alignItems: "center" },
-  bugBtnText: { color: "#CA2A30", fontSize: width * 0.038, fontWeight: "600", marginLeft: 6 },
+  settingsBtn: { backgroundColor: "#F8FAFC", borderWidth: 1, borderColor: "#E2E8F0", paddingVertical: 13, borderRadius: 12, flexDirection: "row", justifyContent: "center", alignItems: "center" },
+  settingsBtnText: { color: "#334155", fontSize: width * 0.038, fontWeight: "600", marginLeft: 6 },
   buttonGroup: { marginTop: height * 0.025, gap: 10 },
   saveBtn: { backgroundColor: "#2E7D32", paddingVertical: 14, borderRadius: 12, flexDirection: "row", justifyContent: "center", alignItems: "center" },
   saveBtnText: { color: "#fff", fontSize: width * 0.04, fontWeight: "600", marginLeft: 6 },

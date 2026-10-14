@@ -37,15 +37,20 @@ class ReviewController extends Controller
         $customerId = $request->customer_id ?? $request->user()?->user_id;
 
         $validated = $request->validate([
-            'delivery_id' => 'required|exists:deliveries,delivery_id',
+            'delivery_id' => 'nullable|exists:deliveries,delivery_id',
             'customer_id' => 'nullable|exists:users,user_id',
             'overall_rating' => 'required|integer|min:1|max:5',
-            'driver_rating' => 'required|integer|min:1|max:5',
+            'driver_rating' => 'nullable|integer|min:1|max:5',
             'comments' => 'nullable|string|max:1000',
             'photo' => 'nullable|file|image|max:10240',
         ]);
 
         $validated['customer_id'] = $customerId;
+        if (empty($validated['delivery_id'])) {
+            $validated['driver_rating'] = null;
+        } else {
+            $validated['driver_rating'] = $validated['driver_rating'] ?? $validated['overall_rating'];
+        }
 
         if ($request->hasFile('photo')) {
             $validated['photo_path'] = $request->file('photo')->store('review-photos', 'public');
@@ -53,13 +58,17 @@ class ReviewController extends Controller
 
         unset($validated['photo']);
 
-        $review = Review::updateOrCreate(
-            [
-                'delivery_id' => $validated['delivery_id'],
-                'customer_id' => $validated['customer_id'],
-            ],
-            $validated
-        );
+        if (!empty($validated['delivery_id'])) {
+            $review = Review::updateOrCreate(
+                [
+                    'delivery_id' => $validated['delivery_id'],
+                    'customer_id' => $validated['customer_id'],
+                ],
+                $validated
+            );
+        } else {
+            $review = Review::create($validated);
+        }
 
         return response()->json($review->load([
             'delivery.request.customer',

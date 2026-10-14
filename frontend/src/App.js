@@ -70,6 +70,7 @@ function App() {
             <Route path="/requests" element={<ProtectedRoute><RequestsPage /></ProtectedRoute>} />
             <Route path="/dispatch" element={<ProtectedRoute><DispatchPage /></ProtectedRoute>} />
             <Route path="/delivery" element={<ProtectedRoute><DeliveryPage /></ProtectedRoute>} />
+            <Route path="/deliveries" element={<ProtectedRoute><DeliveryPage /></ProtectedRoute>} />
             <Route path="/drivers" element={<ProtectedRoute><DriversPage /></ProtectedRoute>} />
             <Route path="/vehicles" element={<ProtectedRoute><VehiclesPage /></ProtectedRoute>} />
             <Route path="/analytics" element={<ProtectedRoute allowedRoles={['admin']}><AnalyticsPage /></ProtectedRoute>} />

@@ -9,8 +9,11 @@ import {
   Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useTheme } from "../context/ThemeContext";
 
 export default function TermsModal({ visible, onClose }) {
+  const { colors, isDark } = useTheme();
+
   if (!visible) return null;
 
   return (
@@ -20,20 +23,20 @@ export default function TermsModal({ visible, onClose }) {
       visible={visible}
       onRequestClose={onClose}
     >
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
+      <Pressable style={[styles.overlay, { backgroundColor: colors.modalBackdrop }]} onPress={onClose}>
+        <Pressable style={[styles.card, { backgroundColor: colors.modalBg, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]} onPress={(e) => e.stopPropagation()}>
           {/* Header */}
-          <View style={styles.header}>
+          <View style={[styles.header, { borderBottomColor: colors.divider }]}>
             <View>
-              <Text style={styles.headerTitle}>Terms and Agreements</Text>
-              <Text style={styles.headerSubtitle}>HJY Trucking Services</Text>
+              <Text style={[styles.headerTitle, { color: colors.text }]}>Terms and Agreements</Text>
+              <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>HJY Trucking Services</Text>
             </View>
             <TouchableOpacity
               onPress={onClose}
               style={styles.closeBtn}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Ionicons name="close" size={22} color="#64748B" />
+              <Ionicons name="close" size={22} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -43,51 +46,51 @@ export default function TermsModal({ visible, onClose }) {
             showsVerticalScrollIndicator={true}
             contentContainerStyle={styles.scrollContent}
           >
-            <Text style={styles.effectiveDate}>Effective Date: October 2026</Text>
+            <Text style={[styles.effectiveDate, { color: colors.textSubtle }]}>Effective Date: October 2026</Text>
 
-            <Text style={styles.sectionTitle}>1. Acceptance of Terms</Text>
-            <Text style={styles.paragraph}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>1. Acceptance of Terms</Text>
+            <Text style={[styles.paragraph, { color: colors.textMuted }]}>
               By creating an account or booking services through the HJY Trucking Services customer application, you agree to be bound by these Terms and Agreements and our Privacy Policy. If you do not agree to these terms, please do not use our services.
             </Text>
 
-            <Text style={styles.sectionTitle}>2. Account Registration & Security</Text>
-            <Text style={styles.paragraph}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>2. Account Registration & Security</Text>
+            <Text style={[styles.paragraph, { color: colors.textMuted }]}>
               Customers must provide accurate, current, and complete information during registration. You are responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your account.
             </Text>
 
-            <Text style={styles.sectionTitle}>3. Booking & Delivery Services</Text>
-            <Text style={styles.paragraph}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>3. Booking & Delivery Services</Text>
+            <Text style={[styles.paragraph, { color: colors.textMuted }]}>
               All shipment delivery requests are subject to fleet availability, scheduling confirmation, and route validation. Estimated delivery times provided are approximations and may vary depending on road conditions, weather events, or traffic constraints.
             </Text>
 
-            <Text style={styles.sectionTitle}>4. Prohibited Items & Cargo Safety</Text>
-            <Text style={styles.paragraph}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>4. Prohibited Items & Cargo Safety</Text>
+            <Text style={[styles.paragraph, { color: colors.textMuted }]}>
               Customers agree not to dispatch hazardous, illegal, undeclared, or prohibited materials. HJY Trucking Services reserves the right to inspect cargo documentation and refuse carriage of any items that violate local regulations or safety standards.
             </Text>
 
-            <Text style={styles.sectionTitle}>5. Payments & Pricing</Text>
-            <Text style={styles.paragraph}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>5. Payments & Pricing</Text>
+            <Text style={[styles.paragraph, { color: colors.textMuted }]}>
               Rates and fees are calculated based on vehicle type, cargo weight, distance, and associated service fees. Incurred fees must be settled according to agreed payment terms upon dispatch or upon delivery receipt.
             </Text>
 
-            <Text style={styles.sectionTitle}>6. Cancellation & Rescheduling</Text>
-            <Text style={styles.paragraph}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>6. Cancellation & Rescheduling</Text>
+            <Text style={[styles.paragraph, { color: colors.textMuted }]}>
               Shipment cancellations or reschedule requests must be submitted through the app prior to driver dispatch to avoid cancellation charges.
             </Text>
 
-            <Text style={styles.sectionTitle}>7. Privacy & Data Protection</Text>
-            <Text style={styles.paragraph}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>7. Privacy & Data Protection</Text>
+            <Text style={[styles.paragraph, { color: colors.textMuted }]}>
               We respect your privacy. Personal data including your name, contact information, email, and delivery addresses are collected solely to facilitate trucking logistics and service notifications. We do not sell your personal data to third parties.
             </Text>
 
-            <Text style={styles.sectionTitle}>8. Contact Us</Text>
-            <Text style={styles.paragraph}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>8. Contact Us</Text>
+            <Text style={[styles.paragraph, { color: colors.textMuted }]}>
               For inquiries regarding shipments, billing, or these terms, please reach out via our support channel or email us at truckingserviceshjy@gmail.com.
             </Text>
           </ScrollView>
 
           {/* Footer Action */}
-          <View style={styles.footer}>
+          <View style={[styles.footer, { borderTopColor: colors.divider }]}>
             <TouchableOpacity style={styles.understandBtn} onPress={onClose}>
               <Text style={styles.understandText}>I Understand & Agree</Text>
             </TouchableOpacity>

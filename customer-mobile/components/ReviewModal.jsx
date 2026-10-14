@@ -16,11 +16,13 @@ import {
   View,
 } from "react-native";
 import { submitReview } from "../services/api";
+import { useTheme } from "../context/ThemeContext";
 
 const pfpplaceholder = require("../assets/images/profilepic.png");
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
 export default function ReviewModal({ visible, delivery, onClose, onSuccess }) {
+  const { isDark, colors } = useTheme();
   const [serviceRating, setServiceRating] = useState(0);
   const [driverRating, setDriverRating] = useState(0);
   const [comments, setComments] = useState("");
@@ -123,15 +125,15 @@ export default function ReviewModal({ visible, delivery, onClose, onSuccess }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.backdrop}>
-        <View style={styles.modalCard}>
+        <View style={[styles.modalCard, { backgroundColor: colors.modalBg, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
           {submitted ? (
-            <View style={styles.successContainer}>
+            <View style={[styles.successContainer, { backgroundColor: colors.modalBg }]}>
               <View style={styles.successHeader}>
                 <TouchableOpacity onPress={handleClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
                   <Ionicons name="arrow-back" size={28} color="#FF3B30" />
                 </TouchableOpacity>
               </View>
-              <View style={styles.headerBorder} />
+              <View style={[styles.headerBorder, { backgroundColor: colors.divider }]} />
 
               <View style={styles.successBody}>
                 <View style={styles.smileCircle}>
@@ -143,7 +145,7 @@ export default function ReviewModal({ visible, delivery, onClose, onSuccess }) {
                 </View>
 
                 <Text style={styles.thankYouTitle}>Thank You!</Text>
-                <Text style={styles.thankYouSubtitle}>
+                <Text style={[styles.thankYouSubtitle, { color: isDark ? "#F87171" : "#E05252" }]}>
                   We appreciate your feedback! Your input helps us deliver better experiences every time.
                 </Text>
               </View>
@@ -156,61 +158,65 @@ export default function ReviewModal({ visible, delivery, onClose, onSuccess }) {
                   <Text style={styles.headerTitle}>Rate your Delivery</Text>
                 </View>
                 <TouchableOpacity onPress={handleClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Ionicons name="close" size={22} color="#777987" />
+                  <Ionicons name="close" size={22} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
-              <View style={styles.headerBorder} />
+              <View style={[styles.headerBorder, { backgroundColor: colors.divider }]} />
 
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Hows the Service?</Text>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Hows the Service?</Text>
                   {renderStars(serviceRating, setServiceRating)}
                 </View>
-                <View style={styles.divider} />
+                <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
                 <View style={styles.section}>
                   <View style={styles.driverInfoRow}>
                     <Image source={pfpplaceholder} style={styles.driverAvatar} />
                     <View>
-                      <Text style={styles.driverName}>{delivery?.driver || "Driver"}</Text>
-                      <Text style={styles.driverLabel}>Driver</Text>
+                      <Text style={[styles.driverName, { color: colors.text }]}>{delivery?.driver || "Driver"}</Text>
+                      <Text style={[styles.driverLabel, { color: colors.textMuted }]}>Driver</Text>
                     </View>
                   </View>
-                  <Text style={styles.sectionTitle}>How was the driver?</Text>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>How was the driver?</Text>
                   {renderStars(driverRating, setDriverRating)}
                 </View>
-                <View style={styles.divider} />
+                <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
                 <View style={styles.section}>
                   <View style={styles.feedbackHeaderRow}>
-                    <Ionicons name="chatbox-ellipses" size={17} color="#58627A" />
-                    <Text style={styles.feedbackTitle}> Additional Feedback</Text>
-                    <Text style={styles.optionalText}>(Optional)</Text>
+                    <Ionicons name="chatbox-ellipses" size={17} color={colors.textMuted} />
+                    <Text style={[styles.feedbackTitle, { color: colors.text }]}> Additional Feedback</Text>
+                    <Text style={[styles.optionalText, { color: colors.textSubtle }]}>(Optional)</Text>
                   </View>
                   <TextInput
-                    style={styles.textArea}
+                    style={[styles.textArea, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, color: colors.text }]}
                     multiline
                     numberOfLines={4}
-                    placeholder="Tell use more..."
-                    placeholderTextColor="#9CA3AF"
+                    placeholder="Tell us more..."
+                    placeholderTextColor={colors.textSubtle}
                     value={comments}
                     onChangeText={setComments}
                   />
                 </View>
 
                 <View style={styles.section}>
-                  <TouchableOpacity style={styles.attachBtn} onPress={handlePickPhoto} activeOpacity={0.8}>
-                    <Ionicons name="camera" size={19} color="#58627A" />
-                    <Text style={styles.attachBtnText}> Attach photo</Text>
-                    <Text style={styles.attachOptionalText}>(Optional)</Text>
+                  <TouchableOpacity
+                    style={[styles.attachBtn, { backgroundColor: isDark ? colors.cardBorder : "#DCE1EB" }]}
+                    onPress={handlePickPhoto}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="camera" size={19} color={colors.textMuted} />
+                    <Text style={[styles.attachBtnText, { color: colors.text }]}> Attach photo</Text>
+                    <Text style={[styles.attachOptionalText, { color: colors.textSubtle }]}>(Optional)</Text>
                   </TouchableOpacity>
 
                   {photo && (
-                    <View style={styles.previewContainer}>
+                    <View style={[styles.previewContainer, { backgroundColor: isDark ? colors.cardBorder : "#F3F4F8" }]}>
                       <Image source={{ uri: photo.uri }} style={styles.previewImage} />
                       <View style={styles.previewInfo}>
-                        <Text style={styles.previewName} numberOfLines={1}>{photo.fileName || "Selected Image"}</Text>
-                        <Text style={styles.previewSize}>
+                        <Text style={[styles.previewName, { color: colors.text }]} numberOfLines={1}>{photo.fileName || "Selected Image"}</Text>
+                        <Text style={[styles.previewSize, { color: colors.textMuted }]}>
                           {photo.fileSize ? `${(photo.fileSize / (1024 * 1024)).toFixed(2)} MB` : "Image attached"}
                         </Text>
                       </View>

@@ -33,6 +33,26 @@ export const getSavedUser = async () => {
   }
 };
 
+export const getCurrentCustomer = () => authUser;
+
+export const refreshCustomerProfile = async () => {
+  try {
+    const token = await getToken();
+    if (!token) return null;
+    const data = await request("/customer/email/status");
+    if (data?.user) {
+      authUser = data.user;
+      try {
+        await AsyncStorage.setItem(USER_KEY, JSON.stringify(data.user));
+      } catch { }
+      return data.user;
+    }
+  } catch {
+    // ignore
+  }
+  return await getSavedUser();
+};
+
 export const saveSession = async (data) => {
   if (data?.token) {
     authToken = data.token;
@@ -116,10 +136,23 @@ const request = async (path, options = {}) => {
   return data;
 };
 
-export const login = async (username, password) => {
+export const isProfileSetupCompleted = (user) => {
+  if (!user) return false;
+  if (typeof user.profile_completed === "boolean") {
+    return user.profile_completed;
+  }
+  const hasFullName = Boolean(user.full_name && String(user.full_name).trim().length > 0);
+  const hasPhone = Boolean(user.phone && String(user.phone).trim().length > 0);
+  const hasGender = Boolean(user.gender && String(user.gender).trim().length > 0);
+  const hasDob = Boolean(user.date_of_birth && String(user.date_of_birth).trim().length > 0);
+  return hasFullName && hasPhone && hasGender && hasDob;
+};
+
+export const login = async (email, password) => {
+  const trimmedEmail = String(email || "").trim();
   const data = await request("/login", {
     method: "POST",
-    body: JSON.stringify({ login: username, password }),
+    body: JSON.stringify({ email: trimmedEmail, login: trimmedEmail, password }),
   });
 
   if (String(data?.user?.role?.role_name || "").toLowerCase() !== "customer") {
@@ -250,7 +283,7 @@ export const createDeliveryRequest = async (payload) => {
   const form = new FormData();
 
   Object.entries(payload).forEach(([key, value]) => {
-    if (key !== "payment_receipt" && value !== null && value !== undefined) {
+    if (key !== "payment_receipt" && key !== "item_permit" && value !== null && value !== undefined) {
       form.append(key, typeof value === "boolean" ? (value ? "1" : "0") : String(value));
     }
   });
@@ -263,6 +296,16 @@ export const createDeliveryRequest = async (payload) => {
     });
   }
 
+  if (payload.item_permit?.uri) {
+    form.append("item_permit", {
+      uri: payload.item_permit.uri,
+      name: payload.item_permit.fileName || "item-permit.jpg",
+      type: payload.item_permit.mimeType || "image/jpeg",
+    });
+  } else if (typeof payload.item_permit === "string" && payload.item_permit.trim()) {
+    form.append("item_permit", payload.item_permit);
+  }
+
   return request("/customer/delivery-requests", {
     method: "POST",
     body: form,
@@ -273,12 +316,22 @@ export const getMyDeliveryRequests = async () => {
   return request("/customer/delivery-requests");
 };
 
+export const deleteDeliveryRequest = async (requestId) => {
+  return request(`/delivery-requests/${requestId}`, {
+    method: "DELETE",
+  });
+};
+
 export const submitReview = async (payload) => {
   const form = new FormData();
 
-  form.append("delivery_id", String(payload.delivery_id));
+  if (payload.delivery_id) {
+    form.append("delivery_id", String(payload.delivery_id));
+  }
   form.append("overall_rating", String(payload.overall_rating));
-  form.append("driver_rating", String(payload.driver_rating));
+  if (payload.driver_rating !== undefined && payload.driver_rating !== null) {
+    form.append("driver_rating", String(payload.driver_rating));
+  }
 
   if (payload.comments) {
     form.append("comments", String(payload.comments));
@@ -297,8 +350,6 @@ export const submitReview = async (payload) => {
     body: form,
   });
 };
-
-export const getCurrentCustomer = () => authUser;
 
 export const getFleetAvailabilityForecast = async () => {
   return request("/fleet/availability-forecast");
@@ -339,6 +390,13 @@ export const reportBug = async ({ category, description, deviceInfo }) => {
       app_source: "customer-app",
       device_info: deviceInfo || "Customer Mobile App",
     }),
+  });
+};
+
+export const cancelDeliveryOnAccident = async (deliveryId, reason) => {
+  return request(`/deliveries/${deliveryId}/cancel-accident`, {
+    method: "POST",
+    body: JSON.stringify({ cancellation_reason: reason }),
   });
 };
 

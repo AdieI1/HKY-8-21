@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useTheme } from "../context/ThemeContext";
 
 const pfpplaceholder = require("../assets/images/profilepic.png");
 
@@ -62,9 +63,10 @@ function getProgressInfo(statusKey) {
   }
 }
 
-export default function DeliveryCard({ delivery, onReview, onAcceptReschedule }) {
+export default function DeliveryCard({ delivery, onReview, onAcceptReschedule, onCancelAccident, onViewReceipt }) {
   const status = STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending;
-  const assigned = !["pending", "approved", "rejected"].includes(delivery.status);
+  const isCancelled = delivery.isCancelled || delivery.status === "cancelled" || delivery.backendStatus === "cancelled";
+  const assigned = !["pending", "approved", "rejected", "cancelled"].includes(delivery.status);
   const progressInfo = getProgressInfo(delivery.backendStatus || delivery.status);
 
   const isAwaiting = delivery.isAwaitingDriver;
@@ -76,7 +78,13 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule })
   const isRelief = Boolean(delivery.is_relief);
   const cargoLoaded = Boolean(delivery.cargo_loaded);
 
-  if (isRelief) {
+  if (isCancelled) {
+    statusBadgeColor = "#DC2626";
+    statusBadgeLabel = "Cancelled";
+  } else if (delivery.hasAccidentIncident) {
+    statusBadgeColor = "#DC2626";
+    statusBadgeLabel = "Incident Reported";
+  } else if (isRelief) {
     statusBadgeColor = "#D97706";
     statusBadgeLabel = cargoLoaded ? "Relief Dispatched" : "Replacement Dispatched";
   } else if (isAwaiting) {
@@ -89,16 +97,26 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule })
     }
   }
 
+  const { isDark, colors } = useTheme();
+
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
       <View style={styles.topRow}>
         <View style={styles.cargoRow}>
           <View style={styles.cargoIcon}>
             <Ionicons name="cube" size={16} color="#FFFFFF" />
           </View>
-          <Text style={styles.cargoName}>
-            {delivery.cargoName || delivery.cargo || "Cargo"}
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.cargoName, { color: colors.text }]}>
+              {delivery.cargoName || delivery.cargo || "Cargo"}
+            </Text>
+            {delivery.serviceType && delivery.serviceType !== "standard" && (
+              <Text style={{ fontSize: 11, fontWeight: "700", color: "#0284C7", marginTop: 1 }}>
+                {delivery.serviceType === "stuffing" ? "Container Stuffing" : "Container Pull-Out"}
+                {delivery.containerNumber ? ` • ${delivery.containerNumber}` : ""}
+              </Text>
+            )}
+          </View>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: statusBadgeColor }]}>
           <Text style={styles.statusText}>{statusBadgeLabel}</Text>
@@ -108,13 +126,13 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule })
       <View style={styles.routeSection}>
         <View style={styles.routeRow}>
           <Ionicons name="location" size={13} color="#E53935" />
-          <Text style={styles.routeText}>
+          <Text style={[styles.routeText, { color: colors.text }]}>
             {delivery.route || "Route unavailable"}
           </Text>
         </View>
         <View style={styles.dateRow}>
           <Ionicons name="calendar-outline" size={13} color="#E53935" />
-          <Text style={styles.dateText}>
+          <Text style={[styles.dateText, { color: colors.textMuted }]}>
             Date Requested: {delivery.date || "N/A"}
           </Text>
         </View>
@@ -127,7 +145,57 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule })
           </View>
         )}
 
-        {Boolean(delivery.delay_reason) && !isRelief && (
+        {delivery.hasAccidentIncident && !isCancelled && (
+          <View style={[styles.queueBanner, { backgroundColor: "#FEF2F2", borderColor: "#FCA5A5", marginTop: 8 }]}>
+            <Ionicons name="warning" size={16} color="#DC2626" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 12, fontWeight: "700", color: "#991B1B" }}>
+                Accident / Route Incident Reported
+              </Text>
+              <Text style={[styles.queueText, { color: "#7F1D1D", marginTop: 1 }]}>
+                {delivery.activeIncident?.description || delivery.delay_reason || "An accident or delay incident was reported for this shipment."}
+              </Text>
+              <TouchableOpacity
+                style={{
+                  marginTop: 8,
+                  backgroundColor: "#DC2626",
+                  paddingVertical: 7,
+                  paddingHorizontal: 12,
+                  borderRadius: 6,
+                  alignSelf: "flex-start",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 5,
+                }}
+                onPress={() => onCancelAccident?.(delivery)}
+              >
+                <Ionicons name="close-circle-outline" size={14} color="#FFFFFF" />
+                <Text style={{ color: "#FFFFFF", fontSize: 11.5, fontWeight: "700" }}>
+                  Cancel Delivery (Accident)
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {isCancelled && (
+          <View style={[styles.queueBanner, { backgroundColor: "#FEF2F2", borderColor: "#FCA5A5", marginTop: 8 }]}>
+            <Ionicons name="close-circle" size={16} color="#DC2626" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 12, fontWeight: "700", color: "#991B1B" }}>
+                Delivery Cancelled
+              </Text>
+              <Text style={[styles.queueText, { color: "#7F1D1D", marginTop: 1 }]}>
+                {delivery.cancellationReason || "Cancelled due to delivery accident/incident."}
+              </Text>
+              <Text style={{ fontSize: 10.5, fontWeight: "600", color: "#B91C1C", marginTop: 2 }}>
+                Refund: Under Review by Operations
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {Boolean(delivery.delay_reason) && !isRelief && !delivery.hasAccidentIncident && (
           <View style={[styles.queueBanner, { backgroundColor: "#FEF2F2", borderColor: "#FCA5A5", marginTop: 8 }]}>
             <Ionicons name="alert-circle" size={15} color="#DC2626" />
             <View style={{ flex: 1 }}>
@@ -319,6 +387,54 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule })
                 </Text>
               </View>
             ) : null}
+          </View>
+        </View>
+      )}
+
+      {(delivery.collectionReceiptNo || delivery.collectionReceiptUrl) && (
+        <View style={[styles.podSection, { marginTop: 10, borderColor: "#BFDBFE", backgroundColor: "#EFF6FF" }]}>
+          <View style={styles.podHeader}>
+            <Ionicons name="receipt-outline" size={15} color="#2563EB" />
+            <Text style={[styles.podTitle, { color: "#1E40AF" }]}>Official Collection Receipt</Text>
+          </View>
+          <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+            <Text style={{ fontSize: 12.5, color: "#1E3A8A", fontWeight: "700" }}>
+              Receipt #: {delivery.collectionReceiptNo || "N/A"}
+            </Text>
+            {delivery.collectionReceiptAmount ? (
+              <Text style={{ fontSize: 12, color: "#1E3A8A", fontWeight: "600", marginTop: 2 }}>
+                Amount Collected: ₱{Number(delivery.collectionReceiptAmount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}
+              </Text>
+            ) : null}
+            {delivery.collectionReceiptPaymentMode ? (
+              <Text style={{ fontSize: 11.5, color: "#2563EB", marginTop: 2 }}>
+                Mode of Payment: {delivery.collectionReceiptPaymentMode}
+              </Text>
+            ) : null}
+            {delivery.collectionReceiptIssuedAt ? (
+              <Text style={{ fontSize: 10.5, color: "#64748B", marginTop: 2 }}>
+                Issued: {new Date(delivery.collectionReceiptIssuedAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}
+              </Text>
+            ) : null}
+            <TouchableOpacity
+              style={{
+                marginTop: 8,
+                backgroundColor: "#2563EB",
+                paddingVertical: 7,
+                paddingHorizontal: 12,
+                borderRadius: 6,
+                alignSelf: "flex-start",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
+              }}
+              onPress={() => onViewReceipt?.(delivery)}
+            >
+              <Ionicons name="document-text-outline" size={14} color="#FFFFFF" />
+              <Text style={{ color: "#FFFFFF", fontSize: 11.5, fontWeight: "700" }}>
+                View Collection Receipt
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}

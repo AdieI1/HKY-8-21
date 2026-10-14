@@ -258,6 +258,21 @@ export default function DispatchTicketPanel({
                 <label className="tt-label">Destination (Drop-off Point)</label>
                 <input className="tt-input" type="text" value={selectedDelivery.request?.dropoff_address || ''} readOnly />
               </div>
+              <div className="tt-field tt-full" style={{ marginTop: '10px' }}>
+                <label className="tt-label">Receiver (Contact Person)</label>
+                <input
+                  className="tt-input"
+                  type="text"
+                  value={
+                    selectedDelivery.request?.receiver_name
+                      ? `${selectedDelivery.request.receiver_name}${selectedDelivery.request.receiver_phone ? ' • ' + selectedDelivery.request.receiver_phone : ''}`
+                      : selectedDelivery.request?.customer?.full_name
+                      ? `${selectedDelivery.request.customer.full_name} (Same as Customer)`
+                      : '—'
+                  }
+                  readOnly
+                />
+              </div>
 
               <div style={{ marginTop: '10px' }}>
                 <AssignMap

@@ -7,10 +7,12 @@ use App\Models\DeliveryChecklist;
 use App\Models\Driver;
 use App\Models\DeliveryTracking;
 use App\Models\AppNotification;
+use App\Models\IncidentReport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 class DeliveryController extends Controller
@@ -139,6 +141,10 @@ class DeliveryController extends Controller
 
         $delivery->update($data);
 
+        if (($data['status'] ?? null) === 'completed') {
+            $this->autoIssueCollectionReceipt($delivery);
+        }
+
         return $delivery
             ->fresh()
             ->load([
@@ -177,6 +183,36 @@ class DeliveryController extends Controller
 
         return response()->json([
             'message' => 'Area delivery permit uploaded successfully.',
+            'delivery' => $delivery->fresh()->load(['request.customer', 'driver.user', 'vehicle']),
+        ]);
+    }
+
+    public function uploadItemPermit(Request $request, Delivery $delivery)
+    {
+        $permitPath = null;
+        if ($request->hasFile('item_permit')) {
+            $permitPath = $this->storeAreaPermitFile($request->file('item_permit'), 'permits/items');
+        } elseif ($request->filled('item_permit')) {
+            $permitPath = $this->storeAreaPermitFile($request->input('item_permit'), 'permits/items');
+        }
+
+        if (!$permitPath && !$request->filled('item_permit_type')) {
+            return response()->json(['message' => 'Please provide a valid permit image or permit type.'], 422);
+        }
+
+        if ($delivery->request) {
+            $updateData = [];
+            if ($permitPath) {
+                $updateData['item_permit_path'] = $permitPath;
+            }
+            if ($request->filled('item_permit_type')) {
+                $updateData['item_permit_type'] = $request->input('item_permit_type');
+            }
+            $delivery->request->update($updateData);
+        }
+
+        return response()->json([
+            'message' => 'Item delivery permit updated successfully.',
             'delivery' => $delivery->fresh()->load(['request.customer', 'driver.user', 'vehicle']),
         ]);
     }
@@ -401,6 +437,8 @@ class DeliveryController extends Controller
             'area_permit' => 'nullable',
             'area_permit_type' => 'nullable|string|max:100',
             'permit_notes' => 'nullable|string|max:500',
+            'item_permit' => 'nullable',
+            'item_permit_type' => 'nullable|string|max:100',
         ]);
 
         $updated = DB::transaction(function () use (
@@ -580,6 +618,21 @@ class DeliveryController extends Controller
                 'area_permit_type' => $areaPermitType,
                 'permit_notes' => $permitNotes,
             ]);
+
+            if ($delivery->request) {
+                $itemPermitUpdate = [];
+                if ($request->hasFile('item_permit')) {
+                    $itemPermitUpdate['item_permit_path'] = $this->storeAreaPermitFile($request->file('item_permit'), 'permits/items');
+                } elseif ($request->filled('item_permit')) {
+                    $itemPermitUpdate['item_permit_path'] = $this->storeAreaPermitFile($request->input('item_permit'), 'permits/items');
+                }
+                if ($request->filled('item_permit_type')) {
+                    $itemPermitUpdate['item_permit_type'] = $request->input('item_permit_type');
+                }
+                if (!empty($itemPermitUpdate)) {
+                    $delivery->request->update($itemPermitUpdate);
+                }
+            }
 
             if ($odometer !== null && $delivery->vehicle) {
                 $delivery->vehicle()->update([
@@ -847,6 +900,8 @@ class DeliveryController extends Controller
                         'status' => 'available'
                     ]);
                 }
+
+                $this->autoIssueCollectionReceipt($delivery);
             }
         });
 
@@ -998,6 +1053,8 @@ class DeliveryController extends Controller
 
         if ($shouldComplete && $delivery->status !== 'completed') {
             $this->setDeliveryStatus($delivery, 'completed');
+        } else if ($shouldComplete || $delivery->status === 'completed') {
+            $this->autoIssueCollectionReceipt($delivery);
         }
 
         return response()->json([
@@ -1293,6 +1350,8 @@ class DeliveryController extends Controller
                 if ($delivery->vehicle) {
                     $delivery->vehicle()->update(['status' => 'available']);
                 }
+
+                $this->autoIssueCollectionReceipt($delivery);
             }
         });
     }
@@ -1552,6 +1611,313 @@ class DeliveryController extends Controller
 
         return response()->json([
             'message' => 'Delay details saved.',
+            'delivery' => $delivery->fresh()->load(['request.customer', 'driver.user', 'vehicle']),
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ISSUE COLLECTION RECEIPT
+    |--------------------------------------------------------------------------
+    */
+    public function issueCollectionReceipt(Request $request, Delivery $delivery)
+    {
+        $validated = $request->validate([
+            'collection_receipt_no' => 'required|string|max:50',
+            'collection_receipt_amount' => 'required|numeric|min:0',
+            'collection_receipt_payment_mode' => 'required|string|max:50',
+            'collection_receipt_notes' => 'nullable|string|max:1000',
+            'receipt_photo' => 'nullable',
+        ]);
+
+        $receiptPath = null;
+        if ($request->hasFile('receipt_photo')) {
+            $file = $request->file('receipt_photo');
+            $filename = 'cr_' . $delivery->delivery_id . '_' . time() . '.' . $file->getClientOriginalExtension();
+            $file->storeAs('collection_receipts', $filename, 'public');
+            $receiptPath = 'collection_receipts/' . $filename;
+        } elseif ($request->filled('receipt_photo')) {
+            $dataUrl = $request->input('receipt_photo');
+            if (str_starts_with($dataUrl, 'data:image/')) {
+                try {
+                    $parts = explode(',', $dataUrl, 2);
+                    if (count($parts) === 2) {
+                        $decoded = base64_decode($parts[1]);
+                        $ext = 'jpg';
+                        if (str_contains($parts[0], 'png')) $ext = 'png';
+                        elseif (str_contains($parts[0], 'webp')) $ext = 'webp';
+                        $filename = 'cr_' . $delivery->delivery_id . '_' . time() . '.' . $ext;
+                        Storage::disk('public')->put('collection_receipts/' . $filename, $decoded);
+                        $receiptPath = 'collection_receipts/' . $filename;
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning("Collection receipt photo decode failed: " . $e->getMessage());
+                }
+            } elseif (!str_starts_with($dataUrl, 'data:')) {
+                $receiptPath = $dataUrl;
+            }
+        }
+
+        $delivery->update([
+            'collection_receipt_no' => $validated['collection_receipt_no'],
+            'collection_receipt_amount' => $validated['collection_receipt_amount'],
+            'collection_receipt_payment_mode' => $validated['collection_receipt_payment_mode'],
+            'collection_receipt_notes' => $validated['collection_receipt_notes'] ?? null,
+            'collection_receipt_path' => $receiptPath ?: $delivery->collection_receipt_path,
+            'collection_receipt_issued_at' => now(),
+            'collection_receipt_issued_by' => $request->user()?->user_id,
+            'payment_verification' => 'approved',
+        ]);
+
+        // Notify customer
+        if ($delivery->request?->customer_id) {
+            AppNotification::create([
+                'user_id' => $delivery->request->customer_id,
+                'title' => 'Collection Receipt Issued',
+                'message' => 'Official Collection Receipt ' . $validated['collection_receipt_no'] . ' for ₱' . number_format($validated['collection_receipt_amount'], 2) . ' has been issued for your delivery.',
+                'type' => 'collection_receipt',
+                'data' => [
+                    'delivery_id' => $delivery->delivery_id,
+                    'receipt_no' => $validated['collection_receipt_no'],
+                    'amount' => $validated['collection_receipt_amount'],
+                ],
+                'is_read' => false,
+            ]);
+        }
+
+        try {
+            \App\Events\DeliveryUpdated::dispatch($delivery);
+        } catch (\Throwable $e) {}
+
+        return response()->json([
+            'message' => 'Collection receipt issued successfully.',
+            'delivery' => $delivery->fresh()->load(['request.customer', 'driver.user', 'vehicle', 'receiptIssuer']),
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | AUTOMATICALLY ISSUE & EMAIL COLLECTION RECEIPT ON COMPLETION
+    |--------------------------------------------------------------------------
+    */
+    public function autoIssueCollectionReceipt(Delivery $delivery): void
+    {
+        if (!empty($delivery->collection_receipt_no)) {
+            return;
+        }
+
+        $deliveryRequest = $delivery->request;
+        $totalPrice = (float) ($deliveryRequest?->total_price ?? $delivery->trip_cost ?? 0);
+        $paymentMode = $deliveryRequest?->payment_method 
+            ? ucwords(str_replace('_', ' ', $deliveryRequest->payment_method)) 
+            : 'Cash';
+
+        $paddedId = str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+        $datePart = now()->format('Ymd');
+        $randSuffix = rand(1000, 9999);
+        $receiptNo = "CR-{$paddedId}-{$datePart}-{$randSuffix}";
+
+        $receiptPath = $delivery->proof_of_delivery_path 
+            ?? $delivery->receipt_photo 
+            ?? $deliveryRequest?->payment_receipt_path;
+
+        $delivery->update([
+            'collection_receipt_no' => $receiptNo,
+            'collection_receipt_amount' => $totalPrice,
+            'collection_receipt_payment_mode' => $paymentMode,
+            'collection_receipt_notes' => 'Official Collection Receipt automatically generated upon delivery completion & consignee proof of delivery submission.',
+            'collection_receipt_path' => $receiptPath,
+            'collection_receipt_issued_at' => now(),
+            'payment_verification' => 'approved',
+        ]);
+
+        // 1. In-App Notification to Customer & Dispatch Staff
+        if ($deliveryRequest?->customer_id) {
+            try {
+                AppNotification::notify(
+                    'collection_receipt',
+                    'Collection Receipt Issued',
+                    "Official Collection Receipt {$receiptNo} for ₱" . number_format($totalPrice, 2) . " has been issued for your delivery.",
+                    '/deliveries',
+                    $deliveryRequest->customer_id
+                );
+            } catch (\Throwable $e) {
+                Log::warning("Failed to create customer receipt notification: " . $e->getMessage());
+            }
+        }
+
+        try {
+            AppNotification::notify(
+                'collection_receipt',
+                "Collection Receipt Issued (#DLV{$paddedId})",
+                "Official Collection Receipt {$receiptNo} for ₱" . number_format($totalPrice, 2) . " was automatically issued upon delivery completion.",
+                '/delivery'
+            );
+        } catch (\Throwable $e) {}
+
+        // 2. Email Official Collection Receipt to Customer
+        $customer = $deliveryRequest?->customer;
+        if ($customer && !empty($customer->email)) {
+            try {
+                $cargoName = e($deliveryRequest->item_name ?? $deliveryRequest->cargo_type ?? 'Cargo Shipment');
+                $pickup = e($deliveryRequest->pickup_address ?? 'Origin');
+                $dropoff = e($deliveryRequest->dropoff_address ?? 'Destination');
+                $formattedAmount = number_format($totalPrice, 2);
+                $driverName = e($delivery->driver?->user?->full_name ?? 'Assigned Fleet Driver');
+                $vehicleInfo = e($delivery->vehicle ? "{$delivery->vehicle->model} ({$delivery->vehicle->plate_number})" : 'HJY Fleet Vehicle');
+                $issuedAt = now()->format('F j, Y, g:i A');
+                $custName = e($customer->full_name ?? $customer->username ?? 'Valued Customer');
+
+                Mail::send([], [], function ($message) use (
+                    $customer,
+                    $receiptNo,
+                    $custName,
+                    $cargoName,
+                    $pickup,
+                    $dropoff,
+                    $formattedAmount,
+                    $paymentMode,
+                    $driverName,
+                    $vehicleInfo,
+                    $issuedAt,
+                    $paddedId
+                ) {
+                    $message->to($customer->email)
+                        ->subject("Official Collection Receipt [{$receiptNo}] - Delivery #DLV{$paddedId}")
+                        ->html("
+                            <div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px; border: 1px solid #e2e8f0; border-radius: 14px; background-color: #ffffff; color: #1e293b;'>
+                                <div style='text-align: center; border-bottom: 2px solid #0f766e; padding-bottom: 20px; margin-bottom: 24px;'>
+                                    <h2 style='color: #0f172a; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;'>HJY TRUCKING SERVICES</h2>
+                                    <p style='color: #0f766e; font-size: 13px; font-weight: 700; margin: 6px 0 0; text-transform: uppercase; letter-spacing: 1px;'>Official Collection Receipt</p>
+                                </div>
+
+                                <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; margin-bottom: 24px;'>
+                                    <div style='margin-bottom: 8px;'>
+                                        <span style='color: #64748b; font-size: 13px;'>Receipt No: </span>
+                                        <strong style='color: #0f172a; font-size: 14px; font-family: monospace;'>{$receiptNo}</strong>
+                                    </div>
+                                    <div style='margin-bottom: 8px;'>
+                                        <span style='color: #64748b; font-size: 13px;'>Date Issued: </span>
+                                        <span style='color: #334155; font-size: 13px; font-weight: 600;'>{$issuedAt}</span>
+                                    </div>
+                                    <div style='margin-bottom: 8px;'>
+                                        <span style='color: #64748b; font-size: 13px;'>Delivery Reference: </span>
+                                        <span style='color: #2563eb; font-size: 13px; font-weight: 700;'>#DLV{$paddedId}</span>
+                                    </div>
+                                    <div>
+                                        <span style='color: #64748b; font-size: 13px;'>Billed To: </span>
+                                        <strong style='color: #0f172a; font-size: 13px;'>{$custName}</strong>
+                                    </div>
+                                </div>
+
+                                <h3 style='font-size: 14px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;'>Shipment &amp; Delivery Summary</h3>
+                                <table style='width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 13.5px;'>
+                                    <tr style='border-bottom: 1px solid #f1f5f9;'>
+                                        <td style='padding: 8px 0; color: #64748b;'>Cargo Item:</td>
+                                        <td style='padding: 8px 0; font-weight: 600; text-align: right;'>{$cargoName}</td>
+                                    </tr>
+                                    <tr style='border-bottom: 1px solid #f1f5f9;'>
+                                        <td style='padding: 8px 0; color: #64748b;'>Origin:</td>
+                                        <td style='padding: 8px 0; text-align: right; color: #334155;'>{$pickup}</td>
+                                    </tr>
+                                    <tr style='border-bottom: 1px solid #f1f5f9;'>
+                                        <td style='padding: 8px 0; color: #64748b;'>Destination:</td>
+                                        <td style='padding: 8px 0; text-align: right; color: #334155;'>{$dropoff}</td>
+                                    </tr>
+                                    <tr style='border-bottom: 1px solid #f1f5f9;'>
+                                        <td style='padding: 8px 0; color: #64748b;'>Delivered By:</td>
+                                        <td style='padding: 8px 0; text-align: right;'>{$driverName} ({$vehicleInfo})</td>
+                                    </tr>
+                                    <tr style='border-bottom: 1px solid #f1f5f9;'>
+                                        <td style='padding: 8px 0; color: #64748b;'>Payment Mode:</td>
+                                        <td style='padding: 8px 0; font-weight: 600; text-align: right;'>{$paymentMode}</td>
+                                    </tr>
+                                </table>
+
+                                <div style='background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 18px 20px; margin-bottom: 24px;'>
+                                    <div style='font-size: 11px; font-weight: 700; color: #047857; text-transform: uppercase;'>Total Amount Collected</div>
+                                    <div style='font-size: 24px; font-weight: 800; color: #065f46; margin-top: 4px;'>
+                                        ₱{$formattedAmount}
+                                    </div>
+                                    <div style='font-size: 12px; color: #065f46; margin-top: 2px;'>Status: Fully Settled &amp; Verified</div>
+                                </div>
+
+                                <div style='font-size: 12px; color: #94a3b8; text-align: center; line-height: 1.6; border-top: 1px solid #e2e8f0; padding-top: 20px;'>
+                                    <p style='margin: 0 0 4px;'>This is an official system-generated Collection Receipt issued upon completion of delivery.</p>
+                                    <p style='margin: 0;'>Thank you for choosing <strong>HJY Trucking Services</strong>. For any inquiries, please contact dispatch support.</p>
+                                </div>
+                            </div>
+                        ");
+                });
+            } catch (\Throwable $e) {
+                Log::warning("Collection receipt email failed to send: " . $e->getMessage());
+            }
+        }
+
+        try {
+            \App\Events\DeliveryUpdated::dispatch($delivery);
+        } catch (\Throwable $e) {}
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | CANCEL DELIVERY DUE TO ACCIDENT / INCIDENT (CUSTOMER OR STAFF)
+    |--------------------------------------------------------------------------
+    */
+    public function cancelOnAccident(Request $request, Delivery $delivery)
+    {
+        $user = $request->user();
+        $deliveryRequest = $delivery->request;
+
+        if ($user && $user->role && strcasecmp($user->role->role_name, 'Customer') === 0) {
+            if ($deliveryRequest && $deliveryRequest->customer_id !== $user->user_id) {
+                return response()->json(['message' => 'Unauthorized to cancel this delivery.'], 403);
+            }
+        }
+
+        $validated = $request->validate([
+            'cancellation_reason' => 'nullable|string|max:1000',
+        ]);
+
+        $reason = $validated['cancellation_reason'] ?: 'Cancelled by customer due to delivery accident/incident.';
+
+        $delivery->update([
+            'status' => 'cancelled',
+            'cancellation_reason' => $reason,
+            'cancelled_by' => $user?->user_id,
+            'end_time' => now(),
+        ]);
+
+        if ($deliveryRequest) {
+            $deliveryRequest->update([
+                'status' => 'cancelled',
+                'cancellation_reason' => $reason,
+            ]);
+        }
+
+        $incident = IncidentReport::where('delivery_id', $delivery->delivery_id)->latest('incident_id')->first();
+        if ($incident) {
+            $incident->update([
+                'refund_status' => $incident->refund_status ?: 'pending_review',
+                'refund_reason' => $incident->refund_reason ?: 'Delivery cancelled due to accident: ' . $reason,
+                'refund_amount' => $incident->refund_amount ?: ($delivery->trip_cost ?: $deliveryRequest?->total_price ?: 0),
+            ]);
+        }
+
+        $delCode = 'DLV' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+        AppNotification::notify(
+            'delivery',
+            'Delivery Cancelled (Accident)',
+            "Delivery #{$delCode} has been cancelled due to accident/incident.",
+            '/delivery'
+        );
+
+        try {
+            \App\Events\DeliveryUpdated::dispatch($delivery);
+        } catch (\Throwable $e) {}
+
+        return response()->json([
+            'message' => 'Delivery cancelled successfully.',
             'delivery' => $delivery->fresh()->load(['request.customer', 'driver.user', 'vehicle']),
         ]);
     }

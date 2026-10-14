@@ -19,6 +19,10 @@ class User extends Authenticatable
         'email',
         'username',
         'phone',
+        'sss_number',
+        'philhealth_number',
+        'pagibig_number',
+        'deductible_taxes',
         'gender',
         'date_of_birth',
         'profile_photo_path',
@@ -30,7 +34,16 @@ class User extends Authenticatable
 
     protected $appends = [
         'profile_photo_url',
+        'profile_completed',
     ];
+
+    public function getProfileCompletedAttribute(): bool
+    {
+        return !empty(trim((string)$this->full_name)) &&
+               !empty(trim((string)$this->phone)) &&
+               !empty(trim((string)$this->gender)) &&
+               !empty(trim((string)$this->date_of_birth));
+    }
 
     public function getProfilePhotoUrlAttribute()
     {

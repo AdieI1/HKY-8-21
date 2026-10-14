@@ -24,13 +24,33 @@ class UserController extends Controller
             'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'password' => 'required|min:6',
             'status' => 'required|in:active,inactive,blocked',
+            'sss_number' => 'nullable|string|max:50',
+            'philhealth_number' => 'nullable|string|max:50',
+            'pagibig_number' => 'nullable|string|max:50',
+            'deductible_taxes' => 'nullable|string|max:100',
         ]);
+
+        $photoPath = null;
+        if ($request->hasFile('photo')) {
+            $photoPath = $this->storeProfilePhoto($request->file('photo'));
+        } elseif ($request->hasFile('profile_photo')) {
+            $photoPath = $this->storeProfilePhoto($request->file('profile_photo'));
+        } elseif ($request->filled('photo')) {
+            $photoPath = $this->storeProfilePhoto($request->input('photo'));
+        } elseif ($request->filled('profile_photo')) {
+            $photoPath = $this->storeProfilePhoto($request->input('profile_photo'));
+        }
 
         $user = User::create([
             'role_id' => $request->role_id,
             'full_name' => $request->full_name,
             'email' => $request->email,
             'phone' => $request->phone,
+            'sss_number' => $request->sss_number,
+            'philhealth_number' => $request->philhealth_number,
+            'pagibig_number' => $request->pagibig_number,
+            'deductible_taxes' => $request->deductible_taxes,
+            'profile_photo_path' => $photoPath,
             'password' => Hash::make($request->password),
             'status' => $request->status,
         ]);
@@ -53,30 +73,37 @@ class UserController extends Controller
             'gender' => 'nullable|string|max:20',
             'date_of_birth' => 'nullable|string|max:30',
             'status' => 'nullable|in:active,inactive,blocked',
-            'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
-            'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
+            'sss_number' => 'nullable|string|max:50',
+            'philhealth_number' => 'nullable|string|max:50',
+            'pagibig_number' => 'nullable|string|max:50',
+            'deductible_taxes' => 'nullable|string|max:100',
+            'photo' => 'nullable',
+            'profile_photo' => 'nullable',
             'password' => 'nullable|min:6',
         ]);
 
         $data = $request->except(['password', 'photo', 'profile_photo']);
 
+        $newPhotoPath = null;
         if ($request->hasFile('photo')) {
-            $old = $user->profile_photo_path;
-            $path = $request->file('photo')->store('profile-photos', 'public');
-            $data['profile_photo_path'] = $path;
-            if ($old) {
-                Storage::disk('public')->delete($old);
-            }
+            $newPhotoPath = $this->storeProfilePhoto($request->file('photo'));
         } elseif ($request->hasFile('profile_photo')) {
+            $newPhotoPath = $this->storeProfilePhoto($request->file('profile_photo'));
+        } elseif ($request->filled('photo') && str_starts_with($request->input('photo'), 'data:')) {
+            $newPhotoPath = $this->storeProfilePhoto($request->input('photo'));
+        } elseif ($request->filled('profile_photo') && str_starts_with($request->input('profile_photo'), 'data:')) {
+            $newPhotoPath = $this->storeProfilePhoto($request->input('profile_photo'));
+        }
+
+        if ($newPhotoPath) {
             $old = $user->profile_photo_path;
-            $path = $request->file('profile_photo')->store('profile-photos', 'public');
-            $data['profile_photo_path'] = $path;
+            $data['profile_photo_path'] = $newPhotoPath;
             if ($old) {
                 Storage::disk('public')->delete($old);
             }
         }
 
-        $photoUpdated = $request->hasFile('photo') || $request->hasFile('profile_photo');
+        $photoUpdated = !empty($newPhotoPath);
         $phoneUpdated = isset($data['phone']) && $data['phone'] !== $user->phone;
 
         $user->update($data);
@@ -116,5 +143,38 @@ class UserController extends Controller
         return response()->json([
             'message' => 'User deleted successfully.'
         ]);
+    }
+
+    private function storeProfilePhoto($fileInput): ?string
+    {
+        if (empty($fileInput)) {
+            return null;
+        }
+
+        if ($fileInput instanceof \Illuminate\Http\UploadedFile) {
+            return $fileInput->store('profile-photos', 'public');
+        }
+
+        if (is_string($fileInput) && str_starts_with($fileInput, 'data:')) {
+            try {
+                if (preg_match('/^data:image\/(\w+);base64,/', $fileInput, $matches)) {
+                    $ext = strtolower($matches[1]);
+                    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'])) {
+                        $ext = 'jpg';
+                    }
+                    $base64Data = substr($fileInput, strpos($fileInput, ',') + 1);
+                    $decoded = base64_decode($base64Data);
+                    if ($decoded !== false) {
+                        $filename = 'profile_' . time() . '_' . \Illuminate\Support\Str::random(8) . '.' . $ext;
+                        Storage::disk('public')->put('profile-photos/' . $filename, $decoded);
+                        return 'profile-photos/' . $filename;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
+
+        return null;
     }
 }

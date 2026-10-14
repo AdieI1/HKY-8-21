@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -16,7 +16,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { updateCustomerProfile } from '../services/api';
+import { updateCustomerProfile, getSavedUser } from '../services/api';
 import ErrorModal from '../components/ErrorModal';
 import SweetToast from '../components/SweetToast';
 
@@ -40,9 +40,36 @@ export default function AccountSetup() {
 
   const [submitting, setSubmitting] = useState(false);
 
+  // Field validation error states
+  const [fieldErrors, setFieldErrors] = useState({});
+
   // Feedback states
   const [errorModal, setErrorModal] = useState({ visible: false, message: '' });
-  const [toastMessage, setToastMessage] = useState('');
+  const [toastConfig, setToastConfig] = useState({ visible: false, message: '', type: 'success' });
+
+  useEffect(() => {
+    let active = true;
+    getSavedUser().then((user) => {
+      if (active && user) {
+        if (user.phone) setPhone(user.phone);
+        if (user.gender) setGender(user.gender);
+        if (user.full_name) {
+          const parts = String(user.full_name).trim().split(/\s+/);
+          setFirstName(parts[0] || '');
+          setLastName(parts.slice(1).join(' ') || '');
+        }
+        if (user.date_of_birth) {
+          const parsed = new Date(user.date_of_birth);
+          if (!isNaN(parsed.getTime())) {
+            setDob(parsed);
+          }
+        }
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const pickImage = async () => {
     try {
@@ -77,6 +104,9 @@ export default function AccountSetup() {
     const cleaned = text.replace(/[^0-9]/g, '');
     if (cleaned.length <= 11) {
       setPhone(cleaned);
+      if (fieldErrors.phone) {
+        setFieldErrors((prev) => ({ ...prev, phone: false }));
+      }
     }
   };
 
@@ -93,37 +123,34 @@ export default function AccountSetup() {
     const trimmedLast = lastName.trim();
     const trimmedPhone = phone.trim();
 
-    if (!trimmedPhone) {
-      setErrorModal({
-        visible: true,
-        message: 'Please enter your phone number.',
-      });
-      return;
+    const errors = {};
+    if (!trimmedPhone || trimmedPhone.length < 11 || !trimmedPhone.startsWith('09')) {
+      errors.phone = true;
     }
-
-    if (trimmedPhone.length < 11 || !trimmedPhone.startsWith('09')) {
-      setErrorModal({
-        visible: true,
-        message: 'Please enter a valid 11-digit mobile number starting with 09 (e.g. 09123456789).',
-      });
-      return;
-    }
-
     if (!trimmedFirst) {
-      setErrorModal({
+      errors.firstName = true;
+    }
+    if (!trimmedLast) {
+      errors.lastName = true;
+    }
+    if (!gender) {
+      errors.gender = true;
+    }
+    if (!dob) {
+      errors.dob = true;
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setToastConfig({
         visible: true,
-        message: 'Please enter your first name.',
+        message: 'Please fill in all the requirements',
+        type: 'error',
       });
       return;
     }
 
-    if (!trimmedLast) {
-      setErrorModal({
-        visible: true,
-        message: 'Please enter your last name.',
-      });
-      return;
-    }
+    setFieldErrors({});
 
     try {
       setSubmitting(true);
@@ -131,16 +158,20 @@ export default function AccountSetup() {
         first_name: trimmedFirst,
         last_name: trimmedLast,
         phone: trimmedPhone,
-        gender: gender || null,
-        date_of_birth: dob ? formatDate(dob) : null,
+        gender: gender,
+        date_of_birth: formatDate(dob),
         photo: photo || null,
       });
 
-      setToastMessage('Profile completed! Welcome to HJY Trucking Services.');
+      setToastConfig({
+        visible: true,
+        message: 'Profile completed! Welcome to HJY Trucking Services.',
+        type: 'success',
+      });
 
       setTimeout(() => {
         router.replace('/(tabs)/home');
-      }, 1200);
+      }, 1000);
     } catch (error) {
       setErrorModal({
         visible: true,
@@ -213,9 +244,9 @@ export default function AccountSetup() {
             {/* Phone Number */}
             <Text style={styles.label}>Phone number:</Text>
             <TextInput
-              style={styles.input}
-              placeholder="Enter Phone Number"
-              placeholderTextColor="#94A3B8"
+              style={[styles.input, fieldErrors.phone && styles.inputError]}
+              placeholder="Enter Phone Number (09...)"
+              placeholderTextColor={fieldErrors.phone ? '#EF4444' : '#94A3B8'}
               value={phone}
               onChangeText={handlePhoneChange}
               keyboardType="phone-pad"
@@ -225,34 +256,49 @@ export default function AccountSetup() {
             {/* First Name */}
             <Text style={styles.label}>First Name:</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, fieldErrors.firstName && styles.inputError]}
               placeholder="Enter First name"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={fieldErrors.firstName ? '#EF4444' : '#94A3B8'}
               value={firstName}
-              onChangeText={setFirstName}
+              onChangeText={(text) => {
+                setFirstName(text);
+                if (fieldErrors.firstName) {
+                  setFieldErrors((prev) => ({ ...prev, firstName: false }));
+                }
+              }}
             />
 
             {/* Last Name */}
             <Text style={styles.label}>Last Name:</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, fieldErrors.lastName && styles.inputError]}
               placeholder="Enter Last name"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={fieldErrors.lastName ? '#EF4444' : '#94A3B8'}
               value={lastName}
-              onChangeText={setLastName}
+              onChangeText={(text) => {
+                setLastName(text);
+                if (fieldErrors.lastName) {
+                  setFieldErrors((prev) => ({ ...prev, lastName: false }));
+                }
+              }}
             />
 
             {/* Gender Dropdown */}
             <Text style={styles.label}>Gender:</Text>
             <TouchableOpacity
-              style={styles.dropdownTrigger}
-              onPress={() => setShowGenderDropdown(!showGenderDropdown)}
+              style={[styles.dropdownTrigger, fieldErrors.gender && styles.inputError]}
+              onPress={() => {
+                setShowGenderDropdown(!showGenderDropdown);
+                if (fieldErrors.gender) {
+                  setFieldErrors((prev) => ({ ...prev, gender: false }));
+                }
+              }}
               activeOpacity={0.7}
             >
               <Text
                 style={[
                   styles.dropdownText,
-                  gender ? { color: '#0F172A' } : { color: '#94A3B8' },
+                  gender ? { color: '#0F172A' } : { color: fieldErrors.gender ? '#EF4444' : '#94A3B8' },
                 ]}
               >
                 {gender || 'Select Gender'}
@@ -260,7 +306,7 @@ export default function AccountSetup() {
               <Ionicons
                 name={showGenderDropdown ? 'chevron-up' : 'chevron-down'}
                 size={18}
-                color="#64748B"
+                color={fieldErrors.gender ? '#EF4444' : '#64748B'}
               />
             </TouchableOpacity>
 
@@ -273,6 +319,9 @@ export default function AccountSetup() {
                     onPress={() => {
                       setGender(item);
                       setShowGenderDropdown(false);
+                      if (fieldErrors.gender) {
+                        setFieldErrors((prev) => ({ ...prev, gender: false }));
+                      }
                     }}
                   >
                     <Text style={styles.dropdownMenuItemText}>{item}</Text>
@@ -284,20 +333,25 @@ export default function AccountSetup() {
             {/* Date of Birth */}
             <Text style={styles.label}>Date of Birth:</Text>
             <TouchableOpacity
-              style={styles.datePickerTrigger}
-              onPress={() => setShowDatePicker(true)}
+              style={[styles.datePickerTrigger, fieldErrors.dob && styles.inputError]}
+              onPress={() => {
+                setShowDatePicker(true);
+                if (fieldErrors.dob) {
+                  setFieldErrors((prev) => ({ ...prev, dob: false }));
+                }
+              }}
               activeOpacity={0.7}
             >
               <Ionicons
                 name="calendar-outline"
                 size={20}
-                color="#64748B"
+                color={fieldErrors.dob ? '#EF4444' : '#64748B'}
                 style={{ marginRight: 10 }}
               />
               <Text
                 style={[
                   styles.dateText,
-                  dob ? { color: '#0F172A' } : { color: '#94A3B8' },
+                  dob ? { color: '#0F172A' } : { color: fieldErrors.dob ? '#EF4444' : '#94A3B8' },
                 ]}
               >
                 {formatDate(dob)}
@@ -314,6 +368,9 @@ export default function AccountSetup() {
                   setShowDatePicker(false);
                   if (event.type === 'set' && selectedDate) {
                     setDob(selectedDate);
+                    if (fieldErrors.dob) {
+                      setFieldErrors((prev) => ({ ...prev, dob: false }));
+                    }
                   }
                 }}
               />
@@ -343,9 +400,11 @@ export default function AccountSetup() {
 
       {/* Sweet Toast Feedback */}
       <SweetToast
-        visible={Boolean(toastMessage)}
-        message={toastMessage}
-        onDismiss={() => setToastMessage('')}
+        visible={toastConfig.visible}
+        message={toastConfig.message}
+        type={toastConfig.type}
+        duration={2500}
+        onDismiss={() => setToastConfig({ visible: false, message: '', type: 'success' })}
       />
     </SafeAreaView>
   );
@@ -546,5 +605,10 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
+  },
+  inputError: {
+    borderColor: '#EF4444',
+    borderWidth: 1.5,
+    backgroundColor: '#FEF2F2',
   },
 });

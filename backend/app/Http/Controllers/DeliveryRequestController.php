@@ -80,6 +80,8 @@ class DeliveryRequestController extends Controller
             'weight' => 'nullable|numeric',
             'pickup_address' => 'nullable|string',
             'dropoff_address' => 'nullable|string',
+            'receiver_name' => 'nullable|string|max:100',
+            'receiver_phone' => 'nullable|string|max:30',
             'distance_km' => 'nullable|numeric',
             'total_price' => 'nullable|numeric',
             'payment_term' => 'nullable|in:downpayment,full',
@@ -89,6 +91,9 @@ class DeliveryRequestController extends Controller
             'scheduled_time_slot' => 'nullable|string|max:100',
             'status' => 'required|in:draft,pending,approved,rejected',
             'item_permit_type' => 'nullable|string|max:100',
+            'service_type' => 'nullable|string|max:50',
+            'container_number' => 'nullable|string|max:50',
+            'seal_number' => 'nullable|string|max:50',
         ]);
 
         $data = $request->all();
@@ -134,6 +139,8 @@ class DeliveryRequestController extends Controller
             'dropoff_address' => 'nullable|string',
             'dropoff_lat' => 'nullable|numeric',
             'dropoff_lng' => 'nullable|numeric',
+            'receiver_name' => 'nullable|string|max:100',
+            'receiver_phone' => 'nullable|string|max:30',
             'distance_km' => 'nullable|numeric',
             'total_price' => 'nullable|numeric',
             'payment_term' => 'nullable|in:downpayment,full',
@@ -198,6 +205,8 @@ class DeliveryRequestController extends Controller
                 'dropoff_address' => $request->dropoff_address,
                 'dropoff_lat' => $request->dropoff_lat,
                 'dropoff_lng' => $request->dropoff_lng,
+                'receiver_name' => $request->receiver_name,
+                'receiver_phone' => $request->receiver_phone,
                 'distance_km' => $request->distance_km,
                 'total_price' => $totalPrice,
                 'payment_term' => $request->payment_term,
@@ -215,8 +224,10 @@ class DeliveryRequestController extends Controller
             ]);
         });
 
-        $customerName = $deliveryRequest->customer?->full_name ?: 'Customer';
-        AppNotification::notify('request', 'New Delivery Request', "{$customerName} submitted a new delivery request (" . ($deliveryRequest->cargo_type ?: 'Cargo') . ").", '/requests');
+        if (!$request->boolean('is_draft')) {
+            $customerName = $deliveryRequest->customer?->full_name ?: 'Customer';
+            AppNotification::notify('request', 'New Delivery Request', "{$customerName} submitted a new delivery request (" . ($deliveryRequest->cargo_type ?: 'Cargo') . ").", '/requests');
+        }
 
         return $deliveryRequest->load('customer');
     }
@@ -241,6 +252,8 @@ class DeliveryRequestController extends Controller
             'dropoff_address' => "$fieldRule|string",
             'dropoff_lat' => "$fieldRule|numeric|between:-90,90",
             'dropoff_lng' => "$fieldRule|numeric|between:-180,180",
+            'receiver_name' => 'nullable|string|max:100',
+            'receiver_phone' => 'nullable|string|max:30',
             'distance_km' => 'nullable|numeric|min:0',
             'total_price' => 'nullable|numeric|min:0',
             'payment_term' => "$fieldRule|in:downpayment,full",
@@ -248,6 +261,9 @@ class DeliveryRequestController extends Controller
             'payment_receipt' => 'nullable|image|max:5120',
             'item_permit' => 'nullable',
             'item_permit_type' => 'nullable|string|max:100',
+            'service_type' => 'nullable|string|max:50',
+            'container_number' => 'nullable|string|max:50',
+            'seal_number' => 'nullable|string|max:50',
             'is_scheduled' => 'nullable|boolean',
             'scheduled_date' => 'nullable|date',
             'scheduled_time_slot' => 'nullable|string|max:100',
@@ -295,15 +311,24 @@ class DeliveryRequestController extends Controller
             'status' => $request->boolean('is_draft') ? 'draft' : 'pending',
         ]));
 
-        $customerName = $user->full_name ?: 'Customer';
-        AppNotification::notify('request', 'New Delivery Request', "{$customerName} submitted a new delivery request (" . ($deliveryRequest->cargo_type ?: 'Cargo') . ").", '/requests');
+        if (!$request->boolean('is_draft')) {
+            $customerName = $user->full_name ?: 'Customer';
+            AppNotification::notify('request', 'New Delivery Request', "{$customerName} submitted a new delivery request (" . ($deliveryRequest->cargo_type ?: 'Cargo') . ").", '/requests');
+        }
 
         return response()->json($deliveryRequest->load('customer'), 201);
     }
 
     public function myRequests(Request $request)
     {
-        return DeliveryRequest::with(['customer', 'delivery.driver.user', 'delivery.vehicle', 'delivery.reviews'])
+        return DeliveryRequest::with([
+            'customer',
+            'delivery.driver.user',
+            'delivery.vehicle',
+            'delivery.reviews',
+            'delivery.receiptIssuer',
+            'delivery.incidents',
+        ])
             ->where('customer_id', $request->user()->user_id)
             ->orderByDesc('request_id')
             ->get();
@@ -401,6 +426,11 @@ class DeliveryRequestController extends Controller
 
     public function destroy(DeliveryRequest $deliveryRequest)
     {
+        $user = auth()->user();
+        if ($user && strcasecmp($user->role?->role_name ?? '', 'Customer') === 0 && $deliveryRequest->customer_id !== $user->user_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
         $deliveryRequest->delete();
 
         return response()->json([

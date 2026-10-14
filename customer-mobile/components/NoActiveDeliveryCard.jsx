@@ -1,16 +1,19 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Dimensions, StyleSheet, Text, View } from "react-native";
+import { useTheme } from "../context/ThemeContext";
 
 const { width, height } = Dimensions.get("window");
 
 export default function NoActiveDeliveryCard() {
+  const { isDark, colors } = useTheme();
+
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
       <Text style={styles.title}>
         Active Deliveries
       </Text>
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
       <View style={styles.content}>
         <View style={styles.boxIcon}>
@@ -22,12 +25,12 @@ export default function NoActiveDeliveryCard() {
         </View>
 
         <View style={styles.textContainer}>
-          <Text style={styles.header}>
+          <Text style={[styles.header, { color: colors.text }]}>
             No active deliveries yet!
           </Text>
 
-          <Text style={styles.subheader}>
-            Tap Create Request to schedule your
+          <Text style={[styles.subheader, { color: colors.textMuted }]}>
+            Tap Schedule Delivery to schedule your
             first delivery!
           </Text>
         </View>
@@ -38,10 +41,13 @@ export default function NoActiveDeliveryCard() {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#FFFFFF",
     borderRadius: 15,
     padding: width * 0.05,
     marginTop: height * 0.02,
+    shadowColor: "#000000",
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
   },
 
   title: {
@@ -52,7 +58,6 @@ const styles = StyleSheet.create({
 
   divider: {
     height: 1,
-    backgroundColor: "#D1D1D1",
     marginVertical: height * 0.012,
   },
 
@@ -62,28 +67,26 @@ const styles = StyleSheet.create({
   },
 
   boxIcon: {
-    width: width * 0.14,
-    height: width * 0.14,
-    borderRadius: 12,
-    backgroundColor: "#3286E8",
+    backgroundColor: "#DE2226",
+    borderRadius: 10,
+    width: width * 0.17,
+    height: width * 0.17,
     justifyContent: "center",
     alignItems: "center",
+    marginRight: width * 0.04,
   },
 
   textContainer: {
     flex: 1,
-    marginLeft: 10,
   },
 
   header: {
     fontSize: width * 0.045,
-    fontWeight: "700",
-    color: "#252B35",
+    fontWeight: "800",
   },
 
   subheader: {
-    fontSize: width * 0.032,
-    color: "#4E5966",
-    marginTop: 3,
+    fontSize: width * 0.035,
+    marginTop: 4,
   },
 });

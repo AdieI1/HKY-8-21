@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import api from '../../api/api-client';
 
 function renderStars(rating = 0) {
   const stars = [];
@@ -17,9 +18,12 @@ function renderStars(rating = 0) {
 
 function formatTimeAgo(dateString) {
   if (!dateString) return '—';
-  const diffMs = Date.now() - new Date(dateString).getTime();
+  const isoStr = typeof dateString === 'string' ? dateString.replace(' ', 'T') : dateString;
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return '—';
+  const diffMs = Date.now() - d.getTime();
+  if (diffMs < 60000) return 'Just now';
   const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return 'Just now';
   if (mins < 60) return `${mins} min${mins > 1 ? 's' : ''} ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
@@ -27,7 +31,11 @@ function formatTimeAgo(dateString) {
   return `${days} day${days > 1 ? 's' : ''} ago`;
 }
 
-function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
+function CustomerRatingsModal({ isOpen, onClose, reviews = [], onReviewsUpdated }) {
+  // Live reviews state with automatic polling and refresh
+  const [liveReviews, setLiveReviews] = useState(reviews);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   // Navigation mode: 'overview' (Screen 1) | 'feedback' (Screen 2)
   const [viewMode, setViewMode] = useState('overview');
 
@@ -39,21 +47,77 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
   const [activeStarFilter, setActiveStarFilter] = useState('all'); // 'all' | 5 | 4 | 3 | 2 | 1 | 'media'
   const [previewPhoto, setPreviewPhoto] = useState(null);
 
+  // Sync with reviews prop when updated from parent
+  useEffect(() => {
+    if (reviews && Array.isArray(reviews)) {
+      setLiveReviews(reviews);
+    }
+  }, [reviews]);
+
+  // Fetch fresh reviews from DB bypassing API cache
+  const fetchLiveReviews = useCallback(async () => {
+    try {
+      const res = await api.get('/reviews', { skipCache: true });
+      if (res && res.data && Array.isArray(res.data)) {
+        setLiveReviews(res.data);
+        if (typeof onReviewsUpdated === 'function') {
+          onReviewsUpdated(res.data);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch live reviews:', err);
+    }
+  }, [onReviewsUpdated]);
+
+  // Auto-fetch on modal open & auto-poll every 2 seconds while open
+  useEffect(() => {
+    if (!isOpen) return;
+
+    fetchLiveReviews();
+
+    const interval = setInterval(() => {
+      fetchLiveReviews();
+    }, 2000);
+
+    const onFocus = () => {
+      fetchLiveReviews();
+    };
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [isOpen, fetchLiveReviews]);
+
   // Map STRICTLY from database review records
   const dbReviews = useMemo(() => {
-    return (reviews || []).map((r, i) => {
+    const list = liveReviews && liveReviews.length ? liveReviews : reviews;
+    return (list || []).map((r, i) => {
       const cust = r.customer || r.delivery?.request?.customer;
       const custName = cust?.full_name || 'Customer';
       const custCode = `CMR${String(cust?.user_id || r.customer_id || i + 1).padStart(3, '0')}`;
       const avatar = cust?.profile_photo_url || '/images/person-check-fill.png';
       const overallRating = Number(r.overall_rating || 0);
-      const driverRating = Number(r.driver_rating || 0);
-      const dateStr = r.created_at ? new Date(r.created_at).toLocaleDateString('en-US') : '—';
+
+      // Distinguish service-only feedback vs driver/delivery review
+      const hasDriver = !!(r.delivery_id && r.driver_rating !== null && r.driver_rating !== undefined);
+      const driverRating = hasDriver ? Number(r.driver_rating) : null;
+      const isCompanyService = !r.delivery_id;
+
+      const dateStr = r.created_at
+        ? new Date(typeof r.created_at === 'string' ? r.created_at.replace(' ', 'T') : r.created_at).toLocaleDateString('en-US')
+        : '—';
       const timeAgo = r.created_at ? formatTimeAgo(r.created_at) : '—';
-      const category = r.delivery?.request?.cargo_type || r.delivery?.request?.item_name || 'Delivery';
+      const category = isCompanyService
+        ? 'Company Service'
+        : (r.delivery?.request?.cargo_type || r.delivery?.request?.item_name || 'Delivery Service');
       const photos = r.photo_url ? [r.photo_url] : [];
 
-      const totalCustReviews = (reviews || []).filter(
+      const totalCustReviews = (list || []).filter(
         (x) =>
           (x.customer_id && x.customer_id === r.customer_id) ||
           (x.customer?.user_id && cust?.user_id && x.customer.user_id === cust.user_id)
@@ -61,6 +125,9 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
 
       return {
         id: r.review_id || i + 1,
+        delivery_id: r.delivery_id,
+        is_company_service: isCompanyService,
+        has_driver: hasDriver,
         customer_name: custName,
         customer_code: custCode,
         avatar,
@@ -76,7 +143,7 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
         has_media: photos.length > 0,
       };
     });
-  }, [reviews]);
+  }, [liveReviews, reviews]);
 
   // Aggregate stats strictly from database reviews
   const stats = useMemo(() => {
@@ -87,15 +154,20 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
         avgOverall: '0.0',
         avgService: '0.0',
         avgDriver: '0.0',
+        totalDriverReviews: 0,
         distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
       };
     }
 
     const sumOverall = dbReviews.reduce((sum, r) => sum + r.overall_rating, 0);
-    const sumDriver = dbReviews.reduce((sum, r) => sum + r.driver_rating, 0);
     const avgOverall = (sumOverall / total).toFixed(1);
     const avgService = avgOverall;
-    const avgDriver = (sumDriver / total).toFixed(1);
+
+    // Driver score strictly from delivery reviews with driver ratings
+    const driverReviews = dbReviews.filter((r) => r.has_driver && r.driver_rating !== null);
+    const totalDriverReviews = driverReviews.length;
+    const sumDriver = driverReviews.reduce((sum, r) => sum + r.driver_rating, 0);
+    const avgDriver = totalDriverReviews > 0 ? (sumDriver / totalDriverReviews).toFixed(1) : '—';
 
     const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
     dbReviews.forEach((r) => {
@@ -105,7 +177,7 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
       }
     });
 
-    return { total, avgOverall, avgService, avgDriver, distribution };
+    return { total, avgOverall, avgService, avgDriver, totalDriverReviews, distribution };
   }, [dbReviews]);
 
   // Timeframe filtered reviews for Screen 1
@@ -115,7 +187,8 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
     const now = new Date();
     return dbReviews.filter((r) => {
       if (!r.created_at) return true;
-      const d = new Date(r.created_at);
+      const isoStr = typeof r.created_at === 'string' ? r.created_at.replace(' ', 'T') : r.created_at;
+      const d = new Date(isoStr);
       if (isNaN(d.getTime())) return true;
 
       if (timeframe === 'year') {
@@ -140,7 +213,11 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
     } else if (sortOrder === 'lowest') {
       list.sort((a, b) => a.overall_rating - b.overall_rating);
     } else {
-      list.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      list.sort((a, b) => {
+        const tA = new Date(typeof a.created_at === 'string' ? a.created_at.replace(' ', 'T') : a.created_at || 0).getTime();
+        const tB = new Date(typeof b.created_at === 'string' ? b.created_at.replace(' ', 'T') : b.created_at || 0).getTime();
+        return tB - tA;
+      });
     }
     return list;
   }, [timeframeReviews, sortOrder]);
@@ -160,12 +237,13 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
 
   const handleExportCsv = () => {
     const rows = [
-      ['Customer Name', 'Customer ID', 'Overall Rating', 'Driver Rating', 'Date', 'Comments'],
+      ['Customer Name', 'Customer ID', 'Type', 'Overall Rating', 'Driver Rating', 'Date', 'Comments'],
       ...dbReviews.map((r) => [
         r.customer_name,
         r.customer_code,
+        r.is_company_service ? 'Company Service' : 'Delivery Service',
         r.overall_rating,
-        r.driver_rating,
+        r.has_driver ? r.driver_rating : 'N/A',
         r.date,
         r.comments,
       ]),
@@ -252,8 +330,8 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
                     <div className="score-circle-badge green">{stats.avgDriver}</div>
                     <div className="score-bars-list">
                       {[5, 4, 3, 2, 1].map((s) => {
-                        const countForDriver = dbReviews.filter((r) => Math.round(r.driver_rating) === s).length;
-                        const pct = stats.total > 0 ? (countForDriver / stats.total) * 100 : 0;
+                        const countForDriver = dbReviews.filter((r) => r.has_driver && Math.round(r.driver_rating) === s).length;
+                        const pct = stats.totalDriverReviews > 0 ? (countForDriver / stats.totalDriverReviews) * 100 : 0;
                         return (
                           <div key={s} className="score-bar-row">
                             <span className="star-num">★ {s}</span>
@@ -406,9 +484,48 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [] }) {
                           <div className="stars-row">{renderStars(rev.overall_rating)}</div>
                         </td>
                         <td>
-                          <div className="stars-row">{renderStars(rev.driver_rating)}</div>
+                          {rev.has_driver ? (
+                            <div className="stars-row">{renderStars(rev.driver_rating)}</div>
+                          ) : (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                color: '#64748b',
+                                backgroundColor: '#f1f5f9',
+                                padding: '3px 8px',
+                                borderRadius: 6,
+                                fontWeight: 500,
+                                fontStyle: 'italic',
+                              }}
+                            >
+                              N/A (Company Service)
+                            </span>
+                          )}
                         </td>
-                        <td className="cust-comment-cell">{rev.comments}</td>
+                        <td className="cust-comment-cell">
+                          <div>{rev.comments}</div>
+                          {rev.photos && rev.photos.length > 0 && (
+                            <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              {rev.photos.map((src, idx) => (
+                                <img
+                                  key={idx}
+                                  src={src}
+                                  alt="Attached Feedback"
+                                  style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 4,
+                                    objectFit: 'cover',
+                                    cursor: 'pointer',
+                                    border: '1px solid #cbd5e1',
+                                  }}
+                                  onClick={() => setPreviewPhoto(src)}
+                                  title="Click to view photo"
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     ))}
 

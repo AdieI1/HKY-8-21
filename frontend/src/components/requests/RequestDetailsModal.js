@@ -97,6 +97,30 @@ export default function RequestDetailsModal({
               <div className="request-info-item"><span className="request-label">Item name:</span><span className="request-value">{selectedRequest.item_name || '—'}</span></div>
               <div className="request-info-item"><span className="request-label">Cargo type:</span><span className="request-value">{selectedRequest.cargo_type || '—'}</span></div>
               <div className="request-info-item">
+                <span className="request-label">Service Type:</span>
+                <span className="request-value" style={{ fontWeight: '700', color: selectedRequest.service_type && selectedRequest.service_type !== 'standard' ? '#0284c7' : 'inherit' }}>
+                  {selectedRequest.service_type === 'stuffing' ? 'Container Stuffing' : selectedRequest.service_type === 'pulling' ? 'Container Pull-Out / Pulling' : 'Standard Trucking Delivery'}
+                </span>
+              </div>
+              {selectedRequest.container_number && (
+                <div className="request-info-item">
+                  <span className="request-label">Container Number:</span>
+                  <span className="request-value" style={{ fontWeight: '600', color: '#0369a1' }}>{selectedRequest.container_number}</span>
+                </div>
+              )}
+              {selectedRequest.seal_number && (
+                <div className="request-info-item">
+                  <span className="request-label">Seal Number:</span>
+                  <span className="request-value" style={{ fontWeight: '600', color: '#0369a1' }}>{selectedRequest.seal_number}</span>
+                </div>
+              )}
+              {selectedRequest.cancellation_reason && (
+                <div className="request-info-item" style={{ background: '#fef2f2', padding: '6px 8px', borderRadius: '6px' }}>
+                  <span className="request-label" style={{ color: '#b91c1c' }}>Cancellation Reason:</span>
+                  <span className="request-value" style={{ color: '#991b1b', fontWeight: '600' }}>{selectedRequest.cancellation_reason}</span>
+                </div>
+              )}
+              <div className="request-info-item">
                 <span className="request-label">Cargo Fragility:</span>
                 <span className={`request-value${selectedRequest.fragility === 'high' ? ' fragile' : ''}`}>
                   {selectedRequest.fragility ? selectedRequest.fragility.charAt(0).toUpperCase() + selectedRequest.fragility.slice(1) : '—'}
@@ -106,6 +130,19 @@ export default function RequestDetailsModal({
               <div className="request-info-item"><span className="request-label">Cargo Weight:</span><span className="request-value">{selectedRequest.weight ? `${selectedRequest.weight} kg` : '—'}</span></div>
               <div className="request-info-item"><span className="request-label">Pickup location:</span><span className="request-value">{selectedRequest.pickup_address || '—'}</span></div>
               <div className="request-info-item"><span className="request-label">Drop off location:</span><span className="request-value">{selectedRequest.dropoff_address || '—'}</span></div>
+              <div className="request-info-item">
+                <span className="request-label">Receiver (Contact Person):</span>
+                <span className="request-value" style={{ fontWeight: 600, color: '#0f172a' }}>
+                  {selectedRequest.receiver_name ? (
+                    <>
+                      {selectedRequest.receiver_name}
+                      {selectedRequest.receiver_phone ? ` (${selectedRequest.receiver_phone})` : ''}
+                    </>
+                  ) : (
+                    selectedRequest.customer?.full_name || 'Same as Customer'
+                  )}
+                </span>
+              </div>
               <div className="request-info-item"><span className="request-label">Distance:</span><span className="request-value">{selectedRequest.distance_km ? `${selectedRequest.distance_km} km` : '—'}</span></div>
               <div className="request-info-item"><span className="request-label">Total Price:</span><span className="request-value price">{formatMoney(selectedRequest.total_price)}</span></div>
               {selectedRequest.payment_term === 'downpayment' ? (

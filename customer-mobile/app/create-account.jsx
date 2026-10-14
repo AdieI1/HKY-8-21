@@ -117,7 +117,6 @@ export default function CreateAccount() {
           pathname: '/email-verification',
           params: {
             email: trimmedEmail,
-            username: data?.username || '',
           },
         });
       }, 1200);

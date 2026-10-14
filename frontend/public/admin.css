@@ -3300,6 +3300,10 @@ body.dark-theme .hjy-steepness-popup .leaflet-popup-content-wrapper {
     background: #10B981;
 }
 
+.health-segment.delayed-segment {
+    background: #EF4444;
+}
+
 .health-segment.available-segment {
     background: #3B82F6;
 }
@@ -3331,6 +3335,7 @@ body.dark-theme .hjy-steepness-popup .leaflet-popup-content-wrapper {
 }
 
 .health-legend-dot.active-dot { background: #10B981; }
+.health-legend-dot.delayed-dot { background: #EF4444; }
 .health-legend-dot.available-dot { background: #3B82F6; }
 .health-legend-dot.maintenance-dot { background: #F59E0B; }
 
@@ -3586,4 +3591,157 @@ body.dark-theme .stepper-line {
 
 body.dark-theme .delivery-status-pill {
     filter: brightness(0.92);
+}
+
+/* Staff Table Avatar & Profile Enhancements */
+.staff-avatar-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.staff-avatar-thumb {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid #fed7aa;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    flex-shrink: 0;
+}
+
+.staff-avatar-placeholder {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #eb6425, #f97316);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 1px 3px rgba(235, 100, 37, 0.25);
+    text-transform: uppercase;
+}
+
+/* Specific override so table td:first-child img rules don't shrink panel photos */
+.admin-table tr.admin-profile-row td img,
+.admin-profile-panel img.staff-profile-card-large {
+    width: 100px !important;
+    min-width: 100px !important;
+    max-width: 100px !important;
+    height: 112px !important;
+    min-height: 112px !important;
+    max-height: 112px !important;
+    border-radius: 8px !important;
+    object-fit: cover !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+    display: block !important;
+}
+
+.staff-profile-card-large {
+    width: 100px !important;
+    min-width: 100px !important;
+    height: 112px !important;
+    min-height: 112px !important;
+    border-radius: 8px !important;
+    object-fit: cover !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+}
+
+.staff-profile-card-placeholder {
+    width: 100px !important;
+    min-width: 100px !important;
+    height: 112px !important;
+    min-height: 112px !important;
+    border-radius: 8px !important;
+    background: linear-gradient(135deg, #334155, #1e293b) !important;
+    color: #ffffff !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 26px !important;
+    font-weight: 700 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+    border: 1px solid #cbd5e1 !important;
+}
+
+.profile-details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px 20px;
+    flex: 1;
+}
+
+/* Photo Upload Box in Modals */
+.photo-upload-section {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px;
+    background: #f8fafc;
+    border-radius: 8px;
+    border: 1px dashed #cbd5e1;
+    margin-bottom: 16px;
+}
+
+body.dark-theme .photo-upload-section {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+.photo-preview-box {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid #eb6425;
+}
+
+.photo-placeholder-box {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+}
+
+body.dark-theme .photo-placeholder-box {
+    background: #334155;
+    color: #94a3b8;
+}
+
+.photo-upload-btn-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    background: #ffffff;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.photo-upload-btn-label:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+}
+
+body.dark-theme .photo-upload-btn-label {
+    background: #0f172a;
+    color: #f1f5f9;
+    border-color: #475569;
 }

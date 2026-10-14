@@ -9,6 +9,9 @@ const DELIVERY_STATUS = {
   returning_to_hq: "returning_to_hq",
   completed: "delivered",
   rejected: "rejected",
+  accident: "accident",
+  broken: "accident",
+  cancelled: "cancelled",
 };
 
 export const formatDeliveryRequest = (request) => {
@@ -22,7 +25,10 @@ export const formatDeliveryRequest = (request) => {
     cargoName: request.item_name || request.cargo_type || "Cargo",
     cargo: request.cargo_type || "Cargo",
     fragility: request.fragility,
-    status: delivery?.driver_id || ["completed", "rejected"].includes(delivery?.status)
+    serviceType: request.service_type || "standard",
+    containerNumber: request.container_number || null,
+    sealNumber: request.seal_number || null,
+    status: delivery?.driver_id || ["completed", "rejected", "cancelled"].includes(delivery?.status)
       ? DELIVERY_STATUS[delivery.status] || delivery.status
       : request.status,
     backendStatus: delivery?.status || request.status,
@@ -47,7 +53,7 @@ export const formatDeliveryRequest = (request) => {
     rescheduleStatus: request.reschedule_status || null,
     rescheduleProposedDate: request.reschedule_proposed_date || null,
     rescheduleProposedTimeSlot: request.reschedule_proposed_time_slot || null,
-    isAwaitingDriver: Boolean(delivery && !delivery.driver_id && !["completed", "rejected"].includes(delivery.status)),
+    isAwaitingDriver: Boolean(delivery && !delivery.driver_id && !["completed", "rejected", "cancelled"].includes(delivery.status)),
     deliveryId: delivery?.delivery_id || null,
     driverId: delivery?.driver_id || null,
     hasReviewed: Boolean(delivery?.reviews && delivery.reviews.length > 0),
@@ -58,6 +64,16 @@ export const formatDeliveryRequest = (request) => {
     delay_notified_at: delivery?.delay_notified_at || null,
     estimated_delivery_date: delivery?.estimated_delivery_date || null,
     is_delayed: Boolean(delivery?.is_delayed),
+    hasAccidentIncident: Boolean(delivery?.has_accident_incident || ["accident", "broken"].includes(delivery?.status)),
+    activeIncident: delivery?.active_incident || null,
+    cancellationReason: delivery?.cancellation_reason || request.cancellation_reason || null,
+    collectionReceiptNo: delivery?.collection_receipt_no || null,
+    collectionReceiptAmount: delivery?.collection_receipt_amount || null,
+    collectionReceiptPaymentMode: delivery?.collection_receipt_payment_mode || null,
+    collectionReceiptUrl: delivery?.collection_receipt_url || null,
+    collectionReceiptIssuedAt: delivery?.collection_receipt_issued_at || null,
+    collectionReceiptNotes: delivery?.collection_receipt_notes || null,
+    isCancelled: delivery?.status === "cancelled" || request.status === "cancelled",
     pickup_address: request.pickup_address || "",
     dropoff_address: request.dropoff_address || "",
     proof_of_delivery_url: delivery?.proof_of_delivery_url || delivery?.receipt_photo || null,
@@ -67,4 +83,6 @@ export const formatDeliveryRequest = (request) => {
 };
 
 export const isActiveDelivery = (delivery) =>
-  !["draft", "delivered", "rejected"].includes(delivery.status);
+  !["draft", "delivered", "rejected", "cancelled"].includes(delivery.status) &&
+  !["cancelled"].includes(delivery.backendStatus);
+

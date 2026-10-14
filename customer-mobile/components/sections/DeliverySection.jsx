@@ -2,10 +2,21 @@ import { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Alert, Dimensions, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { getFleetAvailabilityForecast } from "../../services/api";
+import { useTheme } from "../../context/ThemeContext";
 
 const { width, height } = Dimensions.get("window");
 
-export default function DeliverySection({ pickup, dropoff, onOpenMap, schedule, onScheduleChange }) {
+export default function DeliverySection({
+  pickup,
+  dropoff,
+  onOpenMap,
+  schedule,
+  onScheduleChange,
+  receiverName,
+  receiverPhone,
+  onReceiverChange,
+}) {
+  const { isDark, colors } = useTheme();
   const [forecast, setForecast] = useState(null);
 
   useEffect(() => {
@@ -65,47 +76,85 @@ export default function DeliverySection({ pickup, dropoff, onOpenMap, schedule, 
   ];
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
 
       <Text style={styles.title}>Delivery Location</Text> 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
-      <Text style={styles.label}>Select Pick-up address</Text>
+      <Text style={[styles.label, { color: colors.textMuted }]}>Select Pick-up address</Text>
       <TouchableOpacity
-        style={styles.input}
+        style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, borderWidth: isDark ? 1 : 0 }]}
         onPress={() => handleOpenMap("pickup")}
       >
         <View style={styles.row}>
           <Ionicons name="location-sharp" size={18} color="#E53935" />
-          <Text style={styles.text}>
+          <Text style={[styles.text, { color: pickup?.address ? colors.text : colors.textSubtle }]}>
             {pickup?.address ? pickup.address : "Tap to select pickup location"}
           </Text>
         </View>
       </TouchableOpacity>
 
-      <Text style={styles.label}>Set Drop-off address</Text>
+      <Text style={[styles.label, { color: colors.textMuted }]}>Set Drop-off address</Text>
       <TouchableOpacity
-        style={styles.input}
+        style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, borderWidth: isDark ? 1 : 0 }]}
         onPress={() => handleOpenMap("dropoff")}
       >
         <View style={styles.row}>
           <Ionicons name="location-sharp" size={18} color="#E53935" />
-          <Text style={styles.text}>
+          <Text style={[styles.text, { color: dropoff?.address ? colors.text : colors.textSubtle }]}>
             {dropoff?.address ? dropoff.address : "Tap to select drop-off location"}
           </Text>
         </View>
       </TouchableOpacity>
 
+      {/* Receiver / Contact Person */}
+      <Text style={[styles.label, { color: colors.textMuted, marginTop: 4 }]}>
+        Contact Person for Receiving Delivery (Receiver)
+      </Text>
+      <View style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, borderWidth: isDark ? 1 : 0, paddingVertical: 8 }]}>
+        <View style={styles.row}>
+          <Ionicons name="person-outline" size={18} color="#E53935" />
+          <TextInput
+            style={[styles.text, { color: colors.text }]}
+            placeholder="Receiver Full Name (e.g. Juan Dela Cruz)"
+            placeholderTextColor={colors.textSubtle}
+            value={receiverName || ""}
+            onChangeText={(val) => onReceiverChange?.("receiverName", val)}
+          />
+        </View>
+      </View>
+
+      <Text style={[styles.label, { color: colors.textMuted }]}>
+        Receiver Contact Phone Number
+      </Text>
+      <View style={[styles.input, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder, borderWidth: isDark ? 1 : 0, paddingVertical: 8 }]}>
+        <View style={styles.row}>
+          <Ionicons name="call-outline" size={18} color="#E53935" />
+          <TextInput
+            style={[styles.text, { color: colors.text }]}
+            placeholder="Receiver Phone (09...)"
+            placeholderTextColor={colors.textSubtle}
+            keyboardType="phone-pad"
+            maxLength={11}
+            value={receiverPhone || ""}
+            onChangeText={(val) => {
+              const cleaned = val.replace(/[^0-9]/g, "").slice(0, 11);
+              onReceiverChange?.("receiverPhone", cleaned);
+            }}
+          />
+        </View>
+      </View>
+
       {/* Delivery Timing / Scheduling */}
       <Text style={[styles.title, { marginTop: 8 }]}>Delivery Timing</Text>
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
       {!isScheduled && (forecast?.available_drivers_now === 0 || blockedDates.includes(getTodayDate())) && (
-        <View style={styles.demandAlert}>
-          <Ionicons name="warning-outline" size={16} color="#B45309" />
+        <View style={[styles.demandAlert, { backgroundColor: isDark ? "#451A03" : "#FEF3C7", borderColor: isDark ? "#78350F" : "#FDE68A" }]}>
+          <Ionicons name="warning-outline" size={16} color={isDark ? "#FBBF24" : "#B45309"} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.demandAlertTitle}>High Fleet Demand Today</Text>
-            <Text style={styles.demandAlertText}>
+            <Text style={[styles.demandAlertTitle, { color: isDark ? "#FBBF24" : "#92400E" }]}>High Fleet Demand Today</Text>
+            <Text style={[styles.demandAlertText, { color: isDark ? "#FDE68A" : "#78350F" }]}>
               All fleet drivers are currently on delivery trips. Scheduling for{" "}
               <Text style={{ fontWeight: "700" }}>{earliestLabel || "a future date"}</Text> locks in a confirmed slot.
             </Text>
@@ -115,33 +164,33 @@ export default function DeliverySection({ pickup, dropoff, onOpenMap, schedule, 
 
       <View style={styles.toggleRow}>
         <TouchableOpacity
-          style={[styles.toggleBtn, !isScheduled && styles.toggleBtnActive]}
+          style={[styles.toggleBtn, { backgroundColor: isDark ? colors.inputBg : "#F1F2F4", borderColor: colors.cardBorder }, !isScheduled && styles.toggleBtnActive]}
           onPress={() => onScheduleChange?.({ isScheduled: false, date: "", timeSlot: "" })}
         >
-          <Ionicons name="flash-outline" size={16} color={!isScheduled ? "#fff" : "#666"} />
-          <Text style={[styles.toggleBtnText, !isScheduled && styles.toggleBtnTextActive]}>
+          <Ionicons name="flash-outline" size={16} color={!isScheduled ? "#fff" : colors.textMuted} />
+          <Text style={[styles.toggleBtnText, { color: !isScheduled ? "#fff" : colors.textMuted }, !isScheduled && styles.toggleBtnTextActive]}>
             Deliver Now
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.toggleBtn, isScheduled && styles.toggleBtnActive]}
+          style={[styles.toggleBtn, { backgroundColor: isDark ? colors.inputBg : "#F1F2F4", borderColor: colors.cardBorder }, isScheduled && styles.toggleBtnActive]}
           onPress={() => onScheduleChange?.({
             isScheduled: true,
             date: schedule?.date || earliestDate || getFutureDate(1),
             timeSlot: schedule?.timeSlot || "09:00 AM",
           })}
         >
-          <Ionicons name="calendar-outline" size={16} color={isScheduled ? "#fff" : "#666"} />
-          <Text style={[styles.toggleBtnText, isScheduled && styles.toggleBtnTextActive]}>
+          <Ionicons name="calendar-outline" size={16} color={isScheduled ? "#fff" : colors.textMuted} />
+          <Text style={[styles.toggleBtnText, { color: isScheduled ? "#fff" : colors.textMuted }, isScheduled && styles.toggleBtnTextActive]}>
             Schedule for Later
           </Text>
         </TouchableOpacity>
       </View>
 
       {isScheduled && (
-        <View style={styles.scheduleBox}>
-          <Text style={styles.scheduleLabel}>Select Date</Text>
+        <View style={[styles.scheduleBox, { backgroundColor: isDark ? colors.inputBg : "#FAFAFA", borderColor: colors.cardBorder }]}>
+          <Text style={[styles.scheduleLabel, { color: colors.text }]}>Select Date</Text>
           <View style={styles.slotGrid}>
             {dateOptions.map((opt) => {
               const selected = schedule?.date === opt.value;
@@ -150,6 +199,7 @@ export default function DeliverySection({ pickup, dropoff, onOpenMap, schedule, 
                   key={opt.value}
                   style={[
                     styles.slotChip,
+                    { backgroundColor: isDark ? colors.card : "#F1F2F4", borderColor: colors.cardBorder },
                     selected && styles.slotChipActive,
                     opt.isBlocked && styles.slotChipBlocked,
                   ]}
@@ -167,6 +217,7 @@ export default function DeliverySection({ pickup, dropoff, onOpenMap, schedule, 
                   <Text
                     style={[
                       styles.slotChipText,
+                      { color: colors.text },
                       selected && styles.slotChipTextActive,
                       opt.isBlocked && styles.slotChipTextBlocked,
                     ]}
@@ -178,22 +229,26 @@ export default function DeliverySection({ pickup, dropoff, onOpenMap, schedule, 
             })}
           </View>
 
-          <Text style={[styles.scheduleLabel, { marginTop: 10 }]}>Preferred Delivery Time</Text>
+          <Text style={[styles.scheduleLabel, { marginTop: 10, color: colors.text }]}>Preferred Delivery Time</Text>
           <View style={styles.timeGrid}>
             {properTimes.map((time) => {
               const selected = (schedule?.timeSlot || "09:00 AM") === time;
               return (
                 <TouchableOpacity
                   key={time}
-                  style={[styles.timeChip, selected && styles.timeChipActive]}
+                  style={[
+                    styles.timeChip,
+                    { backgroundColor: isDark ? colors.card : "#F1F2F4", borderColor: colors.cardBorder },
+                    selected && styles.timeChipActive,
+                  ]}
                   onPress={() => onScheduleChange?.({ ...schedule, timeSlot: time })}
                 >
                   <Ionicons
                     name={selected ? "time" : "time-outline"}
                     size={12}
-                    color={selected ? "#E53935" : "#666"}
+                    color={selected ? "#E53935" : colors.textMuted}
                   />
-                  <Text style={[styles.timeChipText, selected && styles.timeChipTextActive]}>
+                  <Text style={[styles.timeChipText, { color: colors.text }, selected && styles.timeChipTextActive]}>
                     {time}
                   </Text>
                 </TouchableOpacity>
@@ -201,12 +256,12 @@ export default function DeliverySection({ pickup, dropoff, onOpenMap, schedule, 
             })}
           </View>
 
-          <View style={styles.customTimeRow}>
-            <Ionicons name="create-outline" size={15} color="#666" />
+          <View style={[styles.customTimeRow, { backgroundColor: isDark ? colors.card : "#F1F2F4", borderColor: colors.cardBorder }]}>
+            <Ionicons name="create-outline" size={15} color={colors.textMuted} />
             <TextInput
-              style={styles.customTimeInput}
+              style={[styles.customTimeInput, { color: colors.text }]}
               placeholder="Or enter custom time (e.g. 10:30 AM)"
-              placeholderTextColor="#999"
+              placeholderTextColor={colors.textSubtle}
               value={schedule?.timeSlot || ""}
               onChangeText={(text) => onScheduleChange?.({ ...schedule, timeSlot: text })}
             />

@@ -125,8 +125,37 @@ function AnalyticsPage() {
     setLoading(false);
   }, []);
 
+  const handleOpenRatingsModal = useCallback(async () => {
+    setShowRatingsModal(true);
+    try {
+      const res = await api.get('/reviews', { skipCache: true });
+      if (res?.data && Array.isArray(res.data)) {
+        setReviews(res.data);
+      }
+    } catch (e) {
+      // silent fallback
+    }
+  }, []);
+
   useEffect(() => {
     loadData();
+
+    const fetchReviewsSync = async () => {
+      try {
+        const res = await api.get('/reviews', { skipCache: true });
+        if (res?.data && Array.isArray(res.data)) {
+          setReviews(res.data);
+        }
+      } catch {}
+    };
+
+    const interval = setInterval(fetchReviewsSync, 4000);
+    window.addEventListener('focus', fetchReviewsSync);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', fetchReviewsSync);
+    };
   }, [loadData]);
 
   const now = useMemo(() => new Date(), []);
@@ -580,7 +609,7 @@ function AnalyticsPage() {
 
             <article
               className="analytics-stat-card clickable-card"
-              onClick={() => setShowRatingsModal(true)}
+              onClick={handleOpenRatingsModal}
               title="Click to view Customer Ratings and Reviews breakdown"
             >
               <div className="stat-icon-wrap amber">
@@ -1404,6 +1433,7 @@ function AnalyticsPage() {
         isOpen={showRatingsModal}
         onClose={() => setShowRatingsModal(false)}
         reviews={reviews}
+        onReviewsUpdated={(updatedReviews) => setReviews(updatedReviews)}
       />
 
       {/* Claims & Incident Losses Overview Modal */}

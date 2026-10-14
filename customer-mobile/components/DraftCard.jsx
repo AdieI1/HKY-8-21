@@ -1,104 +1,115 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Ionicons } from "@expo/vector-icons";
+import React from "react";
 import {
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { useTheme } from "../context/ThemeContext";
 
 export default function DraftCard({
   draft,
   onContinue,
   onDelete,
 }) {
+  const { isDark, colors } = useTheme();
+
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
       <View style={styles.top}>
-        <View style={styles.iconBox}>
+        <View style={[styles.iconBox, { backgroundColor: isDark ? "#450A0A" : "#FEE2E2" }]}>
           <Ionicons
             name="cube-outline"
-            size={21}
-            color="#F24848"
+            size={24}
+            color="#DC2626"
           />
         </View>
 
         <View style={styles.main}>
-          <Text style={styles.title}>
-            {draft.title}
-          </Text>
+          <View style={styles.titleRow}>
+            <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
+              {draft.title || "Cargo Delivery"}
+            </Text>
+
+            <TouchableOpacity
+              style={styles.moreButton}
+              onPress={onDelete}
+              activeOpacity={0.6}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name="trash-outline"
+                size={18}
+                color={colors.textSubtle}
+              />
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.metaRow}>
-            <Ionicons
-              name="calendar-outline"
-              size={10}
-              color="#858797"
-            />
+            <View style={styles.dateTag}>
+              <Ionicons
+                name="calendar-outline"
+                size={14}
+                color={colors.textMuted}
+              />
+              <Text style={[styles.meta, { color: colors.textMuted }]}>
+                {draft.date}
+              </Text>
+            </View>
 
-            <Text style={styles.meta}>
-              {draft.date}
-            </Text>
-
-            <Text style={styles.separator}>|</Text>
-
-            <Text style={styles.fragile}>
-              {draft.type}
-            </Text>
+            <View style={[styles.fragilePill, { backgroundColor: isDark ? "#450A0A" : "#FEF2F2" }]}>
+              <Text style={styles.fragile}>
+                {draft.type || "Normal"}
+              </Text>
+            </View>
           </View>
 
-          <View style={styles.routeRow}>
-            <Ionicons
-              name="location"
-              size={12}
-              color="#F24848"
-            />
+          <View style={[styles.routeBox, { backgroundColor: colors.inputBg, borderColor: colors.cardBorder }]}>
+            <View style={styles.routeRow}>
+              <Ionicons
+                name="location"
+                size={16}
+                color="#DC2626"
+              />
+              <Text style={[styles.route, { color: colors.text }]} numberOfLines={1}>
+                {draft.pickup || "Pickup Location"}
+              </Text>
+            </View>
 
-            <Text
-              style={styles.route}
-              numberOfLines={1}
-            >
-              {draft.pickup}
-            </Text>
+            <View style={styles.routeArrow}>
+              <Ionicons
+                name="arrow-down"
+                size={14}
+                color={colors.textSubtle}
+              />
+            </View>
 
-            <Ionicons
-              name="arrow-forward"
-              size={11}
-              color="#858797"
-            />
-
-            <Text
-              style={styles.route}
-              numberOfLines={1}
-            >
-              {draft.destination}
-            </Text>
+            <View style={styles.routeRow}>
+              <Ionicons
+                name="navigate"
+                size={16}
+                color="#059669"
+              />
+              <Text style={[styles.route, { color: colors.text }]} numberOfLines={1}>
+                {draft.destination || "Destination Location"}
+              </Text>
+            </View>
           </View>
         </View>
-
-        <TouchableOpacity
-          style={styles.moreButton}
-          onPress={onDelete}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name="ellipsis-vertical"
-            size={18}
-            color="#77798A"
-          />
-        </TouchableOpacity>
       </View>
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
       <View style={styles.bottom}>
         <View style={styles.saved}>
           <Ionicons
             name="time-outline"
-            size={13}
-            color="#858797"
+            size={16}
+            color={colors.textMuted}
           />
-
-          <Text style={styles.savedText}>
-            {draft.savedTime}
+          <Text style={[styles.savedText, { color: colors.textMuted }]}>
+            Saved {draft.savedTime || "recently"}
           </Text>
         </View>
 
@@ -110,6 +121,12 @@ export default function DraftCard({
           <Text style={styles.continueText}>
             Continue
           </Text>
+          <Ionicons
+            name="arrow-forward"
+            size={16}
+            color="#FFFFFF"
+            style={{ marginLeft: 4 }}
+          />
         </TouchableOpacity>
       </View>
     </View>
@@ -118,127 +135,126 @@ export default function DraftCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#F8F8FC",
-    borderRadius: 7,
-    marginBottom: 10,
-    overflow: "hidden",
-    elevation: 2,
+    borderRadius: 14,
+    marginBottom: 14,
+    borderWidth: 1,
     shadowColor: "#000000",
     shadowOpacity: 0.08,
-    shadowRadius: 4,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+    overflow: "hidden",
   },
-
   top: {
     flexDirection: "row",
-    padding: 10,
-    minHeight: 74,
+    padding: 16,
+    alignItems: "flex-start",
   },
-
   iconBox: {
-    width: 34,
-    height: 34,
-    borderRadius: 6,
-    backgroundColor: "#FDE4E4",
+    width: 44,
+    height: 44,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 9,
+    marginRight: 12,
   },
-
   main: {
     flex: 1,
   },
-
-  title: {
-    fontSize: 13,
-    fontWeight: "900",
-    color: "#30313A",
-  },
-
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 3,
-  },
-
-  meta: {
-    fontSize: 8,
-    color: "#858797",
-    marginLeft: 3,
-  },
-
-  separator: {
-    fontSize: 8,
-    color: "#858797",
-    marginHorizontal: 4,
-  },
-
-  fragile: {
-    fontSize: 8,
-    color: "#F24848",
-    fontWeight: "700",
-  },
-
-  routeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 7,
-    gap: 4,
-  },
-
-  route: {
-    maxWidth: "35%",
-    fontSize: 9,
-    color: "#77798A",
-  },
-
-  moreButton: {
-    width: 25,
-    height: 30,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  divider: {
-    height: 1,
-    backgroundColor: "#D5D6DD",
-  },
-
-  bottom: {
-    height: 40,
+  titleRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 10,
   },
-
-  saved: {
+  title: {
+    fontSize: 17,
+    fontWeight: "800",
+    flex: 1,
+    marginRight: 8,
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 6,
+    gap: 8,
+  },
+  dateTag: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
   },
-
-  savedText: {
-    fontSize: 8,
-    color: "#858797",
+  meta: {
+    fontSize: 13,
+    fontWeight: "500",
   },
-
-  continueButton: {
-    minWidth: 59,
-    height: 29,
-    borderRadius: 5,
-    backgroundColor: "#F24848",
-    alignItems: "center",
-    justifyContent: "center",
+  fragilePill: {
     paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
-
+  fragile: {
+    fontSize: 12,
+    color: "#DC2626",
+    fontWeight: "700",
+  },
+  routeBox: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  routeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  routeArrow: {
+    paddingLeft: 2,
+    marginVertical: 2,
+  },
+  route: {
+    fontSize: 13,
+    fontWeight: "600",
+    flex: 1,
+  },
+  moreButton: {
+    padding: 4,
+  },
+  divider: {
+    height: 1,
+  },
+  bottom: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  saved: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  savedText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  continueButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#DC2626",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    shadowColor: "#DC2626",
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
   continueText: {
+    fontSize: 14,
+    fontWeight: "700",
     color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "900",
   },
 });

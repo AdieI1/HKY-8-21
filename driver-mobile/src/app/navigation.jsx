@@ -108,11 +108,13 @@ export default function Navigation() {
           ? new Date(backendDelivery.created_at).toLocaleDateString()
           : "",
       driver: assignedDriver.full_name || "",
-      contact: customer.phone || "",
+      contact: request.receiver_phone || customer.phone || "",
       balance: formatMoney(Math.max(totalPrice - paidAmount, 0)),
       cargo: request.cargo_type || "",
       cargoDescription: request.cargo_type || "",
-      clientName: customer.full_name || "",
+      clientName: request.receiver_name ? `${request.receiver_name} (Receiver)` : (customer.full_name || ""),
+      receiverName: request.receiver_name || null,
+      receiverPhone: request.receiver_phone || null,
       weight: request.weight ? `${request.weight}kg` : "",
       pickup:
         backendDelivery.is_relief && backendDelivery.cargo_loaded && backendDelivery.relief_origin_address

@@ -7,6 +7,7 @@ export default function SweetToast({
   message,
   onDismiss,
   duration = 3200,
+  type = "success",
 }) {
   const opacity = React.useRef(new Animated.Value(0)).current;
   const translateY = React.useRef(new Animated.Value(20)).current;
@@ -49,6 +50,10 @@ export default function SweetToast({
 
   if (!visible) return null;
 
+  const isError = type === "error" || type === "warning";
+  const iconName = isError ? "alert-circle" : "checkmark";
+  const iconBg = isError ? "#EF4444" : "#10B981";
+
   return (
     <Animated.View
       style={[
@@ -59,8 +64,8 @@ export default function SweetToast({
         },
       ]}
     >
-      <View style={styles.iconCircle}>
-        <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+      <View style={[styles.iconCircle, { backgroundColor: iconBg }]}>
+        <Ionicons name={iconName} size={18} color="#FFFFFF" />
       </View>
       <Text style={styles.messageText}>{message}</Text>
     </Animated.View>

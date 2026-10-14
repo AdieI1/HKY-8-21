@@ -21,11 +21,13 @@ import {
   logout,
   markAllNotificationsRead,
 } from "../../services/api";
+import { useTheme } from "../../context/ThemeContext";
 
 const { width, height } = Dimensions.get("window");
 
 export default function Notifications() {
   const router = useRouter();
+  const { isDark, colors } = useTheme();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -107,15 +109,15 @@ export default function Notifications() {
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bg }]}>
       {/* HEADER */}
       <AppHeader icon="document-text-outline" iconSize={27} />
 
       {/* BODY */}
-      <View style={styles.body}>
-        <View style={styles.titleRow}>
+      <View style={[styles.body, { backgroundColor: colors.bg }]}>
+        <View style={[styles.titleRow, { backgroundColor: isDark ? colors.card : "#F7F8FC", borderBottomColor: colors.cardBorder, borderBottomWidth: isDark ? 1 : 0 }]}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Text style={styles.pageTitle}>Notifications</Text>
+            <Text style={[styles.pageTitle, { color: colors.text }]}>Notifications</Text>
             {unreadCount > 0 && (
               <View style={styles.unreadBadge}>
                 <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
@@ -125,19 +127,22 @@ export default function Notifications() {
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             {unreadCount > 0 && (
-              <TouchableOpacity onPress={handleMarkAllRead} style={styles.markReadBtn}>
-                <Text style={styles.markReadText}>Mark Read</Text>
+              <TouchableOpacity onPress={handleMarkAllRead} style={[styles.markReadBtn, { backgroundColor: isDark ? "#312E81" : "#E0E7FF" }]}>
+                <Text style={[styles.markReadText, { color: isDark ? "#C7D2FE" : "#3730A3" }]}>Mark Read</Text>
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity style={styles.sortButton} onPress={toggleSort}>
-              <Text style={styles.sortText}>
+            <TouchableOpacity
+              style={[styles.sortButton, { backgroundColor: isDark ? colors.cardBorder : "#D5DDF3" }]}
+              onPress={toggleSort}
+            >
+              <Text style={[styles.sortText, { color: isDark ? "#93C5FD" : "#315BB5" }]}>
                 {sortOrder === "newest" ? "Newest" : "Oldest"}
               </Text>
               <Ionicons
                 name={sortOrder === "newest" ? "arrow-down" : "arrow-up"}
                 size={12}
-                color="#315BB5"
+                color={isDark ? "#93C5FD" : "#315BB5"}
               />
             </TouchableOpacity>
           </View>
@@ -146,12 +151,13 @@ export default function Notifications() {
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#E53935" />
-            <Text style={styles.loadingText}>Loading notifications...</Text>
+            <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading notifications...</Text>
           </View>
         ) : (
           <ScrollView
+            style={{ flex: 1, backgroundColor: colors.bg }}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.list}
+            contentContainerStyle={[styles.list, { backgroundColor: colors.bg }]}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}

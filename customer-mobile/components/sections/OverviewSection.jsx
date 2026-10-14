@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useTheme } from "../../context/ThemeContext";
 
 const { width, height } = Dimensions.get("window");
 const money = (value) => `₱${Number(value || 0).toLocaleString("en-PH")}`;
@@ -22,6 +23,7 @@ export default function OverviewSection({
   onConfirm,
   submitting,
 }) {
+  const { colors, isDark } = useTheme();
   const [modalVisible, setModalVisible] = useState(false);
   const [activeInfo, setActiveInfo] = useState("");
   const fees = pricing || {
@@ -44,32 +46,32 @@ export default function OverviewSection({
   ];
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
       <View style={styles.headerTop}>
         <View style={styles.iconBox}>
           <Ionicons name="cube-outline" size={width * 0.05} color="#fff" />
         </View>
         <View style={styles.headerText}>
           <Text style={styles.title}>Delivery Overview</Text>
-          <Text style={styles.note}>Press the ? icon for pricing details</Text>
+          <Text style={[styles.note, { color: isDark ? "#F87171" : "#E53935" }]}>Press the ? icon for pricing details</Text>
         </View>
       </View>
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: colors.divider }]} />
       {rows.map(([label, value, info]) => (
         <TouchableOpacity key={label} style={styles.row} onPress={() => openInfo(info)}>
           <View style={styles.leftGroup}>
-            <Ionicons name="help-circle-outline" size={width * 0.045} color="#E53935" style={styles.iconSpacing} />
-            <Text style={styles.item}>{label}: {value}</Text>
+            <Ionicons name="help-circle-outline" size={width * 0.045} color={isDark ? "#F87171" : "#E53935"} style={styles.iconSpacing} />
+            <Text style={[styles.item, { color: colors.text }]}>{label}: {value}</Text>
           </View>
         </TouchableOpacity>
       ))}
-      <Text style={styles.total}>Total Expenses: {money(fees.total)}</Text>
+      <Text style={[styles.total, { color: isDark ? "#EF4444" : "#E53935" }]}>Total Expenses: {money(fees.total)}</Text>
 
       <Modal visible={modalVisible} transparent animationType="fade">
-        <View style={styles.overlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalText}>{activeInfo}</Text>
+        <View style={[styles.overlay, { backgroundColor: colors.modalBackdrop }]}>
+          <View style={[styles.modalBox, { backgroundColor: colors.modalBg, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
+            <Text style={[styles.modalText, { color: colors.text }]}>{activeInfo}</Text>
             <TouchableOpacity onPress={() => setModalVisible(false)}>
               <Text style={styles.close}>Got it</Text>
             </TouchableOpacity>
@@ -78,17 +80,30 @@ export default function OverviewSection({
       </Modal>
 
       <Modal visible={reviewVisible} transparent animationType="fade" onRequestClose={onCloseReview}>
-        <View style={styles.overlay}>
-          <View style={styles.reviewBox}>
+        <View style={[styles.overlay, { backgroundColor: colors.modalBackdrop }]}>
+          <View style={[styles.reviewBox, { backgroundColor: colors.modalBg, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
             <Text style={styles.reviewTitle}>Review Request Details</Text>
-            <Text style={styles.reviewLine}>Cargo: {reviewDetails?.cargo || "N/A"}</Text>
-            <Text style={styles.reviewLine}>Fragility: {reviewDetails?.fragility || "N/A"}</Text>
-            <Text style={styles.reviewLine}>Weight: {weightKg || 0} kg</Text>
-            <Text style={styles.reviewLine}>Pick-up: {reviewDetails?.pickup || "N/A"}</Text>
-            <Text style={styles.reviewLine}>Drop-off: {reviewDetails?.dropoff || "N/A"}</Text>
-            <Text style={styles.reviewTotal}>Total: {money(fees.total)}</Text>
+            <Text style={[styles.reviewLine, { color: colors.text }]}>
+              Service: {reviewDetails?.serviceType === "stuffing" ? "Container Stuffing (Loading)" : reviewDetails?.serviceType === "pulling" ? "Container Pull-Out / Pulling" : "Standard Delivery"}
+            </Text>
+            {reviewDetails?.containerNumber ? (
+              <Text style={[styles.reviewLine, { color: colors.text }]}>
+                Container #: {reviewDetails.containerNumber} {reviewDetails?.sealNumber ? `(Seal: ${reviewDetails.sealNumber})` : ""}
+              </Text>
+            ) : null}
+            <Text style={[styles.reviewLine, { color: colors.text }]}>Cargo: {reviewDetails?.cargo || "N/A"}</Text>
+            <Text style={[styles.reviewLine, { color: colors.text }]}>Fragility: {reviewDetails?.fragility || "N/A"}</Text>
+            <Text style={[styles.reviewLine, { color: colors.text }]}>Weight: {weightKg || 0} kg</Text>
+            <Text style={[styles.reviewLine, { color: colors.text }]}>Pick-up: {reviewDetails?.pickup || "N/A"}</Text>
+            <Text style={[styles.reviewLine, { color: colors.text }]}>Drop-off: {reviewDetails?.dropoff || "N/A"}</Text>
+            {reviewDetails?.receiverName ? (
+              <Text style={[styles.reviewLine, { color: colors.text }]}>
+                Receiver: {reviewDetails.receiverName}{reviewDetails.receiverPhone ? ` (${reviewDetails.receiverPhone})` : ""}
+              </Text>
+            ) : null}
+            <Text style={[styles.reviewTotal, { color: isDark ? "#EF4444" : "#E53935" }]}>Total: {money(fees.total)}</Text>
             <View style={styles.reviewActions}>
-              <TouchableOpacity style={styles.cancelButton} onPress={onCloseReview}>
+              <TouchableOpacity style={[styles.cancelButton, { backgroundColor: isDark ? "#334155" : "#9E9E9E" }]} onPress={onCloseReview}>
                 <Text style={styles.cancelText}>Go Back</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.confirmButton} onPress={onConfirm} disabled={submitting}>

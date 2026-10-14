@@ -5,12 +5,15 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import { useTheme } from "../context/ThemeContext";
 
 const { width, height } = Dimensions.get("window");
 
 export default function SuccessRequest({ onViewDelivery, onReturnHome }) {
+  const { colors } = useTheme();
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
       <View style={styles.content}>
         <Text style={styles.title}>Delivery Requested!</Text>
 

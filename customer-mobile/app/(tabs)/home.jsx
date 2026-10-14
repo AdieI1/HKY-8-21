@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -19,13 +19,18 @@ import RequestSheet from "../../components/RequestSheet";
 import SaveMessage from "../../components/SaveMessage";
 import { getMyDeliveryRequests, getToken, logout } from "../../services/api";
 import { formatDeliveryRequest, isActiveDelivery } from "../../services/deliveries";
+import { getDraftById } from "../../services/drafts";
+import { useTheme } from "../../context/ThemeContext";
 
 const { width, height } = Dimensions.get("window");
 
 const Home = () => {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  const { isDark, colors } = useTheme();
 
   const [showSheet, setShowSheet] = useState(false);
+  const [activeDraft, setActiveDraft] = useState(null);
   const [showSaveMessage, setShowSaveMessage] =
     useState(false);
   const [deliveries, setDeliveries] = useState([]);
@@ -33,6 +38,21 @@ const Home = () => {
   const translateY = useRef(
     new Animated.Value(height)
   ).current;
+
+  const lastOpenedDraftId = useRef(null);
+
+  // Open specific draft if requested from Drafts screen
+  useEffect(() => {
+    if (params?.openDraftId && params.openDraftId !== lastOpenedDraftId.current) {
+      lastOpenedDraftId.current = params.openDraftId;
+      getDraftById(params.openDraftId).then((draft) => {
+        if (draft) {
+          setActiveDraft(draft);
+          setShowSheet(true);
+        }
+      });
+    }
+  }, [params?.openDraftId]);
 
   const loadDeliveries = useCallback(async () => {
     try {
@@ -122,8 +142,8 @@ const Home = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bg }]}>
+      <View style={[styles.container, { backgroundColor: colors.bg }]}>
         {/* HEADER */}
         <AppHeader
           icon="document-text-outline"
@@ -132,21 +152,21 @@ const Home = () => {
 
         {/* BODY */}
         <ScrollView
-          style={styles.body}
-          contentContainerStyle={styles.scrollContent}
+          style={[styles.body, { backgroundColor: colors.bg }]}
+          contentContainerStyle={[styles.scrollContent, { backgroundColor: colors.bg }]}
           showsVerticalScrollIndicator={false}
         >
           {/* REQUEST DELIVERY */}
-          <View style={styles.requestCard}>
-            <Text style={styles.requestHeader}>
+          <View style={[styles.requestCard, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
+            <Text style={[styles.requestHeader, { color: colors.text }]}>
               Request Delivery!
             </Text>
 
-            <Text style={styles.requestSubheader}>
+            <Text style={[styles.requestSubheader, { color: colors.textMuted }]}>
               Schedule a delivery quick and easy.
             </Text>
 
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
             <TouchableOpacity
               style={styles.requestBtn}
@@ -160,7 +180,7 @@ const Home = () => {
               />
 
               <Text style={styles.requestBtnText}>
-                Create Request
+                Schedule Delivery
               </Text>
             </TouchableOpacity>
           </View>
@@ -183,7 +203,10 @@ const Home = () => {
         {showSheet && (
           <TouchableOpacity
             activeOpacity={1}
-            onPress={closeSheet}
+            onPress={() => {
+              setActiveDraft(null);
+              closeSheet();
+            }}
             style={styles.backdrop}
           />
         )}
@@ -203,7 +226,11 @@ const Home = () => {
             ]}
           >
             <RequestSheet
-              onClose={closeSheet}
+              initialDraft={activeDraft}
+              onClose={() => {
+                setActiveDraft(null);
+                closeSheet();
+              }}
               onDraftSaved={handleDraftSaved}
               onRequestCreated={loadDeliveries}
             />

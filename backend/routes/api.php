@@ -309,10 +309,34 @@ Route::middleware('auth:sanctum')->group(function () {
     );
 
     Route::post(
+        'deliveries/{delivery}/collection-receipt',
+        [
+            DeliveryController::class,
+            'issueCollectionReceipt'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/cancel-accident',
+        [
+            DeliveryController::class,
+            'cancelOnAccident'
+        ]
+    );
+
+    Route::post(
         'deliveries/{delivery}/area-permit',
         [
             DeliveryController::class,
             'uploadAreaPermit'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/item-permit',
+        [
+            DeliveryController::class,
+            'uploadItemPermit'
         ]
     );
 
@@ -402,16 +426,6 @@ Route::middleware('auth:sanctum')->group(function () {
     );
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | Reviews
-    |--------------------------------------------------------------------------
-    */
-
-    Route::apiResource(
-        'reviews',
-        ReviewController::class
-    );
 
 
     /*

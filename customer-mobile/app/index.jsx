@@ -2,7 +2,7 @@ import {StyleSheet,Text,View,ImageBackground,TouchableOpacity,Dimensions,Image,A
 import React, { useEffect, useState } from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { getToken } from "../services/api";
+import { getToken, refreshCustomerProfile, isProfileSetupCompleted } from "../services/api";
 
 const { width, height } = Dimensions.get("window");
 
@@ -20,8 +20,26 @@ const GetStarted = () => {
       try {
         const token = await getToken();
         if (token && mounted) {
-          router.replace("/(tabs)/home");
-          return;
+          const user = await refreshCustomerProfile();
+          if (mounted && user) {
+            if (!user.email_verified_at) {
+              router.replace({
+                pathname: "/email-verification",
+                params: { email: user.email || "" },
+              });
+              return;
+            }
+            if (!isProfileSetupCompleted(user)) {
+              router.replace("/accountsetup");
+              return;
+            }
+            router.replace("/(tabs)/home");
+            return;
+          }
+          if (mounted) {
+            router.replace("/(tabs)/home");
+            return;
+          }
         }
       } catch {
         // Proceed to welcome screen

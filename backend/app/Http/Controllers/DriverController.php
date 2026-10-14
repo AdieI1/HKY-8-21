@@ -18,11 +18,16 @@ class DriverController extends Controller
         // Auto-sync: if driver is marked busy but has no active ongoing deliveries, reset to available
         Driver::where('availability_status', 'busy')
             ->whereDoesntHave('deliveries', function ($q) {
-                $q->whereNotIn('status', ['completed', 'rejected']);
+                $q->whereNotIn('status', ['completed', 'delivered', 'rejected', 'cancelled']);
             })
             ->update(['availability_status' => 'available']);
 
-        return Driver::with(['user', 'deliveries:delivery_id,driver_id,status'])->get();
+        return Driver::with([
+            'user',
+            'deliveries' => function ($q) {
+                $q->with(['vehicle', 'request.customer', 'incidents'])->orderByDesc('delivery_id');
+            }
+        ])->get();
     }
 
     public function store(Request $request)
@@ -150,7 +155,14 @@ class DriverController extends Controller
 
     public function show(Driver $driver)
     {
-        return $driver->load(['user', 'deliveries.vehicle', 'permits', 'driverLogs']);
+        return $driver->load([
+            'user',
+            'deliveries' => function ($q) {
+                $q->with(['vehicle', 'request.customer', 'incidents'])->orderByDesc('delivery_id');
+            },
+            'permits',
+            'driverLogs',
+        ]);
     }
 
     public function update(Request $request, Driver $driver)

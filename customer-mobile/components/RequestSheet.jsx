@@ -16,15 +16,25 @@ import DeliverySection from "./sections/DeliverySection";
 import OverviewSection from "./sections/OverviewSection";
 import PaymentSection from "./sections/PaymentSection";
 import { createDeliveryRequest, getRouteDistance } from "../services/api";
+import {
+  saveActiveProgress,
+  getActiveProgress,
+  clearActiveProgress,
+  saveDraft,
+  deleteDraft,
+} from "../services/drafts";
+import { useTheme } from "../context/ThemeContext";
 
 const { width, height } = Dimensions.get("window");
 
 export default function RequestSheet({
+  initialDraft = null,
   onClose,
   onDraftSaved,
   onRequestCreated,
 }) {
   const isSmallScreen = width < 360;
+  const { isDark, colors } = useTheme();
 
   const [mapVisible, setMapVisible] = useState(false);
   const [activeField, setActiveField] = useState(null);
@@ -33,6 +43,8 @@ export default function RequestSheet({
 
   const [pickup, setPickup] = useState(null);
   const [dropoff, setDropoff] = useState(null);
+  const [receiverName, setReceiverName] = useState("");
+  const [receiverPhone, setReceiverPhone] = useState("");
   const [cargo, setCargo] = useState({});
   const [payment, setPayment] = useState({});
   const [distanceKm, setDistanceKm] = useState(0);
@@ -40,6 +52,60 @@ export default function RequestSheet({
   const [schedule, setSchedule] = useState({ isScheduled: false, date: '', timeSlot: '' });
   const [reviewVisible, setReviewVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Restore initial draft or in-progress crash-recovery data
+  useEffect(() => {
+    let active = true;
+    if (initialDraft) {
+      if (initialDraft.pickupObj) setPickup(initialDraft.pickupObj);
+      else if (initialDraft.pickup && typeof initialDraft.pickup === 'object') setPickup(initialDraft.pickup);
+      if (initialDraft.dropoffObj) setDropoff(initialDraft.dropoffObj);
+      else if (initialDraft.dropoff && typeof initialDraft.dropoff === 'object') setDropoff(initialDraft.dropoff);
+      if (initialDraft.receiverName) setReceiverName(initialDraft.receiverName);
+      else if (initialDraft.receiver_name) setReceiverName(initialDraft.receiver_name);
+      if (initialDraft.receiverPhone) setReceiverPhone(initialDraft.receiverPhone);
+      else if (initialDraft.receiver_phone) setReceiverPhone(initialDraft.receiver_phone);
+      if (initialDraft.cargo) setCargo(initialDraft.cargo);
+      if (initialDraft.payment) setPayment(initialDraft.payment);
+      if (initialDraft.schedule) setSchedule(initialDraft.schedule);
+    } else {
+      getActiveProgress().then((progress) => {
+        if (active && progress) {
+          if (progress.pickup) setPickup(progress.pickup);
+          if (progress.dropoff) setDropoff(progress.dropoff);
+          if (progress.receiverName) setReceiverName(progress.receiverName);
+          if (progress.receiverPhone) setReceiverPhone(progress.receiverPhone);
+          if (progress.cargo) setCargo(progress.cargo);
+          if (progress.payment) setPayment(progress.payment);
+          if (progress.schedule) setSchedule(progress.schedule);
+          if (progress.distanceKm) setDistanceKm(progress.distanceKm);
+        }
+      });
+    }
+    return () => {
+      active = false;
+    };
+  }, [initialDraft]);
+
+  // Auto-save form fields in progress so crashes/exits preserve user data
+  useEffect(() => {
+    const hasData = pickup || dropoff || receiverName || receiverPhone || cargo.cargoName || cargo.cargoType || cargo.weight;
+    if (hasData) {
+      const timer = setTimeout(() => {
+        saveActiveProgress({
+          pickup,
+          dropoff,
+          receiverName,
+          receiverPhone,
+          cargo,
+          payment,
+          schedule,
+          distanceKm,
+        });
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [pickup, dropoff, receiverName, receiverPhone, cargo, payment, schedule, distanceKm]);
 
   const pricing = useMemo(() => {
     const distanceFee = Number(distanceKm || 0) * 80;
@@ -81,6 +147,9 @@ export default function RequestSheet({
       cargo_type: cargo.cargoType || null,
       fragility: fragilityMap[cargo.fragility] || null,
       weight: cargo.weight ? Number(cargo.weight) : null,
+      service_type: cargo.serviceType || "standard",
+      container_number: cargo.containerNumber || null,
+      seal_number: cargo.sealNumber || null,
       item_permit: cargo.permit || null,
       item_permit_type: cargo.permitType || null,
       pickup_address: pickup?.address || null,
@@ -89,6 +158,8 @@ export default function RequestSheet({
       dropoff_address: dropoff?.address || null,
       dropoff_lat: dropoff?.latitude ?? null,
       dropoff_lng: dropoff?.longitude ?? null,
+      receiver_name: receiverName || null,
+      receiver_phone: receiverPhone || null,
       distance_km: distanceKm,
       total_price: pricing.total,
       payment_term: paymentTermMap[payment.paymentTerm] || null,
@@ -132,6 +203,10 @@ export default function RequestSheet({
     try {
       setSubmitting(true);
       await createDeliveryRequest(buildPayload(false));
+      await clearActiveProgress();
+      if (initialDraft?.id || initialDraft?.backendRequestId) {
+        await deleteDraft(initialDraft.id || `SERVER-${initialDraft.backendRequestId}`);
+      }
       setReviewVisible(false);
       setRequestComplete(true);
       onRequestCreated?.();
@@ -154,7 +229,18 @@ export default function RequestSheet({
   const handleSaveDraft = async () => {
     try {
       setSubmitting(true);
-      await createDeliveryRequest(buildPayload(true));
+      await saveDraft({
+        id: initialDraft?.id,
+        pickup,
+        dropoff,
+        receiverName,
+        receiverPhone,
+        cargo,
+        payment,
+        schedule,
+        distanceKm,
+        backendPayload: buildPayload(true),
+      });
 
       if (onDraftSaved) {
         onDraftSaved();
@@ -180,13 +266,13 @@ export default function RequestSheet({
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.card }]}>
       <View style={styles.headerContainer}>
         <TouchableOpacity
           onPress={onClose}
           style={styles.closeBtn}
         >
-          <Text style={styles.closeText}>
+          <Text style={[styles.closeText, { color: colors.textMuted }]}>
             ✕
           </Text>
         </TouchableOpacity>
@@ -198,16 +284,16 @@ export default function RequestSheet({
               isSmallScreen && { fontSize: 20 },
             ]}
           >
-            Request Delivery
+            Schedule Delivery
           </Text>
 
-          <Text style={styles.subtitle}>
-            Enter the required details to request a
+          <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+            Enter the required details to schedule a
             delivery.
           </Text>
         </View>
 
-        <View style={styles.divider} />
+        <View style={[styles.divider, { backgroundColor: colors.divider }]} />
       </View>
 
       <ScrollView
@@ -215,7 +301,7 @@ export default function RequestSheet({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <CargoSection onChange={handleCargoChange} />
+        <CargoSection value={cargo} onChange={handleCargoChange} />
 
         <DeliverySection
           pickup={pickup}
@@ -223,6 +309,12 @@ export default function RequestSheet({
           onOpenMap={openMap}
           schedule={schedule}
           onScheduleChange={setSchedule}
+          receiverName={receiverName}
+          receiverPhone={receiverPhone}
+          onReceiverChange={(key, val) => {
+            if (key === "receiverName") setReceiverName(val);
+            if (key === "receiverPhone") setReceiverPhone(val);
+          }}
         />
 
         <OverviewSection
@@ -231,17 +323,22 @@ export default function RequestSheet({
           pricing={pricing}
           reviewVisible={reviewVisible}
           reviewDetails={{
+            serviceType: cargo.serviceType || "standard",
+            containerNumber: cargo.containerNumber,
+            sealNumber: cargo.sealNumber,
             cargo: cargo.cargoName || cargo.cargoType,
             fragility: cargo.fragility,
             pickup: pickup?.address,
             dropoff: dropoff?.address,
+            receiverName,
+            receiverPhone,
           }}
           onCloseReview={() => setReviewVisible(false)}
           onConfirm={handleConfirmRequest}
           submitting={submitting}
         />
 
-        <PaymentSection onChange={handlePaymentChange} total={pricing.total} />
+        <PaymentSection value={payment} onChange={handlePaymentChange} total={pricing.total} />
 
         <View style={styles.buttonContainer}>
           <TouchableOpacity

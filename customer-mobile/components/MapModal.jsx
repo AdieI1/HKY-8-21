@@ -3,6 +3,7 @@ import * as Location from "expo-location";
 import { useEffect, useRef, useState } from "react";
 import { Dimensions, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import MapView, { Marker } from "react-native-maps";
+import { useTheme } from "../context/ThemeContext";
 
 const { width, height } = Dimensions.get("window");
 
@@ -14,6 +15,7 @@ const MINDANAO_REGION = {
 };
 
 export default function MapModal({ visible, onClose, onConfirm, mode }) {
+  const { colors, isDark } = useTheme();
   const [selectedPoint, setSelectedPoint] = useState(null);
 
   const [search, setSearch] = useState("");
@@ -197,18 +199,18 @@ export default function MapModal({ visible, onClose, onConfirm, mode }) {
 
   return (
     <Modal visible={visible} animationType="slide">
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
 
         {/* HEADER */}
-        <View style={styles.header}>
+        <View style={[styles.header, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
           <TouchableOpacity onPress={onClose} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={width * 0.055} color="#ffffff" />
           </TouchableOpacity>
-          <Text style={styles.headerText}>{headerTitle}</Text>
+          <Text style={[styles.headerText, { color: isDark ? "#EF4444" : "#E53935" }]}>{headerTitle}</Text>
         </View>
 
         {/* SEARCH */}
-        <View style={styles.searchContainer}>
+        <View style={[styles.searchContainer, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
           <View style={styles.searchRow}>
             <Ionicons
               name="location-outline"
@@ -221,8 +223,8 @@ export default function MapModal({ visible, onClose, onConfirm, mode }) {
               placeholder="Search Maps..."
               value={search}
               onChangeText={setSearch}
-              style={styles.searchInput}
-              placeholderTextColor="#999"
+              style={[styles.searchInput, { color: colors.text }]}
+              placeholderTextColor={colors.textMuted}
             />
 
             <TouchableOpacity onPress={handleSearch} style={styles.searchBtn}>
@@ -237,9 +239,9 @@ export default function MapModal({ visible, onClose, onConfirm, mode }) {
               <TouchableOpacity
                 key={i}
                 onPress={() => handleSelectPlace(item)}
-                style={styles.resultItem}
+                style={[styles.resultItem, { borderTopColor: colors.divider }]}
               >
-                <Text numberOfLines={1}>{item.display_name}</Text>
+                <Text numberOfLines={1} style={{ color: colors.text }}>{item.display_name}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>

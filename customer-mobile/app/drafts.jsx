@@ -1,7 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { router } from "expo-router";
-import { useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import {
+    ActivityIndicator,
+    Alert,
+    RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
@@ -12,82 +15,117 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import AppHeader from "../components/AppHeader";
 import DraftCard from "../components/DraftCard";
+import { getDrafts, deleteDraft } from "../services/drafts";
+import { useTheme } from "../context/ThemeContext";
 
 export default function Drafts() {
   const insets = useSafeAreaInsets();
+  const { isDark, colors } = useTheme();
 
-  const [drafts, setDrafts] = useState([
-    {
-      id: "DRAFT001",
-      title: "Electronics Delivery",
-      date: "03/22/26",
-      type: "Fragile",
-      pickup: "Port Area",
-      destination: "Malaybalay City",
-      savedTime: "1 sec ago",
-    },
-  ]);
+  const [drafts, setDrafts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadAllDrafts = useCallback(async () => {
+    try {
+      setLoading(true);
+      const items = await getDrafts();
+      setDrafts(items);
+    } catch (err) {
+      console.log("Error loading drafts:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadAllDrafts();
+    }, [loadAllDrafts])
+  );
 
   const continueDraft = (draft) => {
-    router.push({
-      pathname: "/request",
+    router.replace({
+      pathname: "/(tabs)/home",
       params: {
-        draftId: draft.id,
+        openDraftId: draft.id,
       },
     });
   };
 
   const removeDraft = (draftId) => {
-    setDrafts((previous) =>
-      previous.filter((draft) => draft.id !== draftId)
+    Alert.alert(
+      "Delete Draft",
+      "Are you sure you want to delete this draft?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            await deleteDraft(draftId);
+            setDrafts((previous) =>
+              previous.filter((draft) => draft.id !== draftId)
+            );
+          },
+        },
+      ]
     );
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
       {/* APP HEADER */}
       <AppHeader />
 
       {/* DRAFT HEADER */}
-      <View style={styles.titleRow}>
+      <View style={[styles.titleRow, { backgroundColor: isDark ? colors.card : "#F1F2FA", borderBottomColor: colors.cardBorder, borderBottomWidth: isDark ? 1 : 0 }]}>
         <View>
-          <Text style={styles.title}>Drafts</Text>
+          <Text style={[styles.title, { color: colors.text }]}>Drafts</Text>
 
-          <Text style={styles.subtitle}>
+          <Text style={[styles.subtitle, { color: colors.textMuted }]}>
             Unfinished Delivery Requests
           </Text>
         </View>
 
         <TouchableOpacity
-          style={styles.sortButton}
+          style={[styles.sortButton, { backgroundColor: isDark ? colors.cardBorder : "#D8DFF5" }]}
           activeOpacity={0.7}
         >
-          <Text style={styles.sortText}>
+          <Text style={[styles.sortText, { color: isDark ? "#93C5FD" : "#3456A1" }]}>
             Sort
           </Text>
 
           <Ionicons
             name="chevron-down"
             size={14}
-            color="#3456A1"
+            color={isDark ? "#93C5FD" : "#3456A1"}
           />
         </TouchableOpacity>
       </View>
 
       {/* DRAFT LIST */}
       <ScrollView
+        style={{ flex: 1, backgroundColor: colors.bg }}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { backgroundColor: colors.bg }]}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={loadAllDrafts}
+            colors={["#DC2626"]}
+            tintColor="#DC2626"
+          />
+        }
       >
         {drafts.length === 0 ? (
-          <View style={styles.emptyContainer}>
+          <View style={[styles.emptyContainer, { backgroundColor: colors.bg }]}>
             <Ionicons
               name="document-outline"
               size={42}
-              color="#9A9CAB"
+              color={colors.textSubtle}
             />
 
-            <Text style={styles.emptyText}>
+            <Text style={[styles.emptyText, { color: colors.textMuted }]}>
               You currently do not have Drafts
               {"\n"}
               right now.
@@ -116,6 +154,8 @@ export default function Drafts() {
           {
             height: 60 + insets.bottom,
             paddingBottom: insets.bottom,
+            backgroundColor: colors.navBg,
+            borderTopColor: colors.navBorder,
           },
         ]}
       >

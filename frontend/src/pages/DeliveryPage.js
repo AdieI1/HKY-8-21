@@ -12,6 +12,7 @@ import PostDeliveryMetricsPanel, { formatTripDuration, getFuelMetrics } from '..
 
 import TableSkeleton from '../components/TableSkeleton';
 import DelayActionModal from '../components/delivery/DelayActionModal';
+import CollectionReceiptModal from '../components/delivery/CollectionReceiptModal';
 
 const STATUS_STEPS = [
   { key: 'pending', label: 'Pending Dispatch' },
@@ -279,20 +280,36 @@ function statusBadgeClass(d) {
   return 'in-transit';
 }
 
-function formatRelativeTime(dateString) {
+function formatDeliveryDate(dateString) {
   if (!dateString) return '—';
-  const diffMs = Date.now() - new Date(dateString).getTime();
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return 'Just now';
-  if (mins < 60) return `${mins} min${mins > 1 ? 's' : ''} ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days > 1 ? 's' : ''} ago`;
+  const isoStr = typeof dateString === 'string' ? dateString.replace(' ', 'T') : dateString;
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return String(dateString);
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
 function formatTime(dateString) {
   return dateString ? new Date(dateString).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+}
+
+function formatRelativeTime(dateString) {
+  if (!dateString) return 'Just now';
+  const d = new Date(dateString);
+  if (isNaN(d.getTime())) return 'Just now';
+  const diffSec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+  if (diffSec < 10) return 'Just now';
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return `${Math.floor(diffHr / 24)}d ago`;
 }
 
 function deliveryCode(id) {
@@ -312,11 +329,15 @@ function DeliveryPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 8;
   const [selectedDelivery, setSelectedDelivery] = useState(null);
+  const [showMapModal, setShowMapModal] = useState(false);
+  const [eta, setEta] = useState(null);
+  const [detectedHazards, setDetectedHazards] = useState([]);
 
-  // Deep-link from Action Required, calendar, or notification (?delivery_id=...)
+  // Deep-link from Action Required, calendar, notification, or Driver modal (?delivery_id=...&open_map=true)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const delId = params.get('delivery_id') || params.get('id');
+    const autoOpenMap = params.get('open_map') === 'true' || params.get('map') === 'true';
     if (delId && deliveries.length > 0) {
       const matched = deliveries.find((d) => Number(d.delivery_id) === Number(delId));
       if (matched) {
@@ -327,6 +348,15 @@ function DeliveryPage() {
           setViewTab('active');
         }
         setActiveFilter('all');
+        if (autoOpenMap) {
+          const s = (matched.status || '').toLowerCase();
+          const isMoving = ['in_transit', 'in transit', 'out_for_delivery', 'departed', 'started', 'arrived_pickup', 'loading_cargo', 'arrived_dropoff', 'unloading_cargo'].includes(s);
+          if (isMoving) {
+            setEta(null);
+            setDetectedHazards([]);
+            setShowMapModal(true);
+          }
+        }
         setTimeout(() => {
           const panel = document.querySelector('.delivery-panel.active') || document.querySelector('.delivery-panel');
           if (panel) {
@@ -336,9 +366,6 @@ function DeliveryPage() {
       }
     }
   }, [location.search, deliveries]);
-  const [showMapModal, setShowMapModal] = useState(false);
-  const [eta, setEta] = useState(null);
-  const [detectedHazards, setDetectedHazards] = useState([]);
   const [forecast, setForecast] = useState(null);
   const [rescheduleTarget, setRescheduleTarget] = useState(null);
   const [rescheduleDriverId, setRescheduleDriverId] = useState('');
@@ -373,6 +400,26 @@ function DeliveryPage() {
       );
       if (selectedDelivery && selectedDelivery.delivery_id === updatedDelivery.delivery_id) {
         setSelectedDelivery(updatedDelivery);
+      }
+    }
+    loadData();
+  };
+
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+  const [receiptModalDelivery, setReceiptModalDelivery] = useState(null);
+
+  const openReceiptModal = (d) => {
+    setReceiptModalDelivery(d);
+    setReceiptModalOpen(true);
+  };
+
+  const handleReceiptSuccess = (updatedDelivery) => {
+    if (updatedDelivery) {
+      setDeliveries((prev) =>
+        prev.map((d) => (d.delivery_id === updatedDelivery.delivery_id ? { ...d, ...updatedDelivery } : d))
+      );
+      if (selectedDelivery && selectedDelivery.delivery_id === updatedDelivery.delivery_id) {
+        setSelectedDelivery((prev) => ({ ...prev, ...updatedDelivery }));
       }
     }
     loadData();
@@ -951,7 +998,7 @@ function DeliveryPage() {
                           <td>{d.request?.customer?.full_name || '—'}</td>
                           <td>{d.driver?.user?.full_name || 'Unassigned'}</td>
                           <td>{d.vehicle ? `${d.vehicle.model} – ${d.vehicle.plate_number}` : 'Unassigned'}</td>
-                          <td>{formatRelativeTime(d.updated_at)}</td>
+                          <td>{formatDeliveryDate(d.updated_at)}</td>
                           <td style={{ textAlign: 'center' }}>
                             <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', flexWrap: 'wrap' }}>
                               <span
@@ -1265,6 +1312,109 @@ function DeliveryPage() {
                 </span>
               </div>
               <div className="panel-detail"><span className="panel-detail-label">Drop-Off:</span><span className="panel-detail-value">{selectedDelivery.request?.dropoff_address || '—'}</span></div>
+              <div className="panel-detail">
+                <span className="panel-detail-label">Receiver (Contact):</span>
+                <span className="panel-detail-value" style={{ fontWeight: 600, color: '#0f172a' }}>
+                  {selectedDelivery.request?.receiver_name ? (
+                    <>
+                      {selectedDelivery.request.receiver_name}
+                      {selectedDelivery.request.receiver_phone ? ` (${selectedDelivery.request.receiver_phone})` : ''}
+                    </>
+                  ) : (
+                    selectedDelivery.request?.customer?.full_name || 'Same as Customer'
+                  )}
+                </span>
+              </div>
+
+              {selectedDelivery.request?.service_type && selectedDelivery.request.service_type !== 'standard' && (
+                <div className="panel-detail">
+                  <span className="panel-detail-label">Service Type:</span>
+                  <span className="panel-detail-value" style={{ fontWeight: 700, color: '#0284c7' }}>
+                    {selectedDelivery.request.service_type === 'stuffing' ? 'Container Stuffing (Loading)' : 'Container Pull-Out / Pulling'}
+                  </span>
+                </div>
+              )}
+              {selectedDelivery.request?.container_number && (
+                <div className="panel-detail">
+                  <span className="panel-detail-label">Container Number:</span>
+                  <span className="panel-detail-value" style={{ fontWeight: 600, color: '#0369a1' }}>
+                    {selectedDelivery.request.container_number}
+                  </span>
+                </div>
+              )}
+              {selectedDelivery.request?.seal_number && (
+                <div className="panel-detail">
+                  <span className="panel-detail-label">Seal Number:</span>
+                  <span className="panel-detail-value" style={{ fontWeight: 600, color: '#0369a1' }}>
+                    {selectedDelivery.request.seal_number}
+                  </span>
+                </div>
+              )}
+              {(selectedDelivery.cancellation_reason || selectedDelivery.status === 'cancelled') && (
+                <div className="panel-detail" style={{ background: '#fef2f2', padding: '8px 10px', borderRadius: '8px', margin: '8px 0', border: '1px solid #fecaca' }}>
+                  <span className="panel-detail-label" style={{ color: '#b91c1c', fontWeight: 700 }}>
+                    <i className="fas fa-ban" style={{ marginRight: '5px' }}></i> Cancellation:
+                  </span>
+                  <span className="panel-detail-value" style={{ color: '#991b1b', fontWeight: 600 }}>
+                    {selectedDelivery.cancellation_reason || selectedDelivery.request?.cancellation_reason || 'Cancelled due to accident/incident.'}
+                  </span>
+                </div>
+              )}
+
+              {/* COLLECTION RECEIPT MANAGEMENT */}
+              <div className="panel-divider"></div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <div className="panel-timeline-title" style={{ margin: 0 }}>OFFICIAL COLLECTION RECEIPT</div>
+                {selectedDelivery.collection_receipt_no && (
+                  <span style={{ fontSize: '11px', fontWeight: 700, background: '#DCFCE7', color: '#15803D', padding: '2px 8px', borderRadius: '12px' }}>
+                    <i className="fas fa-check-circle" style={{ marginRight: '4px' }}></i> Issued
+                  </span>
+                )}
+              </div>
+              {selectedDelivery.collection_receipt_no ? (
+                <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '10px', marginBottom: '8px', fontSize: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#64748B' }}>Receipt Number:</span>
+                    <strong style={{ color: '#0F172A' }}>{selectedDelivery.collection_receipt_no}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                    <span style={{ color: '#64748B' }}>Amount Collected:</span>
+                    <strong style={{ color: '#059669', fontSize: '13px' }}>₱{Number(selectedDelivery.collection_receipt_amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                    <span style={{ color: '#64748B' }}>Payment Mode:</span>
+                    <span style={{ color: '#334155', fontWeight: 600 }}>{selectedDelivery.collection_receipt_payment_mode || 'Cash'}</span>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: '12px', color: '#64748B', marginBottom: '8px' }}>
+                  No official collection receipt has been issued yet for this shipment.
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => openReceiptModal(selectedDelivery)}
+                style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  background: selectedDelivery.collection_receipt_no ? '#F1F5F9' : '#2563EB',
+                  color: selectedDelivery.collection_receipt_no ? '#1E293B' : '#ffffff',
+                  border: selectedDelivery.collection_receipt_no ? '1px solid #CBD5E1' : 'none',
+                  borderRadius: '6px',
+                  fontWeight: 700,
+                  fontSize: '12.5px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  marginBottom: '10px',
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                <i className="fas fa-file-invoice-dollar"></i>{' '}
+                {selectedDelivery.collection_receipt_no ? 'View / Manage Collection Receipt' : 'Issue Collection Receipt'}
+              </button>
 
               {selectedDelivery.status === 'completed' ? (
                 <PostDeliveryMetricsPanel
@@ -1326,7 +1476,7 @@ function DeliveryPage() {
                   <div className="panel-divider"></div>
 
                   <div className="panel-timeline-title">DELIVERY TIMELINE</div>
-                  <div className="panel-timeline-subtitle">Last Updated {formatTime(selectedDelivery.updated_at)}</div>
+                  <div className="panel-timeline-subtitle">Last Updated {formatDeliveryDate(selectedDelivery.updated_at)}</div>
                   <div className="panel-timeline">
                     {STATUS_STEPS.map((step, i) => {
                       const state = i < currentStepIndex ? 'completed' : i === currentStepIndex ? 'active' : '';
@@ -1748,6 +1898,16 @@ function DeliveryPage() {
         }}
         onSubmitSuccess={handleDelayActionSuccess}
         api={api}
+      />
+
+      <CollectionReceiptModal
+        isOpen={receiptModalOpen}
+        delivery={receiptModalDelivery}
+        onClose={() => {
+          setReceiptModalOpen(false);
+          setReceiptModalDelivery(null);
+        }}
+        onSuccess={handleReceiptSuccess}
       />
     </>
   );

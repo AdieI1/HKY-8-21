@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useTheme } from "../context/ThemeContext";
 
 const { width, height } = Dimensions.get("window");
 
@@ -24,10 +25,13 @@ export default function ActiveDeliveryCard({
   delivery,
   onViewDetails,
 }) {
+  const { isDark, colors } = useTheme();
   const isRelief = Boolean(delivery?.is_relief);
   const cargoLoaded = Boolean(delivery?.cargo_loaded);
 
-  const status = isRelief
+  const status = delivery?.hasAccidentIncident
+    ? { label: "Incident Reported", color: "#DC2626" }
+    : isRelief
     ? {
         label: cargoLoaded ? "Relief Dispatched" : "Replacement Dispatched",
         color: "#D97706",
@@ -35,13 +39,13 @@ export default function ActiveDeliveryCard({
     : (STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending);
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
       {/* TITLE */}
       <Text style={styles.title}>
         Active Deliveries
       </Text>
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
       {/* CARGO */}
       <View style={styles.deliveryRow}>
@@ -54,12 +58,18 @@ export default function ActiveDeliveryCard({
         </View>
 
         <View style={styles.cargoInfo}>
-          <Text style={styles.cargoName}>
+          <Text style={[styles.cargoName, { color: colors.text }]}>
             {delivery.cargoName || "Cargo"}
           </Text>
+          {delivery.serviceType && delivery.serviceType !== "standard" && (
+            <Text style={{ fontSize: 11, fontWeight: "700", color: "#0284C7", marginTop: 1 }}>
+              {delivery.serviceType === "stuffing" ? "Container Stuffing" : "Container Pull-Out"}
+              {delivery.containerNumber ? ` • ${delivery.containerNumber}` : ""}
+            </Text>
+          )}
 
           <View style={styles.statusRow}>
-            <Text style={styles.statusLabel}>
+            <Text style={[styles.statusLabel, { color: colors.textMuted }]}>
               Status:
             </Text>
 
@@ -87,14 +97,14 @@ export default function ActiveDeliveryCard({
       </View>
 
       {/* DATE */}
-      <Text style={styles.date}>
-        <Text style={styles.dateBold}>
+      <Text style={[styles.date, { color: colors.textMuted }]}>
+        <Text style={[styles.dateBold, { color: colors.text }]}>
           Date requested:
         </Text>{" "}
         {delivery.date || "N/A"}
       </Text>
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
       {/* ROUTE */}
       <View style={styles.routeRow}>
@@ -104,7 +114,7 @@ export default function ActiveDeliveryCard({
           color="#F24848"
         />
 
-        <Text style={styles.route}>
+        <Text style={[styles.route, { color: colors.text }]}>
           {delivery.route || "Route unavailable"}
         </Text>
       </View>

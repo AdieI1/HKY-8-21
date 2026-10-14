@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { StyleSheet, Text, View } from "react-native";
+import { useTheme } from "../context/ThemeContext";
 
 const TYPE_CONFIG = {
   delivery_delay: {
@@ -32,6 +33,12 @@ const TYPE_CONFIG = {
     badgeBg: "#EFF6FF",
     badgeBorder: "#BFDBFE",
   },
+  collection_receipt: {
+    icon: "receipt",
+    color: "#059669",
+    badgeBg: "#ECFDF5",
+    badgeBorder: "#A7F3D0",
+  },
   default: {
     icon: "notifications",
     color: "#E53935",
@@ -62,13 +69,14 @@ function formatDisplayTime(rawTime) {
 }
 
 export default function NotificationCard({ notification, onViewDetails }) {
+  const { isDark, colors } = useTheme();
   const config = TYPE_CONFIG[notification.type] || TYPE_CONFIG.default;
   const timeText = formatDisplayTime(notification.time || notification.created_at);
 
   return (
-    <View style={[styles.card, !notification.is_read && styles.unreadCard]}>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }, !notification.is_read && styles.unreadCard]}>
       <View style={styles.titleRow}>
-        <View style={[styles.iconWrapper, { backgroundColor: config.badgeBg, borderColor: config.badgeBorder }]}>
+        <View style={[styles.iconWrapper, { backgroundColor: isDark ? "#334155" : config.badgeBg, borderColor: config.badgeBorder }]}>
           <Ionicons name={config.icon} size={18} color={config.color} />
         </View>
 
@@ -77,10 +85,10 @@ export default function NotificationCard({ notification, onViewDetails }) {
         </Text>
       </View>
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
       {Boolean(notification.message) && (
-        <Text style={styles.message}>
+        <Text style={[styles.message, { color: colors.text }]}>
           {notification.message}
         </Text>
       )}

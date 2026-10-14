@@ -17,7 +17,13 @@ class Review extends Model
         'driver_rating',
         'comments',
         'photo_path',
-        'created_at'
+        'created_at',
+    ];
+
+    protected $casts = [
+        'created_at' => 'datetime',
+        'overall_rating' => 'integer',
+        'driver_rating' => 'integer',
     ];
 
     protected $appends = [

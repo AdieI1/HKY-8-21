@@ -318,11 +318,29 @@ function OverviewPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
-  const [addForm, setAddForm] = useState({ full_name: '', email: '', phone: '', password: '', confirmPassword: '' });
+  const [addForm, setAddForm] = useState({
+    full_name: '',
+    email: '',
+    phone: '',
+    sss_number: '',
+    philhealth_number: '',
+    pagibig_number: '',
+    deductible_taxes: '',
+    photo: null,
+    photoPreview: null,
+    password: '',
+    confirmPassword: '',
+  });
   const [editForm, setEditForm] = useState({
     full_name: '',
     email: '',
     phone: '',
+    sss_number: '',
+    philhealth_number: '',
+    pagibig_number: '',
+    deductible_taxes: '',
+    photo: null,
+    photoPreview: null,
     changePassword: false,
     password: '',
     confirmPassword: '',
@@ -503,7 +521,7 @@ function OverviewPage() {
       // 3. Driver Status
       const activeDriverIds = new Set(
         delData
-          .filter((d) => ['assigned', 'accepted', 'out_for_delivery', 'in_transit', 'loading_cargo', 'arrived_pickup'].includes(d.status))
+          .filter((d) => ACTIVE_STATUSES.includes(d.status))
           .map((d) => Number(d.driver_id))
       );
 
@@ -661,7 +679,21 @@ function OverviewPage() {
   const totalClaimsAmount = claimsList.reduce((sum, inc) => sum + Number(inc.refund_amount || 0), 0);
   const pendingClaimsCount = claimsList.filter((inc) => inc.refund_status === 'pending_review' || inc.status === 'pending').length;
 
-  // ----- Operations Health & Fleet Readiness -----
+  // Helper to detect delayed deliveries
+  const isTripDelayed = useCallback((d) => {
+    if (!d) return false;
+    if (d.is_delayed === true || d.is_delayed === 1 || d.is_delayed === '1') return true;
+    if (d.status === 'delayed') return true;
+    if (d.target_eta && ACTIVE_STATUSES.includes(d.status)) {
+      return new Date(d.target_eta).getTime() < Date.now();
+    }
+    if (d.status === 'assigned' && d.start_time) {
+      return (Date.now() - new Date(d.start_time).getTime()) / 3600000 >= 3;
+    }
+    return false;
+  }, []);
+
+  // ----- Operations Health & Fleet Readiness with Delay Handling -----
   const activeDeliveryMap = {};
   deliveries.filter((d) => ACTIVE_STATUSES.includes(d.status) && d.vehicle_id).forEach((d) => {
     activeDeliveryMap[d.vehicle_id] = d;
@@ -674,9 +706,16 @@ function OverviewPage() {
     (v) => !activeVehicles.some((av) => av.vehicle_id === v.vehicle_id) && !maintenanceVehicles.some((mv) => mv.vehicle_id === v.vehicle_id)
   );
 
-  const activePct = Math.round((activeVehicles.length / totalVehiclesCount) * 100);
+  // Delay handling: detect active vehicles with delayed deliveries
+  const delayedVehicles = activeVehicles.filter((v) => isTripDelayed(activeDeliveryMap[v.vehicle_id]));
+  const onScheduleVehicles = activeVehicles.filter(
+    (v) => !delayedVehicles.some((dv) => dv.vehicle_id === v.vehicle_id)
+  );
+
+  const onSchedulePct = Math.round((onScheduleVehicles.length / totalVehiclesCount) * 100);
+  const delayedPct = Math.round((delayedVehicles.length / totalVehiclesCount) * 100);
   const maintPct = Math.round((maintenanceVehicles.length / totalVehiclesCount) * 100);
-  const availPct = Math.max(0, 100 - activePct - maintPct);
+  const availPct = Math.max(0, 100 - onSchedulePct - delayedPct - maintPct);
 
   // ----- Deliveries Pagination & Sorting -----
   const DELIVERIES_PER_PAGE = 5;
@@ -716,14 +755,49 @@ function OverviewPage() {
   const toggleDelivery = (id) => setExpandedDeliveryId((prev) => (prev === id ? null : id));
   const toggleStaffProfile = (id) => setExpandedStaffId((prev) => (prev === id ? null : id));
 
+  const handlePhotoSelect = (e, isEdit = false) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setFormError('Please select a valid image file (PNG, JPG, JPEG, WEBP).');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setFormError('Profile photo must be less than 5MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (uploadEvent) => {
+      const dataUrl = uploadEvent.target.result;
+      if (isEdit) {
+        setEditForm((prev) => ({ ...prev, photo: dataUrl, photoPreview: dataUrl }));
+      } else {
+        setAddForm((prev) => ({ ...prev, photo: dataUrl, photoPreview: dataUrl }));
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const openAddModal = () => {
-    setAddForm({ full_name: '', email: '', phone: '', password: '', confirmPassword: '' });
+    setAddForm({
+      full_name: '',
+      email: '',
+      phone: '',
+      sss_number: '',
+      philhealth_number: '',
+      pagibig_number: '',
+      deductible_taxes: '',
+      photo: null,
+      photoPreview: null,
+      password: '',
+      confirmPassword: '',
+    });
     setFormError('');
     setShowAddModal(true);
   };
 
   const saveNewStaff = async () => {
-    const { full_name, email, phone, password, confirmPassword } = addForm;
+    const { full_name, email, phone, sss_number, philhealth_number, pagibig_number, deductible_taxes, photo, password, confirmPassword } = addForm;
     if (!full_name || !email || !phone || !password || !confirmPassword) {
       setFormError('Please fill in all required fields.');
       return;
@@ -739,7 +813,20 @@ function OverviewPage() {
     setSaving(true);
     setFormError('');
     try {
-      await api.post('/users', { role_id: staffRoleId || 5, full_name, email, phone, password, status: 'active' });
+      const payload = {
+        role_id: staffRoleId || 5,
+        full_name,
+        email,
+        phone,
+        sss_number: sss_number?.trim() || null,
+        philhealth_number: philhealth_number?.trim() || null,
+        pagibig_number: pagibig_number?.trim() || null,
+        deductible_taxes: deductible_taxes?.trim() || null,
+        password,
+        status: 'active',
+      };
+      if (photo) payload.photo = photo;
+      await api.post('/users', payload);
       setShowAddModal(false);
       await loadData();
     } catch (err) {
@@ -753,9 +840,15 @@ function OverviewPage() {
   const openEditModal = (staff) => {
     setSelectedStaff(staff);
     setEditForm({
-      full_name: staff.full_name,
-      email: staff.email,
+      full_name: staff.full_name || '',
+      email: staff.email || '',
       phone: staff.phone || '',
+      sss_number: staff.sss_number || '',
+      philhealth_number: staff.philhealth_number || '',
+      pagibig_number: staff.pagibig_number || '',
+      deductible_taxes: staff.deductible_taxes || '',
+      photo: null,
+      photoPreview: staff.profile_photo_url || null,
       changePassword: false,
       password: '',
       confirmPassword: '',
@@ -776,7 +869,16 @@ function OverviewPage() {
     setSaving(true);
     setFormError('');
     try {
-      const payload = { full_name: editForm.full_name, email: editForm.email, phone: editForm.phone };
+      const payload = {
+        full_name: editForm.full_name,
+        email: editForm.email,
+        phone: editForm.phone,
+        sss_number: editForm.sss_number?.trim() || null,
+        philhealth_number: editForm.philhealth_number?.trim() || null,
+        pagibig_number: editForm.pagibig_number?.trim() || null,
+        deductible_taxes: editForm.deductible_taxes?.trim() || null,
+      };
+      if (editForm.photo) payload.photo = editForm.photo;
       if (editForm.changePassword) payload.password = editForm.password;
       await api.put(`/users/${selectedStaff.user_id}`, payload);
       setShowEditModal(false);
@@ -919,8 +1021,19 @@ function OverviewPage() {
               <div className="operations-health-title">
                 <i className="fas fa-heartbeat"></i>
                 <span>Fleet Operations &amp; Readiness</span>
-                <span className="operations-health-badge">
-                  {maintenanceVehicles.length === 0 ? 'Optimal (100%)' : `${Math.round(((totalVehiclesCount - maintenanceVehicles.length) / totalVehiclesCount) * 100)}% Ready`}
+                <span
+                  className="operations-health-badge"
+                  style={
+                    delayedVehicles.length > 0
+                      ? { background: '#FEE2E2', color: '#991B1B', border: '1px solid #FCA5A5' }
+                      : {}
+                  }
+                >
+                  {delayedVehicles.length > 0
+                    ? `⚠️ ${delayedVehicles.length} Delayed Operations`
+                    : maintenanceVehicles.length === 0
+                    ? 'Optimal (100% Ready)'
+                    : `${Math.round(((totalVehiclesCount - maintenanceVehicles.length) / totalVehiclesCount) * 100)}% Ready`}
                 </span>
               </div>
               <button
@@ -934,11 +1047,18 @@ function OverviewPage() {
               </button>
             </div>
             <div className="health-progress-bar">
-              {activePct > 0 && (
+              {onSchedulePct > 0 && (
                 <div
                   className="health-segment active-segment"
-                  style={{ width: `${activePct}%` }}
-                  title={`Active En-Route: ${activeVehicles.length} Units (${activePct}%)`}
+                  style={{ width: `${onSchedulePct}%` }}
+                  title={`On-Schedule En-Route: ${onScheduleVehicles.length} Units (${onSchedulePct}%)`}
+                ></div>
+              )}
+              {delayedPct > 0 && (
+                <div
+                  className="health-segment delayed-segment"
+                  style={{ width: `${delayedPct}%` }}
+                  title={`Delayed Operations: ${delayedVehicles.length} Units (${delayedPct}%)`}
                 ></div>
               )}
               {availPct > 0 && (
@@ -959,7 +1079,11 @@ function OverviewPage() {
             <div className="health-legend-row">
               <div className="health-legend-item">
                 <span className="health-legend-dot active-dot"></span>
-                <span><strong>Active En-Route:</strong> {activeVehicles.length} Units ({activePct}%)</span>
+                <span><strong>On Schedule:</strong> {onScheduleVehicles.length} Units ({onSchedulePct}%)</span>
+              </div>
+              <div className="health-legend-item">
+                <span className="health-legend-dot delayed-dot"></span>
+                <span><strong style={{ color: '#DC2626' }}>Delayed Operations:</strong> {delayedVehicles.length} Units ({delayedPct}%)</span>
               </div>
               <div className="health-legend-item">
                 <span className="health-legend-dot available-dot"></span>
@@ -967,7 +1091,7 @@ function OverviewPage() {
               </div>
               <div className="health-legend-item">
                 <span className="health-legend-dot maintenance-dot"></span>
-                <span><strong>Maintenance / Grounded:</strong> {maintenanceVehicles.length} Units ({maintPct}%)</span>
+                <span><strong style={{ color: '#D97706' }}>Maintenance / Grounded:</strong> {maintenanceVehicles.length} Units ({maintPct}%)</span>
               </div>
             </div>
           </div>
@@ -1353,7 +1477,18 @@ function OverviewPage() {
                                   <i className={`fas fa-chevron-right caret-chevron${isOpen ? ' rotate-down' : ''}`}></i>
                                   {staffId}
                                 </td>
-                                <td style={{ fontWeight: 600 }}>{staff.full_name}</td>
+                                <td style={{ fontWeight: 600 }}>
+                                  <div className="staff-avatar-wrap">
+                                    {staff.profile_photo_url ? (
+                                      <img src={staff.profile_photo_url} alt={staff.full_name} className="staff-avatar-thumb" />
+                                    ) : (
+                                      <div className="staff-avatar-placeholder">
+                                        {staff.full_name ? staff.full_name.charAt(0).toUpperCase() : 'S'}
+                                      </div>
+                                    )}
+                                    <span>{staff.full_name}</span>
+                                  </div>
+                                </td>
                                 <td>{staff.email}</td>
                                 <td><span className="status-badge active"><i className="fas fa-circle"></i> Active</span></td>
                                 <td className="action-cell">
@@ -1371,12 +1506,64 @@ function OverviewPage() {
                                 <tr className="admin-profile-row">
                                   <td colSpan="5">
                                     <div className="admin-profile-panel">
-                                      <div className="profile-header"><h4><i className="fas fa-id-badge"></i> Staff Profile Details:</h4></div>
-                                      <div className="profile-content">
-                                        <div className="profile-details">
+                                      <div className="profile-header">
+                                        <h4><i className="fas fa-id-badge"></i> Staff Profile Details:</h4>
+                                      </div>
+                                      <div className="profile-content" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: 20 }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 100, minWidth: 100, flexShrink: 0 }}>
+                                          {staff.profile_photo_url ? (
+                                            <img
+                                              src={staff.profile_photo_url}
+                                              alt={staff.full_name}
+                                              className="staff-profile-card-large"
+                                              style={{
+                                                width: 100,
+                                                height: 112,
+                                                minWidth: 100,
+                                                minHeight: 112,
+                                                maxWidth: 100,
+                                                maxHeight: 112,
+                                                objectFit: 'cover',
+                                                borderRadius: 8,
+                                                display: 'block',
+                                                border: '1px solid #e2e8f0',
+                                                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                                              }}
+                                            />
+                                          ) : (
+                                            <div
+                                              className="staff-profile-card-placeholder"
+                                              style={{
+                                                width: 100,
+                                                height: 112,
+                                                minWidth: 100,
+                                                minHeight: 112,
+                                                borderRadius: 8,
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                background: 'linear-gradient(135deg, #1e293b, #334155)',
+                                                color: '#ffffff',
+                                                border: '1px solid #cbd5e1',
+                                                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                                              }}
+                                            >
+                                              <i className="fas fa-user-tie" style={{ fontSize: 28, marginBottom: 4, opacity: 0.9 }}></i>
+                                              <span style={{ fontSize: 11, letterSpacing: '0.5px', textTransform: 'uppercase', opacity: 0.8, fontWeight: 600 }}>Staff</span>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        <div className="profile-details-grid">
                                           <div className="profile-item"><i className="fas fa-user"></i><span className="label">Full Name:</span><span className="value">{staff.full_name}</span></div>
+                                          <div className="profile-item"><i className="fas fa-briefcase"></i><span className="label">Position:</span><span className="value">Staff Member</span></div>
                                           <div className="profile-item"><i className="fas fa-envelope"></i><span className="label">Email Address:</span><span className="value">{staff.email}</span></div>
                                           <div className="profile-item"><i className="fas fa-phone"></i><span className="label">Phone Number:</span><span className="value">{staff.phone || 'N/A'}</span></div>
+                                          <div className="profile-item"><i className="fas fa-id-card"></i><span className="label">SSS Number:</span><span className="value">{staff.sss_number || 'Not registered'}</span></div>
+                                          <div className="profile-item"><i className="fas fa-heartbeat"></i><span className="label">PhilHealth:</span><span className="value">{staff.philhealth_number || 'Not registered'}</span></div>
+                                          <div className="profile-item"><i className="fas fa-home"></i><span className="label">Pag-IBIG:</span><span className="value">{staff.pagibig_number || 'Not registered'}</span></div>
+                                          <div className="profile-item"><i className="fas fa-file-invoice-dollar"></i><span className="label">Deductible Taxes:</span><span className="value">{staff.deductible_taxes || 'Standard Withholding Tax (Exempt / N/A)'}</span></div>
                                           <div className="profile-item"><i className="fas fa-calendar"></i><span className="label">Date Created:</span><span className="value">{formatDate(staff.created_at)}</span></div>
                                         </div>
                                       </div>
@@ -1391,7 +1578,18 @@ function OverviewPage() {
                         currentStaff.map((staff) => (
                           <tr key={staff.user_id} className="admin-row">
                             <td>STF{String(staff.user_id).padStart(4, '0')}</td>
-                            <td style={{ fontWeight: 600 }}>{staff.full_name}</td>
+                            <td style={{ fontWeight: 600 }}>
+                              <div className="staff-avatar-wrap">
+                                {staff.profile_photo_url ? (
+                                  <img src={staff.profile_photo_url} alt={staff.full_name} className="staff-avatar-thumb" style={{ filter: 'grayscale(100%)', opacity: 0.7 }} />
+                                ) : (
+                                  <div className="staff-avatar-placeholder" style={{ background: '#94a3b8' }}>
+                                    {staff.full_name ? staff.full_name.charAt(0).toUpperCase() : 'S'}
+                                  </div>
+                                )}
+                                <span>{staff.full_name}</span>
+                              </div>
+                            </td>
                             <td>{staff.email}</td>
                             <td><span className="status-badge inactive"><i className="fas fa-circle"></i> Inactive</span></td>
                             <td className="action-cell">
@@ -1431,21 +1629,25 @@ function OverviewPage() {
               <div>
                 <h2>Fleet Operations &amp; Readiness Breakdown</h2>
                 <p style={{ fontSize: 12, margin: '4px 0 0', opacity: 0.9 }}>
-                  Real-time status analysis of all company delivery vehicles and depot readiness.
+                  Real-time status analysis of all company delivery vehicles, active transit schedules, and depot readiness.
                 </p>
               </div>
               <button className="btn-modal-close" onClick={() => setShowHealthModal(false)}>✕</button>
             </div>
             <div className="modal-body" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
               {/* Stat Cards Row */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 18 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
                 <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
                   <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>Total Fleet</span>
                   <div style={{ fontSize: 22, fontWeight: 700, color: '#1e293b', marginTop: 2 }}>{vehicles.length} Units</div>
                 </div>
                 <div style={{ background: '#f0fdf4', padding: '12px 14px', borderRadius: 8, border: '1px solid #bbf7d0' }}>
-                  <span style={{ fontSize: 11, color: '#15803d', fontWeight: 600, textTransform: 'uppercase' }}>Active En-Route</span>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: '#15803d', marginTop: 2 }}>{activeVehicles.length} Units ({activePct}%)</div>
+                  <span style={{ fontSize: 11, color: '#15803d', fontWeight: 600, textTransform: 'uppercase' }}>On Schedule</span>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#15803d', marginTop: 2 }}>{onScheduleVehicles.length} Units ({onSchedulePct}%)</div>
+                </div>
+                <div style={{ background: '#fef2f2', padding: '12px 14px', borderRadius: 8, border: '1px solid #fecaca' }}>
+                  <span style={{ fontSize: 11, color: '#b91c1c', fontWeight: 600, textTransform: 'uppercase' }}>Delayed Operations</span>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#b91c1c', marginTop: 2 }}>{delayedVehicles.length} Units ({delayedPct}%)</div>
                 </div>
                 <div style={{ background: '#eff6ff', padding: '12px 14px', borderRadius: 8, border: '1px solid #bfdbfe' }}>
                   <span style={{ fontSize: 11, color: '#1d4ed8', fontWeight: 600, textTransform: 'uppercase' }}>Depot Available</span>
@@ -1466,10 +1668,17 @@ function OverviewPage() {
                   All Fleet Units ({vehicles.length})
                 </button>
                 <button
-                  className={`modal-pill-tab${healthModalTab === 'active' ? ' active' : ''}`}
-                  onClick={() => setHealthModalTab('active')}
+                  className={`modal-pill-tab${healthModalTab === 'on_schedule' || healthModalTab === 'active' ? ' active' : ''}`}
+                  onClick={() => setHealthModalTab('on_schedule')}
                 >
-                  Active En-Route ({activeVehicles.length})
+                  On Schedule ({onScheduleVehicles.length})
+                </button>
+                <button
+                  className={`modal-pill-tab${healthModalTab === 'delayed' ? ' active' : ''}`}
+                  onClick={() => setHealthModalTab('delayed')}
+                  style={delayedVehicles.length > 0 ? { color: '#dc2626', fontWeight: 700 } : {}}
+                >
+                  ⚠️ Delayed Operations ({delayedVehicles.length})
                 </button>
                 <button
                   className={`modal-pill-tab${healthModalTab === 'available' ? ' active' : ''}`}
@@ -1489,11 +1698,13 @@ function OverviewPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {vehicles
                   .filter((v) => {
-                    const isActive = activeVehicles.some((av) => av.vehicle_id === v.vehicle_id);
+                    const isDelayed = delayedVehicles.some((dv) => dv.vehicle_id === v.vehicle_id);
+                    const isOnSchedule = onScheduleVehicles.some((ov) => ov.vehicle_id === v.vehicle_id);
                     const isMaint = maintenanceVehicles.some((mv) => mv.vehicle_id === v.vehicle_id);
-                    const isAvail = !isActive && !isMaint;
+                    const isAvail = availableVehicles.some((av) => av.vehicle_id === v.vehicle_id);
 
-                    if (healthModalTab === 'active') return isActive;
+                    if (healthModalTab === 'on_schedule' || healthModalTab === 'active') return isOnSchedule;
+                    if (healthModalTab === 'delayed') return isDelayed;
                     if (healthModalTab === 'available') return isAvail;
                     if (healthModalTab === 'maintenance') return isMaint;
                     return true;
@@ -1502,13 +1713,14 @@ function OverviewPage() {
                     const activeDelivery = activeDeliveryMap[v.vehicle_id];
                     const isMaint = maintenanceVehicles.some((mv) => mv.vehicle_id === v.vehicle_id);
                     const maintRecord = maintenances.find((m) => m.vehicle_id === v.vehicle_id);
+                    const isDelayed = activeDelivery && isTripDelayed(activeDelivery);
 
                     return (
                       <div
                         key={v.vehicle_id}
                         style={{
                           background: '#ffffff',
-                          border: '1px solid #e2e8f0',
+                          border: isDelayed ? '1px solid #fca5a5' : isMaint ? '1px solid #fde68a' : '1px solid #e2e8f0',
                           borderRadius: 8,
                           padding: '14px 18px',
                           display: 'flex',
@@ -1524,15 +1736,15 @@ function OverviewPage() {
                               width: 44,
                               height: 44,
                               borderRadius: 8,
-                              background: activeDelivery ? '#dcfce7' : isMaint ? '#fef3c7' : '#dbeafe',
-                              color: activeDelivery ? '#16a34a' : isMaint ? '#d97706' : '#2563eb',
+                              background: isDelayed ? '#fee2e2' : activeDelivery ? '#dcfce7' : isMaint ? '#fef3c7' : '#dbeafe',
+                              color: isDelayed ? '#dc2626' : activeDelivery ? '#16a34a' : isMaint ? '#d97706' : '#2563eb',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               fontSize: 18,
                             }}
                           >
-                            <i className={activeDelivery ? 'fas fa-truck-moving' : isMaint ? 'fas fa-tools' : 'fas fa-warehouse'}></i>
+                            <i className={isDelayed ? 'fas fa-exclamation-triangle' : activeDelivery ? 'fas fa-truck-moving' : isMaint ? 'fas fa-tools' : 'fas fa-warehouse'}></i>
                           </div>
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1545,9 +1757,17 @@ function OverviewPage() {
                             </div>
                             <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>
                               {activeDelivery ? (
-                                <span>
-                                  Assigned to <strong>Driver {activeDelivery.driver?.user?.full_name || 'Driver'}</strong> • Delivery DLV{String(activeDelivery.delivery_id).padStart(4, '0')}
-                                </span>
+                                <div>
+                                  <span>
+                                    Assigned to <strong>Driver {activeDelivery.driver?.user?.full_name || 'Driver'}</strong> • Delivery DLV{String(activeDelivery.delivery_id).padStart(4, '0')}
+                                  </span>
+                                  {isDelayed && (
+                                    <div style={{ color: '#dc2626', fontWeight: 600, fontSize: 11, marginTop: 3 }}>
+                                      <i className="fas fa-clock" style={{ marginRight: 4 }}></i>
+                                      Delay Alert: {activeDelivery.delay_reason || (activeDelivery.target_eta ? `Overdue past Target ETA (${formatDate(activeDelivery.target_eta)})` : 'Transit delayed past schedule')}
+                                    </div>
+                                  )}
+                                </div>
                               ) : isMaint ? (
                                 <span>
                                   Service: {maintRecord?.service_type || 'Routine Inspection'} ({maintRecord?.maintenance_type || 'Maintenance'})
@@ -1562,16 +1782,47 @@ function OverviewPage() {
                         <div style={{ textAlign: 'right' }}>
                           {activeDelivery ? (
                             <div>
-                              <span style={{ background: '#dcfce7', color: '#15803d', padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700 }}>
-                                IN TRANSIT
+                              <span
+                                style={{
+                                  background: isDelayed ? '#fee2e2' : '#dcfce7',
+                                  color: isDelayed ? '#b91c1c' : '#15803d',
+                                  border: isDelayed ? '1px solid #fca5a5' : 'none',
+                                  padding: '3px 10px',
+                                  borderRadius: 999,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                {isDelayed ? <><i className="fas fa-exclamation-circle"></i> DELAYED EN-ROUTE</> : 'IN TRANSIT'}
                               </span>
                               <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
                                 {formatRoute(activeDelivery.request?.pickup_address, activeDelivery.request?.dropoff_address)}
                               </div>
+                              {isDelayed && (
+                                <div style={{ marginTop: 6 }}>
+                                  <a
+                                    href={`/delivery?deliveryId=${activeDelivery.delivery_id}`}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4,
+                                      fontSize: 11,
+                                      color: '#eb6425',
+                                      textDecoration: 'none',
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    <i className="fas fa-map-marked-alt"></i> Delivery Monitoring
+                                  </a>
+                                </div>
+                              )}
                             </div>
                           ) : isMaint ? (
                             <div>
-                              <span style={{ background: '#fef3c7', color: '#b45309', padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700 }}>
+                              <span style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700 }}>
                                 MAINTENANCE
                               </span>
                               <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
@@ -1762,6 +2013,37 @@ function OverviewPage() {
             <div className="modal-body">
               {formError && <div className="form-error" style={{ color: '#d32f2f', marginBottom: 12 }}>{formError}</div>}
               <form className="edit-form" onSubmit={(e) => e.preventDefault()}>
+                {/* Profile Photo Upload */}
+                <div className="photo-upload-section">
+                  {editForm.photoPreview ? (
+                    <img src={editForm.photoPreview} alt="Preview" className="photo-preview-box" />
+                  ) : (
+                    <div className="photo-placeholder-box"><i className="fas fa-user"></i></div>
+                  )}
+                  <div>
+                    <label className="photo-upload-btn-label">
+                      <i className="fas fa-camera"></i> {editForm.photoPreview ? 'Change Photo' : 'Upload Profile Photo'}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/jpg"
+                        style={{ display: 'none' }}
+                        onChange={(e) => handlePhotoSelect(e, true)}
+                      />
+                    </label>
+                    {editForm.photoPreview && (
+                      <button
+                        type="button"
+                        onClick={() => setEditForm((prev) => ({ ...prev, photo: '', photoPreview: null }))}
+                        style={{ marginLeft: 8, background: 'none', border: 'none', color: '#dc2626', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                    <p style={{ margin: '4px 0 0', fontSize: 11, color: '#64748b' }}>JPG, PNG or WEBP up to 5MB.</p>
+                  </div>
+                </div>
+
+                <h4 className="form-section-title">Account Information</h4>
                 <div className="form-row">
                   <div className="form-group">
                     <label>Full Name<span className="required">*</span></label>
@@ -1784,6 +2066,50 @@ function OverviewPage() {
                     />
                   </div>
                 </div>
+
+                {/* Government IDs & Taxes */}
+                <h4 className="form-section-title">Government IDs &amp; Deductible Taxes</h4>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>SSS Number</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 34-1234567-8"
+                      value={editForm.sss_number}
+                      onChange={(e) => setEditForm({ ...editForm, sss_number: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>PhilHealth Number</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 12-345678901-2"
+                      value={editForm.philhealth_number}
+                      onChange={(e) => setEditForm({ ...editForm, philhealth_number: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Pag-IBIG (HDMF) Number</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 1234-5678-9012"
+                      value={editForm.pagibig_number}
+                      onChange={(e) => setEditForm({ ...editForm, pagibig_number: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Deductible Taxes</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Withholding Tax (10%), BIR Form 2316"
+                      value={editForm.deductible_taxes}
+                      onChange={(e) => setEditForm({ ...editForm, deductible_taxes: e.target.value })}
+                    />
+                  </div>
+                </div>
+
                 <div className="password-section">
                   <label className="checkbox-label">
                     <input type="checkbox" checked={editForm.changePassword} onChange={(e) => setEditForm({ ...editForm, changePassword: e.target.checked })} />
@@ -1823,6 +2149,36 @@ function OverviewPage() {
             <div className="modal-body">
               {formError && <div className="form-error" style={{ color: '#d32f2f', marginBottom: 12 }}>{formError}</div>}
               <form className="edit-form" onSubmit={(e) => e.preventDefault()}>
+                {/* Profile Photo Upload */}
+                <div className="photo-upload-section">
+                  {addForm.photoPreview ? (
+                    <img src={addForm.photoPreview} alt="Preview" className="photo-preview-box" />
+                  ) : (
+                    <div className="photo-placeholder-box"><i className="fas fa-user-plus"></i></div>
+                  )}
+                  <div>
+                    <label className="photo-upload-btn-label">
+                      <i className="fas fa-camera"></i> {addForm.photoPreview ? 'Change Photo' : 'Upload Profile Photo'}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/jpg"
+                        style={{ display: 'none' }}
+                        onChange={(e) => handlePhotoSelect(e, false)}
+                      />
+                    </label>
+                    {addForm.photoPreview && (
+                      <button
+                        type="button"
+                        onClick={() => setAddForm((prev) => ({ ...prev, photo: null, photoPreview: null }))}
+                        style={{ marginLeft: 8, background: 'none', border: 'none', color: '#dc2626', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                    <p style={{ margin: '4px 0 0', fontSize: 11, color: '#64748b' }}>JPG, PNG or WEBP up to 5MB.</p>
+                  </div>
+                </div>
+
                 <h4 className="form-section-title">Account Information</h4>
                 <div className="form-row">
                   <div className="form-group">
@@ -1846,6 +2202,50 @@ function OverviewPage() {
                     />
                   </div>
                 </div>
+
+                {/* Government IDs & Taxes */}
+                <h4 className="form-section-title">Government IDs &amp; Deductible Taxes</h4>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>SSS Number</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 34-1234567-8"
+                      value={addForm.sss_number}
+                      onChange={(e) => setAddForm({ ...addForm, sss_number: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>PhilHealth Number</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 12-345678901-2"
+                      value={addForm.philhealth_number}
+                      onChange={(e) => setAddForm({ ...addForm, philhealth_number: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Pag-IBIG (HDMF) Number</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 1234-5678-9012"
+                      value={addForm.pagibig_number}
+                      onChange={(e) => setAddForm({ ...addForm, pagibig_number: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Deductible Taxes</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Withholding Tax (10%), BIR Form 2316"
+                      value={addForm.deductible_taxes}
+                      onChange={(e) => setAddForm({ ...addForm, deductible_taxes: e.target.value })}
+                    />
+                  </div>
+                </div>
+
                 <h4 className="form-section-title">Security</h4>
                 <div className="form-row">
                   <div className="form-group">
