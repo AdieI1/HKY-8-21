@@ -16,7 +16,15 @@ export default function ForgotPassword() {
 
       {/* Back button */}
       <TouchableOpacity
-        onPress={() => router.back()} style={styles.backBtn}>
+        onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace('/login-page');
+          }
+        }}
+        style={styles.backBtn}
+      >
         <Ionicons name="arrow-back" size={36} color="#fff" />
       </TouchableOpacity>
 

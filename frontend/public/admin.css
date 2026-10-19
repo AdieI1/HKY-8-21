@@ -2764,9 +2764,35 @@ body.dark-theme .hjy-page-btn:disabled {
     background: #ffffff;
 }
 
+.hjy-hazard-popup .leaflet-popup-content-wrapper {
+    padding: 0;
+    border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+}
+
+.hjy-hazard-popup .leaflet-popup-content {
+    margin: 4px 6px;
+    line-height: 1.35;
+}
+
+/* Suppress Leaflet Routing Machine turn-by-turn itinerary panel from obstructing preview maps */
+.leaflet-routing-container,
+.leaflet-routing-container-hide,
+.leaflet-bar.leaflet-routing-container,
+.leaflet-control-container .leaflet-routing-container {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    max-height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+}
+
 .danger-zone-popup-card {
-    padding: 14px 16px;
+    padding: 8px 10px;
     color: #1e293b;
+    max-width: 240px;
 }
 
 .dz-header {

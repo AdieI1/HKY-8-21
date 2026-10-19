@@ -13,6 +13,7 @@ import PostDeliveryMetricsPanel, { formatTripDuration, getFuelMetrics } from '..
 import TableSkeleton from '../components/TableSkeleton';
 import DelayActionModal from '../components/delivery/DelayActionModal';
 import CollectionReceiptModal from '../components/delivery/CollectionReceiptModal';
+import CompletedDeliveryDetailsModal from '../components/delivery/CompletedDeliveryDetailsModal';
 
 const STATUS_STEPS = [
   { key: 'pending', label: 'Pending Dispatch' },
@@ -407,9 +408,11 @@ function DeliveryPage() {
 
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [receiptModalDelivery, setReceiptModalDelivery] = useState(null);
+  const [receiptModalReadOnly, setReceiptModalReadOnly] = useState(false);
 
-  const openReceiptModal = (d) => {
+  const openReceiptModal = (d, isReadOnly = false) => {
     setReceiptModalDelivery(d);
+    setReceiptModalReadOnly(isReadOnly);
     setReceiptModalOpen(true);
   };
 
@@ -1080,9 +1083,9 @@ function DeliveryPage() {
         </div>
       </div>
 
-      {/* Delivery Details Panel */}
-      <div className={`delivery-panel${selectedDelivery ? ' active' : ''}`}>
-        {selectedDelivery && (
+      {/* Delivery Details Panel (Active Deliveries Side Drawer) */}
+      <div className={`delivery-panel${selectedDelivery && selectedDelivery.status !== 'completed' && viewTab !== 'completed' ? ' active' : ''}`}>
+        {selectedDelivery && selectedDelivery.status !== 'completed' && viewTab !== 'completed' && (
           <>
             <div className="delivery-panel-header">
               <span><i className="fas fa-truck"></i> Delivery Details</span>
@@ -1624,7 +1627,16 @@ function DeliveryPage() {
           </>
         )}
       </div>
-      {selectedDelivery && <div className="panel-overlay active" onClick={closeDeliveryPanel}></div>}
+      {selectedDelivery && selectedDelivery.status !== 'completed' && viewTab !== 'completed' && (
+        <div className="panel-overlay active" onClick={closeDeliveryPanel}></div>
+      )}
+
+      {/* Centered Modal for Completed Deliveries */}
+      <CompletedDeliveryDetailsModal
+        delivery={selectedDelivery && (selectedDelivery.status === 'completed' || viewTab === 'completed') ? selectedDelivery : null}
+        onClose={closeDeliveryPanel}
+        onOpenReceipt={(del) => openReceiptModal(del, true)}
+      />
 
       {/* Map View Modal */}
       {showMapModal && selectedDelivery && (
@@ -1903,9 +1915,11 @@ function DeliveryPage() {
       <CollectionReceiptModal
         isOpen={receiptModalOpen}
         delivery={receiptModalDelivery}
+        readOnly={receiptModalReadOnly}
         onClose={() => {
           setReceiptModalOpen(false);
           setReceiptModalDelivery(null);
+          setReceiptModalReadOnly(false);
         }}
         onSuccess={handleReceiptSuccess}
       />

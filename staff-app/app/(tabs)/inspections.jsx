@@ -85,6 +85,7 @@ export default function Inspections() {
           vehicle: plate,
           vehicleType: typeStr,
           time: `${dateStr} • ${timeStr}`,
+          timestamp: isNaN(dateObj.getTime()) ? 0 : dateObj.getTime(),
           inspectionType: type,
           status: "Pending",
           image: imageSource,
@@ -95,7 +96,14 @@ export default function Inspections() {
       const preTripItems = pendingPreTrip.map((d) => formatItem(d, "Pre-Trip"));
       const postTripItems = pendingPostTrip.map((d) => formatItem(d, "Post-Trip"));
 
-      setInspections([...preTripItems, ...postTripItems]);
+      const combined = [...preTripItems, ...postTripItems].sort((a, b) => {
+        if (b.timestamp !== a.timestamp) {
+          return b.timestamp - a.timestamp;
+        }
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
+      });
+
+      setInspections(combined);
     } catch (error) {
       console.log("LOAD INSPECTIONS ERROR:", error);
     } finally {

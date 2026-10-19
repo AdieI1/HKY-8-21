@@ -646,3 +646,114 @@
     font-size: 12px !important;
     margin-left: auto;
 }
+
+/* ══════════════════════════════════════════════════════════
+   DISPATCH VIEW TOGGLE & HISTORY STYLES
+   ══════════════════════════════════════════════════════════ */
+.dispatch-view-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dispatch-tab-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #2563EB;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+}
+
+.dispatch-tab-toggle:hover {
+    background: #1D4ED8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.4);
+}
+
+.dispatch-tab-toggle.viewing-history {
+    background: #059669;
+    box-shadow: 0 2px 6px rgba(5, 150, 105, 0.3);
+}
+
+.dispatch-tab-toggle.viewing-history:hover {
+    background: #047857;
+}
+
+.btn-dossier-view {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: #2563EB;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-dossier-view:hover {
+    background: #1D4ED8;
+    transform: translateY(-1px);
+}
+
+.role-tag-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: inline-block;
+}
+
+.role-tag-admin {
+    background: #FEE2E2;
+    color: #991B1B;
+    border: 1px solid #FECACA;
+}
+
+.role-tag-staff {
+    background: #EFF6FF;
+    color: #1E40AF;
+    border: 1px solid #BFDBFE;
+}
+
+.history-search-input {
+    border: 1px solid #D1D5DB;
+    background: #FFFFFF;
+    border-radius: 6px;
+    padding: 6px 12px 6px 32px;
+    font-size: 13px;
+    color: #1F2937;
+    width: 220px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.history-search-input:focus {
+    border-color: #2563EB;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+/* Suppress Leaflet Routing Machine itinerary container */
+.leaflet-routing-container,
+.leaflet-routing-container-hide,
+.leaflet-bar.leaflet-routing-container,
+.leaflet-control-container .leaflet-routing-container {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    max-height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+}

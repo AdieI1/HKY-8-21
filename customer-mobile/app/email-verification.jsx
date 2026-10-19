@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -89,6 +90,28 @@ export default function EmailVerification() {
     }
   };
 
+  const handleBack = () => {
+    try {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/login-page');
+      }
+    } catch {
+      router.replace('/login-page');
+    }
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleBack();
+      return true;
+    };
+
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [router]);
+
   return (
     <SafeAreaView style={styles.safe}>
       <ImageBackground source={bg} style={styles.background} blurRadius={6}>
@@ -103,7 +126,7 @@ export default function EmailVerification() {
           >
             {/* Back Button */}
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={handleBack}
               style={styles.backBtn}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             >
@@ -154,6 +177,17 @@ export default function EmailVerification() {
                   </Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Back to Login Link */}
+              <TouchableOpacity
+                style={styles.loginBackBtn}
+                onPress={handleBack}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.loginBackText}>
+                  Back to <Text style={styles.loginBackBold}>Login</Text>
+                </Text>
+              </TouchableOpacity>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -263,6 +297,20 @@ const styles = StyleSheet.create({
   resendLink: {
     color: '#FFFFFF',
     fontSize: 14,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
+  loginBackBtn: {
+    marginTop: 18,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  loginBackText: {
+    color: '#CBD5E1',
+    fontSize: 14,
+  },
+  loginBackBold: {
+    color: '#FFFFFF',
     fontWeight: '700',
     textDecorationLine: 'underline',
   },

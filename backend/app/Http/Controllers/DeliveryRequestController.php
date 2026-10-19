@@ -57,7 +57,7 @@ class DeliveryRequestController extends Controller
     }
     public function index(Request $request)
     {
-        $query = DeliveryRequest::with('customer')->latest('request_id');
+        $query = DeliveryRequest::with(['customer', 'approver.role'])->latest('request_id');
 
         if ($request->boolean('scheduled')) {
             $query->where('is_scheduled', true);
@@ -336,7 +336,7 @@ class DeliveryRequestController extends Controller
 
     public function show(DeliveryRequest $deliveryRequest)
     {
-        return $deliveryRequest->load('customer');
+        return $deliveryRequest->load(['customer', 'approver.role']);
     }
 
     public function update(Request $request, DeliveryRequest $deliveryRequest)
@@ -351,7 +351,7 @@ class DeliveryRequestController extends Controller
 
         $deliveryRequest->update($data);
 
-        return $deliveryRequest->fresh()->load('customer');
+        return $deliveryRequest->fresh()->load(['customer', 'approver.role']);
     }
 
     public function uploadItemPermit(Request $request, DeliveryRequest $deliveryRequest)
@@ -374,7 +374,7 @@ class DeliveryRequestController extends Controller
 
         return response()->json([
             'message' => 'Item delivery permit uploaded successfully.',
-            'request' => $deliveryRequest->fresh()->load('customer'),
+            'request' => $deliveryRequest->fresh()->load(['customer', 'approver.role']),
         ]);
     }
 
@@ -388,8 +388,14 @@ class DeliveryRequestController extends Controller
      */
     public function approve(DeliveryRequest $deliveryRequest)
     {
-        $delivery = DB::transaction(function () use ($deliveryRequest) {
-            $deliveryRequest->update(['status' => 'approved']);
+        $admin = auth()->user();
+
+        $delivery = DB::transaction(function () use ($deliveryRequest, $admin) {
+            $deliveryRequest->update([
+                'status' => 'approved',
+                'approved_by' => $admin?->user_id,
+                'approved_at' => now(),
+            ]);
 
             $totalPrice = $deliveryRequest->total_price ?? 0;
             $tripCost = $deliveryRequest->payment_term === 'downpayment'
@@ -419,7 +425,7 @@ class DeliveryRequestController extends Controller
         }
 
         return response()->json([
-            'request' => $deliveryRequest->fresh()->load('customer'),
+            'request' => $deliveryRequest->fresh()->load(['customer', 'approver.role']),
             'delivery' => $delivery,
         ]);
     }

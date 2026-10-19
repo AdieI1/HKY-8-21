@@ -3,20 +3,6 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-routing-machine';
 import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
-import api from '../../api/api-client';
-import {
-  DEFAULT_DANGER_ZONES,
-  HAZARD_CATEGORIES,
-  isZoneNearRoute,
-  createDangerZoneIcon,
-  createDangerZonePopupHtml,
-  calculateRouteRiskSummary,
-} from '../../utils/dangerZones';
-import {
-  fetchRouteSteepness,
-  renderSteepnessPolylines,
-  createSteepnessLegendControl,
-} from '../../utils/routeElevation';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -100,48 +86,19 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
   const [mapEl, setMapEl] = useState(null);
   const [activeMode, setActiveMode] = useState('pickup');
   const [routeStatus, setRouteStatus] = useState('idle');
-  const [showDangerZones, setShowDangerZones] = useState(true);
-  const [filterRouteOnly, setFilterRouteOnly] = useState(true);
-  const [dangerZones, setDangerZones] = useState(DEFAULT_DANGER_ZONES);
-  const [zonesOnRoute, setZonesOnRoute] = useState([]);
-  const [steepnessSummary, setSteepnessSummary] = useState(null);
-  const [showSteepness, setShowSteepness] = useState(true);
   const [mindanaoError, setMindanaoError] = useState('');
 
   const mapRef = useRef(null);
   const pickupMarkerRef = useRef(null);
   const dropoffMarkerRef = useRef(null);
   const routingRef = useRef(null);
-  const dangerLayerGroupRef = useRef(null);
-  const steepnessLayerRef = useRef(null);
-  const steepnessLegendControlRef = useRef(null);
-  const steepnessDataRef = useRef(null);
   const activeModeRef = useRef(activeMode);
   const onDistanceChangeRef = useRef(onDistanceChange);
   const prevRouteKeyRef = useRef('');
   const lastReportedDistanceRef = useRef(null);
-  const steepnessDebounceTimerRef = useRef(null);
 
   useEffect(() => { activeModeRef.current = activeMode; }, [activeMode]);
   useEffect(() => { onDistanceChangeRef.current = onDistanceChange; }, [onDistanceChange]);
-
-  // Load backend danger zones or fallback to defaults
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await api.get('/danger-zones');
-        if (!cancelled && res.data && Array.isArray(res.data) && res.data.length > 0) {
-          setDangerZones(res.data);
-        }
-      } catch {
-        // Fallback to DEFAULT_DANGER_ZONES
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (!mapEl || mapRef.current) return;
@@ -170,24 +127,6 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
 
     mapRef.current = map;
     setTimeout(() => map.invalidateSize(), 150);
-
-    return () => {
-      if (dangerLayerGroupRef.current) {
-        try {
-          map.removeLayer(dangerLayerGroupRef.current);
-        } catch (_) {}
-      }
-      if (steepnessLayerRef.current) {
-        try {
-          map.removeLayer(steepnessLayerRef.current);
-        } catch (_) {}
-      }
-      if (steepnessLegendControlRef.current) {
-        try {
-          map.removeControl(steepnessLegendControlRef.current);
-        } catch (_) {}
-      }
-    };
   }, [mapEl, onPickupChange, onDropoffChange]);
 
   useEffect(() => {
@@ -248,267 +187,85 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
             lastReportedDistanceRef.current = distKm;
             onDistanceChangeRef.current?.(distKm);
           }
-
-          const coords = e.routes[0].coordinates;
-          const detected = coords && coords.length > 1 ? dangerZones.filter((zone) => isZoneNearRoute(zone, coords, 0.4)) : [];
-          setZonesOnRoute(detected);
-
-          // Debounce steepness calculation to prevent rapid repeated requests
-          if (steepnessDebounceTimerRef.current) {
-            clearTimeout(steepnessDebounceTimerRef.current);
-          }
-
-          steepnessDebounceTimerRef.current = setTimeout(() => {
-            fetchRouteSteepness(coords).then((data) => {
-              if (!mapRef.current) return;
-              steepnessDataRef.current = data;
-              setSteepnessSummary(data.summary);
-
-              if (showSteepness && data.segments && data.segments.length > 0) {
-                if (steepnessLayerRef.current) {
-                  try { mapRef.current.removeLayer(steepnessLayerRef.current); } catch (_) {}
-                }
-                steepnessLayerRef.current = renderSteepnessPolylines(mapRef.current, data.segments, {
-                  originalCoords: coords,
-                });
-
-                if (steepnessLegendControlRef.current) {
-                  try { mapRef.current.removeControl(steepnessLegendControlRef.current); } catch (_) {}
-                }
-                const legend = createSteepnessLegendControl(data.summary);
-                legend.addTo(mapRef.current);
-                steepnessLegendControlRef.current = legend;
-              }
-            }).catch(() => {});
-          }, 300);
         })
         .on('routingerror', () => {
           setRouteStatus('failed');
-          setZonesOnRoute([]);
         })
         .addTo(map);
+
+      try {
+        const container = routingRef.current.getContainer();
+        if (container) {
+          container.style.display = 'none';
+          container.style.visibility = 'hidden';
+        }
+      } catch (_) {}
     } else {
       routingRef.current.setWaypoints(waypoints);
     }
   }, [pickup?.lat, pickup?.lng, dropoff?.lat, dropoff?.lng]);
-
-  // Render Danger Zones Overlay
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    if (dangerLayerGroupRef.current) {
-      try {
-        map.removeLayer(dangerLayerGroupRef.current);
-      } catch (_) {}
-      dangerLayerGroupRef.current = null;
-    }
-
-    if (!showDangerZones) return;
-
-    const group = L.layerGroup();
-    const routeCoords = hasCoords(pickup) && hasCoords(dropoff) ? [pickup, dropoff] : [];
-
-    // ONLY render near hazards on the chosen route (or all if filter toggled off)
-    const targetZones = filterRouteOnly
-      ? zonesOnRoute
-      : dangerZones;
-
-    targetZones.forEach((zone) => {
-      if (!zone.lat || !zone.lng) return;
-      const cat = HAZARD_CATEGORIES[zone.category] || HAZARD_CATEGORIES.accident_prone;
-      const isOnRoute = zonesOnRoute.some((z) => z.id === zone.id);
-
-      const circle = L.circle([zone.lat, zone.lng], {
-        radius: zone.radius || 750,
-        color: isOnRoute ? '#dc2626' : cat.color,
-        fillColor: isOnRoute ? '#ef4444' : cat.fillColor,
-        fillOpacity: isOnRoute ? 0.22 : 0.12,
-        weight: isOnRoute ? 2 : 1.2,
-        dashArray: isOnRoute ? '4, 4' : null,
-      });
-
-      const marker = L.marker([zone.lat, zone.lng], {
-        icon: createDangerZoneIcon(zone, isOnRoute),
-        zIndexOffset: isOnRoute ? 600 : 200,
-      });
-
-      const popupHtml = createDangerZonePopupHtml(zone, isOnRoute);
-      circle.bindPopup(popupHtml, { maxWidth: 300, className: 'hjy-hazard-popup' });
-      marker.bindPopup(popupHtml, { maxWidth: 300, className: 'hjy-hazard-popup' });
-
-      group.addLayer(circle);
-      group.addLayer(marker);
-    });
-
-    group.addTo(map);
-    dangerLayerGroupRef.current = group;
-
-    return () => {
-      if (dangerLayerGroupRef.current && map) {
-        try {
-          map.removeLayer(dangerLayerGroupRef.current);
-        } catch (_) {}
-      }
-    };
-  }, [dangerZones, showDangerZones, filterRouteOnly, pickup, dropoff]);
 
   const pickupReady = hasCoords(pickup);
   const dropoffReady = hasCoords(dropoff);
 
   return (
     <div style={{ marginTop: 8, marginBottom: 8 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
-        <span className="mindanao-lock-badge" title="HJY Logistics serves the Mindanao archipelago only">
-          <i className="fas fa-lock"></i> Mindanao Region Only
-        </span>
-        {mindanaoError && (
-          <span style={{ color: '#dc2626', background: '#fee2e2', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700 }}>
-            <i className="fas fa-ban" style={{ marginRight: 4 }}></i>{mindanaoError}
-          </span>
-        )}
-      </div>
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
             type="button"
             onClick={() => setActiveMode('pickup')}
             style={{
-              padding: '6px 12px',
+              padding: '6px 14px',
               borderRadius: 6,
-              border: '1px solid #ccc',
+              border: activeMode === 'pickup' ? '1px solid #166534' : '1px solid #cbd5e1',
               background: activeMode === 'pickup' ? '#2e7d32' : '#fff',
-              color: activeMode === 'pickup' ? '#fff' : '#333',
+              color: activeMode === 'pickup' ? '#fff' : '#334155',
               cursor: 'pointer',
               fontSize: 13,
               fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              boxShadow: activeMode === 'pickup' ? '0 1px 3px rgba(46,125,50,0.3)' : 'none',
+              transition: 'all 0.15s ease',
             }}
           >
-            <i className="fas fa-box" style={{ marginRight: 6 }}></i>
+            <i className="fas fa-box"></i>
             Click map: Set Pickup
           </button>
           <button
             type="button"
             onClick={() => setActiveMode('dropoff')}
             style={{
-              padding: '6px 12px',
+              padding: '6px 14px',
               borderRadius: 6,
-              border: '1px solid #ccc',
+              border: activeMode === 'dropoff' ? '1px solid #7f1d1d' : '1px solid #cbd5e1',
               background: activeMode === 'dropoff' ? '#9E1E21' : '#fff',
-              color: activeMode === 'dropoff' ? '#fff' : '#333',
+              color: activeMode === 'dropoff' ? '#fff' : '#334155',
               cursor: 'pointer',
               fontSize: 13,
               fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              boxShadow: activeMode === 'dropoff' ? '0 1px 3px rgba(158,30,33,0.3)' : 'none',
+              transition: 'all 0.15s ease',
             }}
           >
-            <i className="fas fa-flag-checkered" style={{ marginRight: 6 }}></i>
+            <i className="fas fa-flag-checkered"></i>
             Click map: Set Drop-off
           </button>
         </div>
 
-        {/* Hazard & Terrain Overlays */}
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Steepness Overlay Toggle */}
-          <button
-            type="button"
-            onClick={() => {
-              const nextState = !showSteepness;
-              setShowSteepness(nextState);
-              const map = mapRef.current;
-              if (!map) return;
-
-              if (nextState) {
-                if (steepnessDataRef.current && steepnessDataRef.current.segments && steepnessDataRef.current.segments.length > 0) {
-                  if (steepnessLayerRef.current) {
-                    try { map.removeLayer(steepnessLayerRef.current); } catch (_) {}
-                  }
-                  steepnessLayerRef.current = renderSteepnessPolylines(map, steepnessDataRef.current.segments);
-
-                  if (steepnessLegendControlRef.current) {
-                    try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}
-                  }
-                  const legend = createSteepnessLegendControl(steepnessDataRef.current.summary);
-                  legend.addTo(map);
-                  steepnessLegendControlRef.current = legend;
-                }
-              } else {
-                if (steepnessLayerRef.current) {
-                  try { map.removeLayer(steepnessLayerRef.current); } catch (_) {}
-                  steepnessLayerRef.current = null;
-                }
-                if (steepnessLegendControlRef.current) {
-                  try { map.removeControl(steepnessLegendControlRef.current); } catch (_) {}
-                  steepnessLegendControlRef.current = null;
-                }
-              }
-            }}
-            className={`map-danger-toggle-btn ${showSteepness ? 'active' : ''}`}
-            style={{
-              padding: '5px 10px',
-              fontSize: '11.5px',
-              background: showSteepness ? '#0284c7' : '#fff',
-              color: showSteepness ? '#fff' : '#334155',
-              borderColor: showSteepness ? '#0284c7' : '#cbd5e1',
-            }}
-            title="Toggle Road Steepness / Grade Analysis"
-          >
-            <i className="fas fa-mountain"></i>
-            <span>Steepness</span>
-            {steepnessSummary && (steepnessSummary.moderate_segments_count > 0 || steepnessSummary.steep_segments_count > 0 || steepnessSummary.very_steep_segments_count > 0) && (
-              <span
-                className="map-danger-toggle-badge"
-                style={{
-                  background:
-                    steepnessSummary.very_steep_segments_count > 0
-                      ? '#ef4444'
-                      : steepnessSummary.steep_segments_count > 0
-                      ? '#ea580c'
-                      : '#f59e0b',
-                }}
-              >
-                {steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count > 0
-                  ? `${steepnessSummary.steep_segments_count + steepnessSummary.very_steep_segments_count} STEEP`
-                  : `${steepnessSummary.max_grade_pct}% MAX`}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setShowDangerZones(!showDangerZones)}
-            className={`map-danger-toggle-btn ${showDangerZones ? 'active' : ''}`}
-            style={{ padding: '5px 10px', fontSize: '11.5px' }}
-            title="Toggle Danger Zones Overlay"
-          >
-            <i className="fas fa-exclamation-triangle"></i>
-            <span>{filterRouteOnly ? 'Route Hazards' : 'All Hazards'}</span>
-            <span className="map-danger-toggle-badge">{zonesOnRoute.length}</span>
-          </button>
-
-          {showDangerZones && (
-            <button
-              type="button"
-              onClick={() => setFilterRouteOnly(!filterRouteOnly)}
-              style={{
-                background: filterRouteOnly ? '#fff' : '#fee2e2',
-                color: filterRouteOnly ? '#334155' : '#991b1b',
-                border: '1px solid #cbd5e1',
-                borderRadius: '14px',
-                padding: '4px 8px',
-                fontSize: '10.5px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                boxShadow: '0 2px 5px rgba(0,0,0,0.1)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-              title="Toggle between only showing near hazards on chosen route vs all Mindanao hazards"
-            >
-              <i className={`fas ${filterRouteOnly ? 'fa-route' : 'fa-globe-asia'}`}></i>
-              {filterRouteOnly ? 'Route Only' : 'All Mindanao'}
-            </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span className="mindanao-lock-badge" title="HJY Logistics serves the Mindanao archipelago only">
+            <i className="fas fa-lock"></i> Mindanao Region Only
+          </span>
+          {mindanaoError && (
+            <span style={{ color: '#dc2626', background: '#fee2e2', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700 }}>
+              <i className="fas fa-ban" style={{ marginRight: 4 }}></i>{mindanaoError}
+            </span>
           )}
         </div>
       </div>
@@ -522,68 +279,6 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
         {routeStatus === 'ready' && <span style={{ color: '#2e7d32' }}>Distance auto-filled from the road route.</span>}
         {routeStatus === 'failed' && <span style={{ color: '#888' }}>Couldn't find a road route between these points — enter distance manually.</span>}
       </div>
-
-      {/* Hazard Advisory Banner for planned route */}
-      {zonesOnRoute.length > 0 && (() => {
-        const risk = calculateRouteRiskSummary(zonesOnRoute);
-        const regionsOnRoute = Array.from(new Set(zonesOnRoute.map((z) => z.region).filter(Boolean)));
-        return (
-          <div className="route-hazard-alert-banner" style={{ marginTop: '8px', padding: '8px 12px' }}>
-            <i className="fas fa-triangle-exclamation"></i>
-            <div className="route-hazard-alert-content">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
-                <div className="route-hazard-alert-title" style={{ fontSize: '12.5px' }}>
-                  Planned Route Crosses {zonesOnRoute.length} Hazard Area{zonesOnRoute.length > 1 ? 's' : ''} ({regionsOnRoute.join(', ') || 'Mindanao Scope'})
-                </div>
-                <span className={`dz-pill ${risk.level === 'critical' ? 'dz-critical' : risk.level === 'high' ? 'dz-high' : 'dz-moderate'}`}>
-                  {risk.label}
-                </span>
-              </div>
-              <div className="route-hazard-chips">
-                {zonesOnRoute.map((z) => (
-                  <span key={z.id} className="route-hazard-chip" title={`${z.region ? `[${z.region}] ` : ''}${z.advisory || z.description}`}>
-                    {z.name} {z.region ? `(${z.region})` : ''}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Steep Road Warning Banner */}
-      {steepnessSummary && steepnessSummary.has_steep_segments && (
-        <div
-          style={{
-            marginTop: 8,
-            padding: '8px 12px',
-            borderRadius: 8,
-            background: steepnessSummary.very_steep_segments_count > 0 ? '#fef2f2' : '#fffbeb',
-            border: `1px solid ${steepnessSummary.very_steep_segments_count > 0 ? '#fecaca' : '#fde68a'}`,
-            color: steepnessSummary.very_steep_segments_count > 0 ? '#991b1b' : '#92400e',
-            fontSize: 12,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-          }}
-        >
-          <i
-            className={`fas ${steepnessSummary.very_steep_segments_count > 0 ? 'fa-triangle-exclamation' : 'fa-mountain'}`}
-            style={{ fontSize: 16 }}
-          ></i>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 700 }}>
-              {steepnessSummary.very_steep_segments_count > 0 ? '🚨 Critical Steep Terrain Along Route' : '⚠️ Steep Road Warning'} (Max {steepnessSummary.max_grade_pct}% Grade)
-            </div>
-            <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2 }}>
-              {steepnessSummary.very_steep_segments_count > 0 && `${steepnessSummary.very_steep_segments_count} very steep section(s) (≥12%). `}
-              {steepnessSummary.steep_segments_count > 0 && `${steepnessSummary.steep_segments_count} steep section(s) (8-12%). `}
-              {steepnessSummary.moderate_segments_count > 0 && `${steepnessSummary.moderate_segments_count} moderate slope section(s) (5-8%). `}
-              Total Elevation Gain: +{steepnessSummary.elevation_gain_m}m • Descent: -{steepnessSummary.elevation_loss_m}m.
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

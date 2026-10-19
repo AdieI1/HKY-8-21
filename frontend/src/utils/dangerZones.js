@@ -731,37 +731,38 @@ export function createDangerZonePopupHtml(zone, isOnRoute = false) {
   const cat = HAZARD_CATEGORIES[zone.category] || HAZARD_CATEGORIES.accident_prone;
   const severityTag =
     zone.severity === 'critical'
-      ? '<span class="dz-pill dz-critical">CRITICAL RISK</span>'
+      ? '<span class="dz-pill dz-critical" style="font-size: 9px; padding: 1px 5px;">CRITICAL</span>'
       : zone.severity === 'high'
-      ? '<span class="dz-pill dz-high">HIGH RISK</span>'
-      : '<span class="dz-pill dz-moderate">CAUTION</span>';
+      ? '<span class="dz-pill dz-high" style="font-size: 9px; padding: 1px 5px;">HIGH</span>'
+      : '<span class="dz-pill dz-moderate" style="font-size: 9px; padding: 1px 5px;">CAUTION</span>';
 
   const onRouteNotice = isOnRoute
-    ? `<div class="dz-on-route-alert"><i class="fas fa-exclamation-circle"></i> On Active Delivery Corridor</div>`
+    ? `<span style="font-size: 9.5px; background: #fee2e2; color: #b91c1c; font-weight: 700; padding: 1px 5px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="fas fa-exclamation-circle"></i> On Route</span>`
     : '';
 
-  const regionInfo = zone.region
-    ? `<div style="font-size: 10px; color: #64748b; margin-top: -3px; margin-bottom: 5px; font-weight: 600;"><i class="fas fa-map-marker-alt"></i> ${zone.region} ${zone.corridor ? `• ${zone.corridor}` : ''}</div>`
-    : '';
+  const cleanName = (zone.name || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || zone.name;
+  const tipText = zone.advisory || zone.description || '';
 
   return `
-    <div class="danger-zone-popup-card">
-      <div class="dz-header">
-        <span class="dz-badge ${cat.badgeClass}">
+    <div class="danger-zone-popup-card" style="padding: 8px 10px; max-width: 235px; box-sizing: border-box;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 5px;">
+        <span class="dz-badge ${cat.badgeClass}" style="font-size: 9.5px; padding: 2px 6px;">
           <i class="fas ${cat.icon}"></i> ${cat.badgeText}
         </span>
-        ${severityTag}
+        <div style="display: flex; gap: 4px; align-items: center;">
+          ${onRouteNotice}
+          ${severityTag}
+        </div>
       </div>
-      <div class="dz-title">${zone.name}</div>
-      ${regionInfo}
-      ${onRouteNotice}
-      <div class="dz-desc">${zone.description}</div>
-      <div class="dz-advisory">
-        <div class="dz-advisory-title"><i class="fas fa-shield-alt"></i> Driver Safety Advisory</div>
-        <div class="dz-advisory-text">${zone.advisory}</div>
+      <div style="font-weight: 700; font-size: 12px; color: #0f172a; margin-bottom: 5px; line-height: 1.25;">
+        ${cleanName}
       </div>
-      <div class="dz-meta">
-        <span><i class="fas fa-bullseye"></i> Zone Radius: ${zone.radius || 750}m</span>
+      <div style="font-size: 10.5px; color: #334155; background: #f8fafc; border-left: 3px solid #e11d48; padding: 5px 7px; border-radius: 0 4px 4px 0; margin-bottom: 5px; line-height: 1.35;">
+        <strong style="color: #be123c;">Advisory:</strong> ${tipText}
+      </div>
+      <div style="font-size: 9.5px; color: #94a3b8; display: flex; justify-content: space-between; align-items: center;">
+        <span>${zone.region || 'Mindanao'}</span>
+        <span>Radius: ${zone.radius || 750}m</span>
       </div>
     </div>
   `;

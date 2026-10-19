@@ -5,6 +5,7 @@ import reverb from '../utils/reverb';
 import AssignMap from '../components/dispatch/AssignMap';
 import { DispatchHeader, DispatchSidebar } from '../components/dispatch/DispatchChrome';
 import TableSkeleton from '../components/TableSkeleton';
+import DispatchDetailsModal from '../components/dispatch/DispatchDetailsModal';
 
 function requestCode(id) {
   return `REQ${String(id).padStart(4, '0')}`;
@@ -126,10 +127,17 @@ function DispatchPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 10;
 
+  // Dispatch History view states
+  const [viewTab, setViewTab] = useState('queue'); // 'queue' | 'history'
+  const [selectedHistoryDelivery, setSelectedHistoryDelivery] = useState(null);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all'); // 'all' | 'in_transit' | 'awaiting' | 'completed'
+  const [historyCurrentPage, setHistoryCurrentPage] = useState(1);
+
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   const [chosenDriverId, setChosenDriverId] = useState('');
   const [chosenVehicleId, setChosenVehicleId] = useState('');
-  const [routeDistanceKm, setRouteDistanceKm] = useState(null);
+  const [, setRouteDistanceKm] = useState(null);
 
   const [tripDate, setTripDate] = useState(todayIso());
   const [estimatedDurationDays, setEstimatedDurationDays] = useState('2');
@@ -343,6 +351,61 @@ function DispatchPage() {
     const start = (currentPage - 1) * PAGE_SIZE;
     return sortedDeliveries.slice(start, start + PAGE_SIZE);
   }, [sortedDeliveries, currentPage, PAGE_SIZE]);
+
+  const dispatchHistoryDeliveries = useMemo(() => {
+    let list = deliveries.filter((d) => {
+      const s = (d.status || '').toLowerCase();
+      // Do not include pending statuses - only the ones that are dispatched
+      if (s === 'pending' || !d.driver_id) {
+        return false;
+      }
+      return s === 'assigned' || DISPATCHED_IN_TRANSIT_STATUSES.includes(s) || s === 'completed';
+    });
+
+    if (historySearch.trim()) {
+      const q = historySearch.toLowerCase();
+      list = list.filter((d) => {
+        const code = requestCode(d.request?.request_id || d.delivery_id).toLowerCase();
+        const customer = (d.request?.customer?.full_name || '').toLowerCase();
+        const driverName = (d.driver?.user?.full_name || d.driver?.full_name || '').toLowerCase();
+        const plate = (d.vehicle?.plate_number || '').toLowerCase();
+        const dispatcherObj = (typeof d.assigned_by === 'object' && d.assigned_by !== null) ? d.assigned_by : (d.assignedBy || d.assigned_by_user);
+        const dispatcher = (dispatcherObj?.full_name || '').toLowerCase();
+        return (
+          code.includes(q) ||
+          customer.includes(q) ||
+          driverName.includes(q) ||
+          plate.includes(q) ||
+          dispatcher.includes(q)
+        );
+      });
+    }
+
+    if (historyStatusFilter === 'in_transit') {
+      list = list.filter((d) => {
+        const s = (d.status || '').toLowerCase();
+        return s !== 'completed' && s !== 'assigned' && s !== 'cancelled';
+      });
+    } else if (historyStatusFilter === 'awaiting') {
+      list = list.filter((d) => (d.status || '').toLowerCase() === 'assigned');
+    } else if (historyStatusFilter === 'completed') {
+      list = list.filter((d) => (d.status || '').toLowerCase() === 'completed');
+    }
+
+    list.sort((a, b) => {
+      const timeA = new Date(a.trip_date || a.start_time || a.updated_at || a.created_at).getTime() || 0;
+      const timeB = new Date(b.trip_date || b.start_time || b.updated_at || b.created_at).getTime() || 0;
+      return timeB - timeA;
+    });
+
+    return list;
+  }, [deliveries, historySearch, historyStatusFilter]);
+
+  const historyTotalPages = Math.max(1, Math.ceil(dispatchHistoryDeliveries.length / PAGE_SIZE));
+  const paginatedHistoryDeliveries = useMemo(() => {
+    const start = (historyCurrentPage - 1) * PAGE_SIZE;
+    return dispatchHistoryDeliveries.slice(start, start + PAGE_SIZE);
+  }, [dispatchHistoryDeliveries, historyCurrentPage, PAGE_SIZE]);
 
   const availableDrivers = useMemo(
     () => drivers.filter((d) => d.status === 'active' && d.availability_status === 'available'),
@@ -608,171 +671,410 @@ function DispatchPage() {
           {loadError && <div className="form-error" style={{ margin: '16px 0', color: '#d32f2f' }}>{loadError}</div>}
 
           {/* Dispatch KPI Cards - Figma Design */}
-          <div className="dispatch-stats">
-            <div
-              className={`dispatch-stat-card${activeFilter === 'pending' ? ' active active-pending' : ''}`}
-              onClick={() => setActiveFilter((prev) => (prev === 'pending' ? 'all' : 'pending'))}
-              title="Click to filter Pending requests"
-            >
-              <div className="dispatch-stat-number pending">{kpiCounts.pending}</div>
-              <span className="dispatch-stat-label">Pending</span>
-            </div>
+          {viewTab === 'queue' ? (
+            <div className="dispatch-stats">
+              <div
+                className={`dispatch-stat-card${activeFilter === 'pending' ? ' active active-pending' : ''}`}
+                onClick={() => setActiveFilter((prev) => (prev === 'pending' ? 'all' : 'pending'))}
+                title="Click to filter Pending requests"
+              >
+                <div className="dispatch-stat-number pending">{kpiCounts.pending}</div>
+                <span className="dispatch-stat-label">Pending</span>
+              </div>
 
-            <div
-              className={`dispatch-stat-card${activeFilter === 'overdue' ? ' active active-overdue' : ''}`}
-              onClick={() => setActiveFilter((prev) => (prev === 'overdue' ? 'all' : 'overdue'))}
-              title="Click to filter Overdue requests"
-            >
-              <div className="dispatch-stat-number overdue">{kpiCounts.overdue}</div>
-              <span className="dispatch-stat-label">Overdue</span>
-            </div>
+              <div
+                className={`dispatch-stat-card${activeFilter === 'overdue' ? ' active active-overdue' : ''}`}
+                onClick={() => setActiveFilter((prev) => (prev === 'overdue' ? 'all' : 'overdue'))}
+                title="Click to filter Overdue requests"
+              >
+                <div className="dispatch-stat-number overdue">{kpiCounts.overdue}</div>
+                <span className="dispatch-stat-label">Overdue</span>
+              </div>
 
-            <div
-              className={`dispatch-stat-card${activeFilter === 'awaiting' ? ' active active-awaiting' : ''}`}
-              onClick={() => setActiveFilter((prev) => (prev === 'awaiting' ? 'all' : 'awaiting'))}
-              title="Click to filter Awaiting Transit requests"
-            >
-              <div className="dispatch-stat-number awaiting">{kpiCounts.awaiting}</div>
-              <span className="dispatch-stat-label">Awaiting Transit</span>
-            </div>
+              <div
+                className={`dispatch-stat-card${activeFilter === 'awaiting' ? ' active active-awaiting' : ''}`}
+                onClick={() => setActiveFilter((prev) => (prev === 'awaiting' ? 'all' : 'awaiting'))}
+                title="Click to filter Awaiting Transit requests"
+              >
+                <div className="dispatch-stat-number awaiting">{kpiCounts.awaiting}</div>
+                <span className="dispatch-stat-label">Awaiting Transit</span>
+              </div>
 
-            <div
-              className={`dispatch-stat-card${activeFilter === 'dispatched' ? ' active active-dispatched' : ''}`}
-              onClick={() => setActiveFilter((prev) => (prev === 'dispatched' ? 'all' : 'dispatched'))}
-              title="Click to filter Dispatched requests"
-            >
-              <div className="dispatch-stat-number dispatched">{kpiCounts.dispatched}</div>
-              <span className="dispatch-stat-label">Dispatched</span>
+              <div
+                className={`dispatch-stat-card${activeFilter === 'dispatched' ? ' active active-dispatched' : ''}`}
+                onClick={() => setActiveFilter((prev) => (prev === 'dispatched' ? 'all' : 'dispatched'))}
+                title="Click to filter Dispatched requests"
+              >
+                <div className="dispatch-stat-number dispatched">{kpiCounts.dispatched}</div>
+                <span className="dispatch-stat-label">Dispatched</span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="dispatch-stats">
+              <div
+                className={`dispatch-stat-card${historyStatusFilter === 'all' ? ' active active-dispatched' : ''}`}
+                onClick={() => { setHistoryStatusFilter('all'); setHistoryCurrentPage(1); }}
+                title="View All Dispatched History"
+              >
+                <div className="dispatch-stat-number dispatched">{deliveries.filter((d) => d.driver_id && (d.status || '').toLowerCase() !== 'pending').length}</div>
+                <span className="dispatch-stat-label">Total Dispatched</span>
+              </div>
+
+              <div
+                className={`dispatch-stat-card${historyStatusFilter === 'in_transit' ? ' active active-pending' : ''}`}
+                onClick={() => { setHistoryStatusFilter('in_transit'); setHistoryCurrentPage(1); }}
+                title="Filter In-Transit Dispatches"
+              >
+                <div className="dispatch-stat-number pending">{kpiCounts.dispatched}</div>
+                <span className="dispatch-stat-label">Active In Transit</span>
+              </div>
+
+              <div
+                className={`dispatch-stat-card${historyStatusFilter === 'awaiting' ? ' active active-awaiting' : ''}`}
+                onClick={() => { setHistoryStatusFilter('awaiting'); setHistoryCurrentPage(1); }}
+                title="Filter Awaiting Departure"
+              >
+                <div className="dispatch-stat-number awaiting">{kpiCounts.awaiting}</div>
+                <span className="dispatch-stat-label">Awaiting Departure</span>
+              </div>
+
+              <div
+                className={`dispatch-stat-card${historyStatusFilter === 'completed' ? ' active' : ''}`}
+                onClick={() => { setHistoryStatusFilter('completed'); setHistoryCurrentPage(1); }}
+                title="Filter Completed Deliveries"
+                style={historyStatusFilter === 'completed' ? { borderColor: '#10B981', boxShadow: '0 0 0 3px rgba(16, 185, 129, 0.15)' } : {}}
+              >
+                <div className="dispatch-stat-number" style={{ color: '#10B981' }}>
+                  {deliveries.filter((d) => (d.status || '').toLowerCase() === 'completed').length}
+                </div>
+                <span className="dispatch-stat-label">Completed Deliveries</span>
+              </div>
+            </div>
+          )}
 
           <div className="content-section">
             <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
               <h3 className="section-title">
-                {activeFilter === 'overdue'
-                  ? 'Overdue Delivery Requests'
-                  : activeFilter === 'awaiting'
-                  ? 'Awaiting Transit (Assigned to Drivers)'
-                  : activeFilter === 'dispatched'
-                  ? 'Dispatched Deliveries (Active In-Transit)'
-                  : activeFilter === 'pending'
-                  ? 'Approved Delivery Requests (Pending Driver Assignment)'
-                  : 'Approved Delivery Requests'}
+                {viewTab === 'history' ? (
+                  <>
+                    <i className="fas fa-clock-rotate-left" style={{ color: '#059669', marginRight: 8 }}></i>
+                    Dispatch History &amp; Personnel Records
+                  </>
+                ) : (
+                  activeFilter === 'overdue'
+                    ? 'Overdue Delivery Requests'
+                    : activeFilter === 'awaiting'
+                    ? 'Awaiting Transit (Assigned to Drivers)'
+                    : activeFilter === 'dispatched'
+                    ? 'Dispatched Deliveries (Active In-Transit)'
+                    : activeFilter === 'pending'
+                    ? 'Approved Delivery Requests (Pending Driver Assignment)'
+                    : 'Approved Delivery Requests'
+                )}
               </h3>
-              <div className="sort-wrapper">
-                <span className="sort-label">Sort by</span>
-                <select className="sort-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                  <option value="date-desc">Newest First</option>
-                  <option value="date-asc">Oldest First</option>
-                  <option value="id-asc">Request ID (REQ0001 →)</option>
-                  <option value="id-desc">Request ID (REQ9999 →)</option>
-                  <option value="customer-asc">Customer (A – Z)</option>
-                  <option value="customer-desc">Customer (Z – A)</option>
-                  <option value="route-asc">Route (A – Z)</option>
-                </select>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                {viewTab === 'history' ? (
+                  <>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <i className="fas fa-search" style={{ position: 'absolute', left: 10, color: '#9CA3AF', fontSize: 12 }}></i>
+                      <input
+                        type="text"
+                        className="history-search-input"
+                        placeholder="Search driver, vehicle, dispatcher..."
+                        value={historySearch}
+                        onChange={(e) => { setHistorySearch(e.target.value); setHistoryCurrentPage(1); }}
+                      />
+                    </div>
+                    <select
+                      className="sort-select"
+                      value={historyStatusFilter}
+                      onChange={(e) => { setHistoryStatusFilter(e.target.value); setHistoryCurrentPage(1); }}
+                    >
+                      <option value="all">All Dispatches</option>
+                      <option value="in_transit">In Transit</option>
+                      <option value="awaiting">Awaiting Departure</option>
+                      <option value="completed">Completed Trips</option>
+                    </select>
+                  </>
+                ) : (
+                  <div className="sort-wrapper">
+                    <span className="sort-label">Sort by</span>
+                    <select className="sort-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                      <option value="date-desc">Newest First</option>
+                      <option value="date-asc">Oldest First</option>
+                      <option value="id-asc">Request ID (REQ0001 →)</option>
+                      <option value="id-desc">Request ID (REQ9999 →)</option>
+                      <option value="customer-asc">Customer (A – Z)</option>
+                      <option value="customer-desc">Customer (Z – A)</option>
+                      <option value="route-asc">Route (A – Z)</option>
+                    </select>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className={`dispatch-tab-toggle ${viewTab === 'history' ? 'viewing-history' : ''}`}
+                  onClick={() => {
+                    setViewTab((prev) => (prev === 'history' ? 'queue' : 'history'));
+                    setCurrentPage(1);
+                    setHistoryCurrentPage(1);
+                  }}
+                  title={viewTab === 'history' ? 'Switch to Active Dispatch Queue' : 'Switch to Dispatch History'}
+                >
+                  <i className={`fas ${viewTab === 'history' ? 'fa-truck-loading' : 'fa-clock-rotate-left'}`}></i>
+                  <span>{viewTab === 'history' ? 'Active Queue' : 'Dispatch History'}</span>
+                  <span style={{
+                    background: 'rgba(255,255,255,0.25)',
+                    padding: '2px 7px',
+                    borderRadius: 10,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    marginLeft: 2,
+                  }}>
+                    {viewTab === 'history' ? (kpiCounts.pending + kpiCounts.awaiting) : dispatchHistoryDeliveries.length}
+                  </span>
+                </button>
               </div>
             </div>
+
             <div className="section-content">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Request ID</th>
-                    <th>Customer</th>
-                    <th>Route</th>
-                    <th>Status</th>
-                    <th>Date Approved</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <TableSkeleton rows={5} columns={6} />
-                  ) : paginatedDeliveries.length === 0 ? (
-                    <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>No delivery requests found.</td></tr>
-                  ) : (
-                    paginatedDeliveries.map((d) => {
-                      const st = getDeliveryStatus(d);
-                      return (
-                        <tr key={d.delivery_id}>
-                          <td className="request-id">{requestCode(d.request?.request_id || d.delivery_id)}</td>
-                          <td style={{ fontWeight: 600 }}>{d.request?.customer?.full_name || '—'}</td>
-                          <td className="route">
-                            {(d.request?.pickup_address || '—').split(',')[0]} ~ {(d.request?.dropoff_address || '—').split(',')[0]}
-                          </td>
-                          <td>
-                            <span className={`dispatch-status-val ${st.key}`}>
-                              {st.label}
-                            </span>
-                            {st.isOverdue && (
-                              <span
-                                style={{
-                                  marginLeft: '8px',
-                                  padding: '2px 7px',
-                                  borderRadius: '4px',
-                                  backgroundColor: '#FEE2E2',
-                                  color: '#DC2626',
-                                  fontSize: '11px',
-                                  fontWeight: '700',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '3px',
-                                  verticalAlign: 'middle',
-                                }}
-                                title="Exceeded SLA dispatch timeline"
-                              >
-                                <i className="fas fa-exclamation-triangle" style={{ fontSize: '10px' }}></i> Overdue
+              {viewTab === 'history' ? (
+                /* Dispatch History Table */
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Dispatch / Req ID</th>
+                      <th>Customer &amp; Route</th>
+                      <th>Assigned Driver</th>
+                      <th>Vehicle / Truck</th>
+                      <th>Dispatched By</th>
+                      <th>Trip Date</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <TableSkeleton rows={5} columns={8} />
+                    ) : paginatedHistoryDeliveries.length === 0 ? (
+                      <tr>
+                        <td colSpan="8" style={{ textAlign: 'center', padding: 32, color: '#6B7280' }}>
+                          <i className="fas fa-folder-open" style={{ fontSize: 26, marginBottom: 8, display: 'block', color: '#9CA3AF' }}></i>
+                          No dispatch history records found.
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedHistoryDeliveries.map((d) => {
+                        const dispatcher = (typeof d.assigned_by === 'object' && d.assigned_by !== null)
+                          ? d.assigned_by
+                          : (d.assignedBy || d.assigned_by_user);
+                        const dispatcherName = dispatcher?.full_name || dispatcher?.name || 'Admin';
+                        const dispatcherRole = dispatcher?.role?.role_name || (dispatcher?.role_id === 2 ? 'Admin' : 'Staff');
+                        const driverUser = d.driver?.user;
+                        const driverName = driverUser?.full_name || d.driver?.full_name || '—';
+                        const vehiclePlate = d.vehicle?.plate_number || '—';
+                        const vehicleModel = d.vehicle?.model ? `(${d.vehicle.model})` : '';
+                        const st = getDeliveryStatus(d);
+
+                        return (
+                          <tr key={`hist_${d.delivery_id}`}>
+                            <td className="request-id">
+                              <span style={{ fontWeight: 700, color: '#2563EB' }}>
+                                {requestCode(d.request?.request_id || d.delivery_id)}
                               </span>
-                            )}
-                          </td>
-                          <td>{new Date(d.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}</td>
-                          <td>
-                            <button
-                              className="btn-assign"
-                              style={
-                                d.status === 'assigned'
-                                  ? { background: '#2563EB' }
-                                  : (DISPATCHED_IN_TRANSIT_STATUSES.includes((d.status || '').toLowerCase())
-                                      ? { background: '#475569' }
-                                      : {})
-                              }
-                              onClick={() => openAssignPanel(d)}
-                            >
-                              {!d.driver_id || d.status === 'pending' ? 'Assign' : (d.status === 'assigned' ? 'Reassign' : 'View Ticket')}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600, color: '#111827' }}>
+                                {d.request?.customer?.full_name || '—'}
+                              </div>
+                              <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
+                                {(d.request?.pickup_address || '—').split(',')[0]} &rarr; {(d.request?.dropoff_address || '—').split(',')[0]}
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#EFF6FF', color: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>
+                                  <i className="fas fa-user"></i>
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight: 600, fontSize: 13, color: '#111827' }}>{driverName}</div>
+                                  {d.driver?.phone && <div style={{ fontSize: 11, color: '#6B7280' }}>{d.driver.phone}</div>}
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: '#111827' }}>
+                                <i className="fas fa-truck" style={{ marginRight: 6, color: '#4B5563', fontSize: 11 }}></i>
+                                {vehiclePlate}
+                              </div>
+                              {vehicleModel && <div style={{ fontSize: 11, color: '#6B7280' }}>{vehicleModel}</div>}
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 600, color: '#1F2937', fontSize: 13 }}>{dispatcherName}</span>
+                                <span className={`role-tag-badge ${dispatcherRole.toLowerCase() === 'admin' ? 'role-tag-admin' : 'role-tag-staff'}`}>
+                                  {dispatcherRole}
+                                </span>
+                              </div>
+                            </td>
+                            <td style={{ fontSize: 12, color: '#4B5563', whiteSpace: 'nowrap' }}>
+                              {d.trip_date || (d.start_time ? new Date(d.start_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : new Date(d.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }))}
+                            </td>
+                            <td>
+                              <span className={`dispatch-status-val ${st.key}`}>
+                                {st.label}
+                              </span>
+                            </td>
+                            <td>
+                              <button
+                                className="btn-dossier-view"
+                                onClick={() => setSelectedHistoryDelivery(d)}
+                                title="View complete dispatch record & personnel dossier"
+                              >
+                                <i className="fas fa-file-invoice"></i> Details
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                /* Active Queue Table */
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Request ID</th>
+                      <th>Customer</th>
+                      <th>Route</th>
+                      <th>Status</th>
+                      <th>Date Approved</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <TableSkeleton rows={5} columns={6} />
+                    ) : paginatedDeliveries.length === 0 ? (
+                      <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24, color: '#6B7280' }}>No delivery requests found.</td></tr>
+                    ) : (
+                      paginatedDeliveries.map((d) => {
+                        const st = getDeliveryStatus(d);
+                        return (
+                          <tr key={d.delivery_id}>
+                            <td className="request-id">{requestCode(d.request?.request_id || d.delivery_id)}</td>
+                            <td style={{ fontWeight: 600 }}>{d.request?.customer?.full_name || '—'}</td>
+                            <td className="route">
+                              {(d.request?.pickup_address || '—').split(',')[0]} ~ {(d.request?.dropoff_address || '—').split(',')[0]}
+                            </td>
+                            <td>
+                              <span className={`dispatch-status-val ${st.key}`}>
+                                {st.label}
+                              </span>
+                              {st.isOverdue && (
+                                <span
+                                  style={{
+                                    marginLeft: '8px',
+                                    padding: '2px 7px',
+                                    borderRadius: '4px',
+                                    backgroundColor: '#FEE2E2',
+                                    color: '#DC2626',
+                                    fontSize: '11px',
+                                    fontWeight: '700',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    verticalAlign: 'middle',
+                                  }}
+                                  title="Exceeded SLA dispatch timeline"
+                                >
+                                  <i className="fas fa-exclamation-triangle" style={{ fontSize: '10px' }}></i> Overdue
+                                </span>
+                              )}
+                            </td>
+                            <td>{new Date(d.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}</td>
+                            <td>
+                              <button
+                                className="btn-assign"
+                                style={
+                                  d.status === 'assigned'
+                                    ? { background: '#2563EB' }
+                                    : (DISPATCHED_IN_TRANSIT_STATUSES.includes((d.status || '').toLowerCase())
+                                        ? { background: '#475569' }
+                                        : {})
+                                }
+                                onClick={() => openAssignPanel(d)}
+                              >
+                                {!d.driver_id || d.status === 'pending' ? 'Assign' : (d.status === 'assigned' ? 'Reassign' : 'View Ticket')}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
+
             <div className="dispatch-footer">
               <div className="dispatch-info">
                 <i className="fas fa-info-circle"></i>
-                <span>Click assign button to assign driver and delivery.</span>
+                <span>
+                  {viewTab === 'history'
+                    ? 'Click details to view the complete dispatch authorization and personnel dossier.'
+                    : 'Click assign button to assign driver and delivery.'}
+                </span>
               </div>
               <div className="dispatch-pagination">
                 <span className="page-label">Page</span>
-                <button
-                  type="button"
-                  className="btn-page"
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  title="Previous Page"
-                >
-                  <i className="fas fa-chevron-left"></i>
-                </button>
-                <span className="page-number active">{currentPage}</span>
-                <button
-                  type="button"
-                  className="btn-page"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  title="Next Page"
-                >
-                  <i className="fas fa-chevron-right"></i>
-                </button>
+                {viewTab === 'history' ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn-page"
+                      disabled={historyCurrentPage <= 1}
+                      onClick={() => setHistoryCurrentPage((p) => Math.max(1, p - 1))}
+                      title="Previous Page"
+                    >
+                      <i className="fas fa-chevron-left"></i>
+                    </button>
+                    <span className="page-number active">{historyCurrentPage}</span>
+                    <button
+                      type="button"
+                      className="btn-page"
+                      disabled={historyCurrentPage >= historyTotalPages}
+                      onClick={() => setHistoryCurrentPage((p) => Math.min(historyTotalPages, p + 1))}
+                      title="Next Page"
+                    >
+                      <i className="fas fa-chevron-right"></i>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="btn-page"
+                      disabled={currentPage <= 1}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      title="Previous Page"
+                    >
+                      <i className="fas fa-chevron-left"></i>
+                    </button>
+                    <span className="page-number active">{currentPage}</span>
+                    <button
+                      type="button"
+                      className="btn-page"
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      title="Next Page"
+                    >
+                      <i className="fas fa-chevron-right"></i>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -1229,9 +1531,6 @@ function DispatchPage() {
                   onDistanceResolved={setRouteDistanceKm}
                 />
               </div>
-              <div className="tt-distance">
-                Distance: {routeDistanceKm != null ? `${Number(routeDistanceKm).toFixed(1)} Kilometers` : `${selectedDelivery.request?.distance_km ?? '—'} Kilometers`}
-              </div>
 
               {/* Area / Route Delivery Permit */}
               <div className="tt-section-header">
@@ -1538,6 +1837,11 @@ function DispatchPage() {
           </div>
         </div>
       )}
+      {/* Dispatch Dossier / History Modal */}
+      <DispatchDetailsModal
+        delivery={selectedHistoryDelivery}
+        onClose={() => setSelectedHistoryDelivery(null)}
+      />
     </>
   );
 }

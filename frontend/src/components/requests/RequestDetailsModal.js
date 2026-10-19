@@ -27,6 +27,56 @@ export default function RequestDetailsModal({
           <button className="btn-close" onClick={closeDetails}>&times;</button>
         </div>
         <div className="request-modal-body" style={{ padding: 20 }}>
+          {selectedRequest.status === 'approved' && (
+            <div style={{
+              margin: '0 0 16px 0',
+              padding: '12px 16px',
+              background: '#F0FDF4',
+              border: '1px solid #BBF7D0',
+              borderRadius: 8,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+            }}>
+              <div style={{
+                width: 38,
+                height: 38,
+                borderRadius: '50%',
+                background: '#DCFCE7',
+                color: '#16A34A',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 18,
+                flexShrink: 0,
+              }}>
+                <i className="fas fa-check-circle"></i>
+              </div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#166534', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>Approved by {selectedRequest.approver?.full_name || 'Admin'}</span>
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    background: '#DCFCE7',
+                    color: '#15803D',
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    border: '1px solid #86EFAC',
+                  }}>
+                    {selectedRequest.approver?.role?.role_name || 'Staff'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: '#15803D', marginTop: 2 }}>
+                  <i className="far fa-clock" style={{ marginRight: 4 }}></i>
+                  {selectedRequest.approved_at
+                    ? `Approved on ${new Date(selectedRequest.approved_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })} at ${new Date(selectedRequest.approved_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}`
+                    : `Approved on ${formatDate(selectedRequest.updated_at || selectedRequest.created_at)}`}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="request-info-grid">
             <div className="request-left">
               <div className="request-info-item">
@@ -173,6 +223,10 @@ export default function RequestDetailsModal({
               <button className="btn-approve" onClick={approveRequest} disabled={approving}>
                 {approving ? 'Approving...' : 'Approve'}
               </button>
+            ) : selectedRequest.status === 'approved' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#16A34A', fontWeight: 600, fontSize: 13 }}>
+                <i className="fas fa-check"></i> Request is approved
+              </div>
             ) : (
               <span style={{ color: '#888', textTransform: 'capitalize' }}>Status: {selectedRequest.status}</span>
             )}

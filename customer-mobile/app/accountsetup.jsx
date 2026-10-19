@@ -197,7 +197,13 @@ export default function AccountSetup() {
           <View style={styles.topHeaderPill}>
             <TouchableOpacity
               style={styles.pillBackBtn}
-              onPress={() => router.back()}
+              onPress={() => {
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace('/login-page');
+                }
+              }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               <Ionicons name="arrow-back" size={20} color="#FFFFFF" />

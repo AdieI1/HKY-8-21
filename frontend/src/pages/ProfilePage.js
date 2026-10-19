@@ -252,7 +252,7 @@ function ProfilePage() {
                 <div className="pf-act-row-card"><p className="pf-act-row-label">Last Action</p><p className="pf-act-row-action">Logged in to {isAdmin ? 'Admin Portal' : 'Staff Dashboard'}</p><p className="pf-act-row-time"><i className="far fa-clock"></i>&nbsp; Active Session</p></div>
                 <div className="pf-act-two-col">
                   <div className="pf-act-stat-card pf-act-stat-blue"><div><p className="pf-act-stat-label">Active Users</p><p className="pf-act-stat-count">{totalAdmins}</p><p className="pf-act-stat-sub">Role: {isAdmin ? 'Admin' : 'Staff'}</p></div><div className="pf-act-stat-icon pf-act-icon-blue"><i className="fas fa-user-shield"></i></div></div>
-                  <div className="pf-act-stat-card pf-act-stat-red"><div><p className="pf-act-stat-label">Status</p><p className="pf-act-stat-count" style={{ fontSize: 18 }}>Active</p><p className="pf-act-stat-sub">Online</p></div><div className="pf-act-stat-icon pf-act-icon-red"><i className="fas fa-check-circle"></i></div></div>
+                  <div className="pf-act-stat-card pf-act-stat-green"><div><p className="pf-act-stat-label">Status</p><p className="pf-act-stat-count" style={{ fontSize: 18 }}>Active</p><p className="pf-act-stat-sub">Online</p></div><div className="pf-act-stat-icon pf-act-icon-green"><i className="fas fa-check-circle"></i></div></div>
                 </div>
               </div>
             </section>

@@ -462,6 +462,13 @@ export default function ViewLocationMap({
         .addTo(map);
 
       routingControlRef.current = control;
+      try {
+        const container = control.getContainer();
+        if (container) {
+          container.style.display = 'none';
+          container.style.visibility = 'hidden';
+        }
+      } catch (_) {}
     } catch (err) {
       console.warn('Leaflet routing initialization notice:', err);
     }

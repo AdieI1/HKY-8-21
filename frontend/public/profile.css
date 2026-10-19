@@ -645,6 +645,11 @@
     border: 1px solid #fecdd3;
 }
 
+.pf-act-stat-green {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+}
+
 .pf-act-stat-label {
     font-size: 10px;
     color: #6b7280;
@@ -679,8 +684,9 @@
     flex-shrink: 0;
 }
 
-.pf-act-icon-blue { background: #dbeafe; color: #2563eb; }
-.pf-act-icon-red  { background: #fee2e2; color: #b91c1c; }
+.pf-act-icon-blue  { background: #dbeafe; color: #2563eb; }
+.pf-act-icon-red   { background: #fee2e2; color: #b91c1c; }
+.pf-act-icon-green { background: #dcfce7; color: #16a34a; }
 
 /* ══════════════════════════════════════════════════════════
    PROFILE DROPDOWN

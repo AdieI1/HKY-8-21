@@ -6,6 +6,7 @@ export default function CollectionReceiptModal({
   delivery,
   onClose,
   onSuccess,
+  readOnly = false,
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [receiptNo, setReceiptNo] = useState('');
@@ -27,7 +28,7 @@ export default function CollectionReceiptModal({
     setFilePreview(null);
 
     const hasReceipt = Boolean(delivery.collection_receipt_no || delivery.collection_receipt_path);
-    setIsEditing(!hasReceipt);
+    setIsEditing(!readOnly && !hasReceipt);
 
     if (hasReceipt) {
       setReceiptNo(delivery.collection_receipt_no || '');
@@ -45,7 +46,7 @@ export default function CollectionReceiptModal({
       setPaymentMode('Cash');
       setNotes('');
     }
-  }, [isOpen, delivery]);
+  }, [isOpen, delivery, readOnly]);
 
   if (!isOpen || !delivery) return null;
 
@@ -114,7 +115,12 @@ export default function CollectionReceiptModal({
     }
   };
 
-  const receiptUrl = delivery.collection_receipt_url || (delivery.collection_receipt_path ? `/storage/${delivery.collection_receipt_path}` : null);
+  const receiptUrl =
+    delivery.collection_receipt_url ||
+    (delivery.collection_receipt_path ? `/storage/${delivery.collection_receipt_path}` : null) ||
+    delivery.proof_of_delivery_url ||
+    (delivery.proof_of_delivery_path ? `/storage/${delivery.proof_of_delivery_path}` : null) ||
+    (delivery.receipt_photo ? `/storage/${delivery.receipt_photo}` : null);
 
   return (
     <div
@@ -166,7 +172,7 @@ export default function CollectionReceiptModal({
                 width: '36px',
                 height: '36px',
                 borderRadius: '8px',
-                background: '#2563EB',
+                background: '#C53030',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -182,6 +188,11 @@ export default function CollectionReceiptModal({
               </h3>
               <p style={{ margin: 0, fontSize: '12px', color: '#64748B' }}>
                 Delivery #{String(delivery.delivery_id).padStart(4, '0')} • {delivery.request?.customer?.full_name || 'Customer'}
+                {readOnly && (
+                  <span style={{ marginLeft: 6, fontWeight: 600, color: '#15803D' }}>
+                    (Customer Copy &bull; Sent via Email &amp; App)
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -311,16 +322,16 @@ export default function CollectionReceiptModal({
                 )}
               </div>
 
-              {/* Receipt Attachment preview */}
+              {/* Proof of Delivery / Attachment preview */}
               {receiptUrl ? (
                 <div style={{ marginBottom: '18px' }}>
                   <label style={{ fontSize: '12px', fontWeight: '700', color: '#334155', display: 'block', marginBottom: '6px' }}>
-                    Receipt Photo / Document:
+                    Proof of Delivery Photo:
                   </label>
                   <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid #E2E8F0', maxHeight: '220px', textAlign: 'center', background: '#0F172A' }}>
                     <img
                       src={receiptUrl}
-                      alt="Collection Receipt"
+                      alt="Proof of Delivery"
                       style={{ maxWidth: '100%', maxHeight: '220px', objectFit: 'contain' }}
                     />
                   </div>
@@ -331,41 +342,43 @@ export default function CollectionReceiptModal({
                       rel="noopener noreferrer"
                       style={{ fontSize: '12px', color: '#2563EB', textDecoration: 'none', fontWeight: '600' }}
                     >
-                      <i className="fas fa-external-link-alt"></i> Open Full Document
+                      <i className="fas fa-external-link-alt"></i> Open Full Photo
                     </a>
                   </div>
                 </div>
               ) : null}
 
               <div style={{ display: 'flex', gap: '10px', marginTop: '14px' }}>
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(true)}
-                  style={{
-                    flex: 1,
-                    padding: '10px 16px',
-                    background: '#F1F5F9',
-                    color: '#334155',
-                    border: '1px solid #CBD5E1',
-                    borderRadius: '8px',
-                    fontWeight: '700',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  <i className="fas fa-edit"></i> Edit / Re-issue Receipt
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(true)}
+                    style={{
+                      flex: 1,
+                      padding: '10px 16px',
+                      background: '#F1F5F9',
+                      color: '#334155',
+                      border: '1px solid #CBD5E1',
+                      borderRadius: '8px',
+                      fontWeight: '700',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                    }}
+                  >
+                    <i className="fas fa-edit"></i> Edit / Re-issue Receipt
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onClose}
                   style={{
                     flex: 1,
                     padding: '10px 16px',
-                    background: '#2563EB',
+                    background: '#C53030',
                     color: '#ffffff',
                     border: 'none',
                     borderRadius: '8px',
@@ -374,9 +387,33 @@ export default function CollectionReceiptModal({
                     cursor: 'pointer',
                   }}
                 >
-                  Close
+                  Close Receipt
                 </button>
               </div>
+            </div>
+          ) : readOnly ? (
+            <div style={{ textAlign: 'center', padding: '36px 20px', color: '#64748B' }}>
+              <i className="fas fa-receipt" style={{ fontSize: 36, color: '#94A3B8', marginBottom: 12, display: 'block' }}></i>
+              <h4 style={{ margin: '0 0 6px', color: '#334155', fontSize: 15, fontWeight: 700 }}>No Collection Receipt Issued</h4>
+              <p style={{ margin: '0 0 16px', fontSize: 13, color: '#6B7280' }}>
+                An official collection receipt has not been recorded yet for this delivery.
+              </p>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  padding: '9px 24px',
+                  background: '#C53030',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: '700',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                }}
+              >
+                Close
+              </button>
             </div>
           ) : (
             <form onSubmit={handleSubmit}>

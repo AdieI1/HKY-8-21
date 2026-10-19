@@ -37,6 +37,8 @@ class DeliveryRequest extends Model
         'seal_number',
         'cancellation_reason',
         'status',
+        'approved_by',
+        'approved_at',
         'is_scheduled',
         'scheduled_date',
         'scheduled_time_slot',
@@ -49,6 +51,7 @@ class DeliveryRequest extends Model
         'is_scheduled' => 'boolean',
         'scheduled_date' => 'date:Y-m-d',
         'reschedule_proposed_date' => 'date:Y-m-d',
+        'approved_at' => 'datetime',
     ];
 
     protected $appends = [
@@ -79,6 +82,11 @@ class DeliveryRequest extends Model
     public function customer()
     {
         return $this->belongsTo(User::class, 'customer_id');
+    }
+
+    public function approver()
+    {
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     public function delivery()

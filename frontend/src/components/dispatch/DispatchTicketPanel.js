@@ -287,9 +287,6 @@ export default function DispatchTicketPanel({
                   onDistanceResolved={setRouteDistanceKm}
                 />
               </div>
-              <div className="tt-distance">
-                Distance: {formatDistance(routeDistanceKm, selectedDelivery.request?.distance_km)}
-              </div>
 
               <div className="tt-section-header">
                 <i className="fas fa-clipboard-list tt-section-icon"></i>

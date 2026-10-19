@@ -41,7 +41,7 @@ class DeliveryController extends Controller
             'request.customer',
             'driver.user',
             'vehicle',
-            'assignedBy',
+            'assignedBy.role',
             'permit',
             'tracking' => function ($q) {
                 $q->orderBy('tracking_id', 'asc');

@@ -163,10 +163,19 @@ export default function Home() {
           type: typeStr,
           date: dateStr,
           time: timeStr,
+          timestamp: isNaN(dateObj.getTime()) ? 0 : dateObj.getTime(),
           image: imageSource,
           delivery: d,
           inspectionType: isPost ? "Post-Trip" : "Pre-Trip",
         };
+      });
+
+      // Sort tasks latest first (newest date/time, then highest delivery_id)
+      formattedTasks.sort((a, b) => {
+        if (b.timestamp !== a.timestamp) {
+          return b.timestamp - a.timestamp;
+        }
+        return (Number(b.id) || 0) - (Number(a.id) || 0);
       });
 
       setTasks(formattedTasks);

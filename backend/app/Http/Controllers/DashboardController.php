@@ -84,7 +84,7 @@ class DashboardController extends Controller
             'request.customer',
             'driver.user',
             'vehicle',
-            'assignedBy',
+            'assignedBy.role',
         ])
         ->orderByDesc('delivery_id')
         ->get();

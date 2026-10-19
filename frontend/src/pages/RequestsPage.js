@@ -63,6 +63,7 @@ function RequestsPage() {
   const [loadError, setLoadError] = useState('');
   const [currentDate, setCurrentDate] = useState('');
   const [view, setView] = useState('active');
+  const [viewTab, setViewTab] = useState('active'); // 'active' | 'approved'
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -75,7 +76,7 @@ function RequestsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [view, statusFilter, searchTerm]);
+  }, [view, viewTab, statusFilter, searchTerm]);
 
   useEffect(() => {
     const update = () => setCurrentDate(new Date().toLocaleDateString('en-PH', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' }));
@@ -84,8 +85,10 @@ function RequestsPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (isInitial = false) => {
+    if (isInitial) {
+      setLoading(true);
+    }
     setLoadError('');
     try {
       const res = await api.get('/delivery-requests');
@@ -93,14 +96,16 @@ function RequestsPage() {
     } catch {
       setLoadError('Could not load requests. Is the backend running and are you logged in?');
     } finally {
-      setLoading(false);
+      if (isInitial) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    loadData();
-    const unsub = reverb.subscribe('system-notifications', 'notification.created', () => loadData());
-    const interval = setInterval(loadData, 60000);
+    loadData(true);
+    const unsub = reverb.subscribe('system-notifications', 'notification.created', () => loadData(false));
+    const interval = setInterval(() => loadData(false), 60000);
     return () => {
       clearInterval(interval);
       unsub();
@@ -146,15 +151,21 @@ function RequestsPage() {
 
   // Filter & Search Logic
   const filteredRequests = useMemo(() => {
-    let list = view === 'drafts' ? draftRequests : activeRequests;
-
-    if (view !== 'drafts' && statusFilter !== 'all') {
+    let list;
+    if (view === 'drafts') {
+      list = draftRequests;
+    } else if (viewTab === 'approved') {
+      list = requests.filter((r) => r.status === 'approved');
+      if (statusFilter === 'scheduled') {
+        list = list.filter((r) => r.is_scheduled || r.scheduled_date);
+      }
+    } else {
+      // viewTab === 'active' (incoming / pending / action needed requests)
+      list = activeRequests.filter((r) => r.status !== 'approved');
       if (statusFilter === 'overdue') {
         list = list.filter(isOverdue);
       } else if (statusFilter === 'pending') {
         list = list.filter((r) => r.status === 'pending' && !isOverdue(r));
-      } else if (statusFilter === 'approved') {
-        list = list.filter((r) => r.status === 'approved');
       } else if (statusFilter === 'scheduled') {
         list = list.filter((r) => r.is_scheduled || r.scheduled_date);
       }
@@ -168,7 +179,8 @@ function RequestsPage() {
         const item = (r.item_name || '').toLowerCase();
         const pickup = (r.pickup_address || '').toLowerCase();
         const dropoff = (r.dropoff_address || '').toLowerCase();
-        return code.includes(q) || cust.includes(q) || item.includes(q) || pickup.includes(q) || dropoff.includes(q);
+        const approver = (r.approver?.full_name || '').toLowerCase();
+        return code.includes(q) || cust.includes(q) || item.includes(q) || pickup.includes(q) || dropoff.includes(q) || approver.includes(q);
       });
     }
 
@@ -179,7 +191,7 @@ function RequestsPage() {
       if (idA !== idB) return idB - idA;
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
-  }, [view, draftRequests, activeRequests, statusFilter, searchTerm]);
+  }, [view, viewTab, draftRequests, activeRequests, requests, statusFilter, searchTerm]);
 
   // Pagination Logic
   const totalPages = Math.ceil(filteredRequests.length / ITEMS_PER_PAGE) || 1;
@@ -198,7 +210,7 @@ function RequestsPage() {
       await api.post(`/delivery-requests/${selectedRequest.request_id}/approve`);
       setSelectedRequest(null);
       setShowApprovedModal(true);
-      await loadData();
+      await loadData(false);
     } catch (err) {
       console.error('Approve failed:', err.response?.data || err);
     } finally {
@@ -209,7 +221,7 @@ function RequestsPage() {
   const undraftRequest = async (request) => {
     try {
       await api.put(`/delivery-requests/${request.request_id}`, { status: 'pending' });
-      await loadData();
+      await loadData(false);
     } catch (err) {
       console.error('Undraft failed:', err.response?.data || err);
     }
@@ -241,29 +253,52 @@ function RequestsPage() {
             <div className="left-column">
               <div className="request-stats">
                 {[
-                  { key: 'pending', label: 'Pending', icon: 'fas fa-exclamation-triangle', count: stats.pending, cls: 'stat-pending' },
-                  { key: 'overdue', label: 'Overdue', icon: 'fas fa-exclamation-triangle', count: stats.overdue, cls: 'stat-overdue' },
-                  { key: 'approved', label: 'Approved', icon: 'fas fa-check-circle', count: stats.approved, cls: 'stat-approved' },
-                  { key: 'scheduled', label: 'Scheduled', icon: 'far fa-calendar-alt', count: stats.scheduled, cls: 'stat-scheduled' },
-                ].map((c) => (
-                  <div
-                    key={c.key}
-                    className={`stat-card ${c.cls} ${statusFilter === c.key ? 'active-filter' : ''}`}
-                    onClick={() => { setStatusFilter(statusFilter === c.key ? 'all' : c.key); setCurrentPage(1); }}
-                    title={`Click to filter by ${c.label}`}
-                  >
-                    <div className="stat-header">
-                      <i className={c.icon}></i>
-                      <span className="stat-label">{c.label}</span>
+                  { key: 'pending', label: 'Pending', icon: 'fas fa-exclamation-triangle', count: stats.pending, cls: 'stat-pending', filter: 'pending' },
+                  { key: 'overdue', label: 'Overdue', icon: 'fas fa-exclamation-triangle', count: stats.overdue, cls: 'stat-overdue', filter: 'overdue' },
+                  { key: 'approved', label: 'Approved', icon: 'fas fa-check-circle', count: stats.approved, cls: 'stat-approved', filter: 'all' },
+                  { key: 'scheduled', label: 'Scheduled', icon: 'far fa-calendar-alt', count: stats.scheduled, cls: 'stat-scheduled', filter: 'scheduled' },
+                ].map((c) => {
+                  const isActive = view !== 'drafts' && (
+                    c.key === 'approved'
+                      ? viewTab === 'approved'
+                      : viewTab === 'active' && statusFilter === c.key
+                  );
+                  return (
+                    <div
+                      key={c.key}
+                      className={`stat-card ${c.cls} ${isActive ? 'active-filter' : ''}`}
+                      onClick={() => {
+                        setView('active');
+                        if (c.key === 'approved') {
+                          setViewTab('approved');
+                          setStatusFilter('all');
+                        } else {
+                          setViewTab('active');
+                          setStatusFilter(statusFilter === c.filter ? 'all' : c.filter);
+                        }
+                        setCurrentPage(1);
+                      }}
+                      title={`Click to view ${c.label}`}
+                    >
+                      <div className="stat-header">
+                        <i className={c.icon}></i>
+                        <span className="stat-label">{c.label}</span>
+                      </div>
+                      <span className="stat-number">{c.count}</span>
                     </div>
-                    <span className="stat-number">{c.count}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="content-section delivery-requests">
                 <div className="section-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
-                  <h3 className="section-title">{view === 'drafts' ? 'Draft Requests' : 'Delivery Requests'}</h3>
+                  <h3 className="section-title">
+                    {view === 'drafts'
+                      ? 'Draft Requests'
+                      : viewTab === 'approved'
+                        ? 'Approved Requests'
+                        : 'Delivery Requests'}
+                  </h3>
                   <div className="section-controls" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     {/* Search bar */}
                     <div className="search-bar" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f3f4f6', padding: '6px 12px', borderRadius: '20px', border: '1px solid #e5e7eb', maxWidth: '200px' }}>
@@ -287,12 +322,36 @@ function RequestsPage() {
                         onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
                         style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #d1d5db', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '500', cursor: 'pointer', outline: 'none' }}
                       >
-                        <option value="all">Filter: All</option>
-                        <option value="pending">Filter: Pending</option>
-                        <option value="overdue">Filter: Overdue</option>
-                        <option value="approved">Filter: Approved</option>
-                        <option value="scheduled">Filter: Scheduled</option>
+                        {viewTab === 'approved' ? (
+                          <>
+                            <option value="all">Filter: All Approved</option>
+                            <option value="scheduled">Filter: Scheduled</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="all">Filter: All Active</option>
+                            <option value="pending">Filter: Pending</option>
+                            <option value="overdue">Filter: Overdue</option>
+                            <option value="scheduled">Filter: Scheduled</option>
+                          </>
+                        )}
                       </select>
+                    )}
+
+                    {view !== 'drafts' && (
+                      <button
+                        className={`btn-tab-toggle ${viewTab === 'approved' ? 'viewing-approved' : ''}`}
+                        onClick={() => {
+                          setViewTab(viewTab === 'approved' ? 'active' : 'approved');
+                          setView('active');
+                          setStatusFilter('all');
+                          setCurrentPage(1);
+                        }}
+                        title={viewTab === 'approved' ? 'Switch to Active Requests' : 'Switch to Approved Requests'}
+                      >
+                        <i className={`fas ${viewTab === 'approved' ? 'fa-inbox' : 'fa-check'}`}></i>
+                        {viewTab === 'approved' ? 'Active Requests' : 'Approved Requests'}
+                      </button>
                     )}
 
                     <button className="btn-drafts" onClick={() => { setView(view === 'drafts' ? 'active' : 'drafts'); setCurrentPage(1); }}>
@@ -307,13 +366,24 @@ function RequestsPage() {
                 <div className="section-content">
                   <table className="data-table">
                     <thead>
-                      <tr><th>Request ID</th><th>Customer</th><th>Status</th><th>Date</th><th>Action</th></tr>
+                      <tr>
+                        <th>Request ID</th>
+                        <th>Customer</th>
+                        <th>Status</th>
+                        <th>Date</th>
+                        {viewTab === 'approved' && <th>Approved By</th>}
+                        <th>Action</th>
+                      </tr>
                     </thead>
                     <tbody>
                       {loading ? (
-                        <TableSkeleton rows={5} columns={5} />
+                        <TableSkeleton rows={5} columns={viewTab === 'approved' ? 6 : 5} />
                       ) : paginatedRequests.length === 0 ? (
-                        <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24 }}>No requests found.</td></tr>
+                        <tr>
+                          <td colSpan={viewTab === 'approved' ? 6 : 5} style={{ textAlign: 'center', padding: 24 }}>
+                            {viewTab === 'approved' ? 'No approved requests found.' : 'No active requests found.'}
+                          </td>
+                        </tr>
                       ) : (
                         paginatedRequests.map((r) => {
                           const overdue = isOverdue(r);
@@ -336,6 +406,14 @@ function RequestsPage() {
                                   </div>
                                 )}
                               </td>
+                              {viewTab === 'approved' && (
+                                <td>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600, color: '#166534', fontSize: '13px' }}>
+                                    <i className="fas fa-user-check" style={{ color: '#22c55e', fontSize: '12px' }}></i>
+                                    {r.approver?.full_name || 'Administrator'}
+                                  </span>
+                                </td>
+                              )}
                               <td style={{ display: 'flex', gap: 6 }}>
                                 <button className="btn-details" onClick={() => openDetails(r)}>Details</button>
                                 {view === 'drafts' && (
