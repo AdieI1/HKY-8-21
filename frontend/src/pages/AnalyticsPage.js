@@ -7,6 +7,7 @@ import TableSkeleton from '../components/TableSkeleton';
 import AnalyticsOverviewModal from '../components/analytics/AnalyticsOverviewModal';
 import CustomerRatingsModal from '../components/analytics/CustomerRatingsModal';
 import ClaimsRefundsModal from '../components/analytics/ClaimsRefundsModal';
+import CompletionRateModal from '../components/analytics/CompletionRateModal';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -55,6 +56,7 @@ function AnalyticsPage() {
   const [overviewModalType, setOverviewModalType] = useState(null); // 'deliveries' | 'revenue' | null
   const [showRatingsModal, setShowRatingsModal] = useState(false);
   const [showClaimsModal, setShowClaimsModal] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [incidents, setIncidents] = useState([]);
   const [importedPdfFile, setImportedPdfFile] = useState(null);
   const [importedPdfUrl, setImportedPdfUrl] = useState(null);
@@ -627,7 +629,11 @@ function AnalyticsPage() {
               </div>
             </article>
 
-            <article className="analytics-stat-card">
+            <article
+              className="analytics-stat-card clickable-card"
+              onClick={() => setShowCompletionModal(true)}
+              title="Click to view Completion Rate & Fleet Fulfillment breakdown"
+            >
               <div className="stat-icon-wrap purple">
                 <i className="fas fa-circle-check"></i>
               </div>
@@ -639,6 +645,9 @@ function AnalyticsPage() {
                   </span>
                 </div>
                 <div className="stat-info-sub">Fleet fulfillment reliability</div>
+                <div className="stat-view-details" style={{ color: '#8b5cf6' }}>
+                  View Details <i className="fas fa-chevron-right" style={{ fontSize: 9 }}></i>
+                </div>
               </div>
             </article>
           </section>
@@ -1444,6 +1453,14 @@ function AnalyticsPage() {
         maintenance={periodMaintenance}
         grossRevenue={thisMonthRevenue}
         onIncidentUpdated={loadData}
+      />
+
+      {/* Completion Rate & Fleet Fulfillment Breakdown Modal */}
+      <CompletionRateModal
+        isOpen={showCompletionModal}
+        onClose={() => setShowCompletionModal(false)}
+        deliveries={statsPool}
+        periodLabel={periodLabel}
       />
     </>
   );

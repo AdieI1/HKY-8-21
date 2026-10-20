@@ -87,12 +87,18 @@ api.get = async function (url, config = {}) {
   return response;
 };
 
-// Invalidate in-memory cache whenever state-mutating requests occur
+// Invalidate in-memory cache whenever state-mutating requests occur and notify UI
 ['post', 'put', 'patch', 'delete'].forEach((method) => {
   const originalMethod = api[method].bind(api);
   api[method] = async function (...args) {
     const result = await originalMethod(...args);
     clearApiCache();
+    if (typeof window !== 'undefined') {
+      const url = typeof args[0] === 'string' ? args[0] : '';
+      if (!url.includes('/notifications')) {
+        window.dispatchEvent(new CustomEvent('app:data-mutated', { detail: { method, url } }));
+      }
+    }
     return result;
   };
 });

@@ -619,7 +619,7 @@ function StaffDashboardPage() {
 
       try {
         // Fast single endpoint
-        const res = await api.get('/dashboard/overview');
+        const res = await api.get('/dashboard/overview', { skipCache: true });
         if (res.data) {
           deliveries = res.data.deliveries || [];
           requests = res.data.requests || [];
@@ -632,13 +632,13 @@ function StaffDashboardPage() {
       } catch (_) {
         // Fallback to individual endpoints if needed
         const [delRes, reqRes, drvRes, vehRes, mntRes, incRes, logRes] = await Promise.all([
-          api.get('/deliveries').catch(() => ({ data: [] })),
-          api.get('/delivery-requests').catch(() => ({ data: [] })),
-          api.get('/drivers').catch(() => ({ data: [] })),
-          api.get('/vehicles').catch(() => ({ data: [] })),
-          api.get('/vehicle-maintenances').catch(() => ({ data: [] })),
-          api.get('/incident-reports').catch(() => ({ data: [] })),
-          api.get('/system-logs').catch(() => ({ data: [] })),
+          api.get('/deliveries', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/delivery-requests', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/drivers', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/vehicles', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/vehicle-maintenances', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/incident-reports', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/system-logs', { skipCache: true }).catch(() => ({ data: [] })),
         ]);
         deliveries = Array.isArray(delRes.data) ? delRes.data : [];
         requests = Array.isArray(reqRes.data) ? reqRes.data : [];
@@ -1034,12 +1034,37 @@ function StaffDashboardPage() {
       loadDashboardData();
     });
 
-    const interval = setInterval(loadDashboardData, 15000);
+    // Smart background polling: updates dashboard every 12 seconds when active
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        loadDashboardData();
+      }
+    }, 12000);
+
+    // Instant sync when user switches back to this browser tab/window
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        loadDashboardData();
+      }
+    };
+
+    // Instant sync when any user action (mutating API call) occurs
+    const handleDataMutated = () => {
+      loadDashboardData();
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('app:data-mutated', handleDataMutated);
+
     return () => {
       clearInterval(interval);
       unsub1();
       unsub2();
       unsub3();
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('app:data-mutated', handleDataMutated);
     };
   }, [loadDashboardData]);
 
@@ -1322,14 +1347,36 @@ function StaffDashboardPage() {
             <div className="adm-card adm-activity-card" style={{ flex: 1 }}>
               <div className="adm-card-header">
                 <span className="adm-card-title"><i className="fas fa-bolt" style={{ color: '#C53030', marginRight: '6px' }}></i>Activity Feed</span>
-                <button
-                  type="button"
-                  onClick={() => setShowAllActivitiesModal(true)}
-                  className="adm-view-all"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer' }}
-                >
-                  View all
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => loadDashboardData()}
+                    title="Refresh activity feed"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#64748b',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <i className="fas fa-sync-alt" style={{ fontSize: 11 }}></i>
+                    <span>Refresh</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllActivitiesModal(true)}
+                    className="adm-view-all"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                  >
+                    View all
+                  </button>
+                </div>
               </div>
               <div className="adm-activity-list">
                 {activityFeed.length === 0 ? (

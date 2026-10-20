@@ -30,12 +30,12 @@ export default function NotificationBell() {
       loadNotifications();
     });
 
-    // Smart, lightweight polling: runs every 10s ONLY if user is actively viewing the tab
+    // Smart, lightweight polling: runs every 4s ONLY if user is actively viewing the tab
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && !document.hidden) {
         loadNotifications();
       }
-    }, 10000);
+    }, 4000);
 
     // Instant update whenever user switches back to this browser tab/window
     const handleVisibilityOrFocus = () => {
@@ -44,8 +44,14 @@ export default function NotificationBell() {
       }
     };
 
+    // Instant update whenever any user mutation (approve, dispatch, update) occurs
+    const handleDataMutated = () => {
+      loadNotifications();
+    };
+
     window.addEventListener('focus', handleVisibilityOrFocus);
     document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('app:data-mutated', handleDataMutated);
 
     return () => {
       clearInterval(interval);
@@ -53,6 +59,7 @@ export default function NotificationBell() {
       unsubscribe2();
       window.removeEventListener('focus', handleVisibilityOrFocus);
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('app:data-mutated', handleDataMutated);
     };
   }, [loadNotifications]);
 

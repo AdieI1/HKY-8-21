@@ -358,8 +358,8 @@ function OverviewPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
     setLoadError('');
     try {
       let delData = [];
@@ -373,7 +373,7 @@ function OverviewPage() {
       let incData = [];
 
       try {
-        const overviewRes = await api.get('/dashboard/overview');
+        const overviewRes = await api.get('/dashboard/overview', { skipCache: true });
         if (overviewRes.data) {
           delData = overviewRes.data.deliveries || [];
           reqData = overviewRes.data.requests || [];
@@ -387,15 +387,15 @@ function OverviewPage() {
         }
       } catch (_) {
         const [deliveriesRes, logsRes, usersRes, rolesRes, reqRes, drvRes, vehRes, mntRes, incRes] = await Promise.all([
-          api.get('/deliveries').catch(() => ({ data: [] })),
-          api.get('/system-logs').catch(() => ({ data: [] })),
-          api.get('/users').catch(() => ({ data: [] })),
-          api.get('/roles').catch(() => ({ data: [] })),
-          api.get('/delivery-requests').catch(() => ({ data: [] })),
-          api.get('/drivers').catch(() => ({ data: [] })),
-          api.get('/vehicles').catch(() => ({ data: [] })),
-          api.get('/vehicle-maintenances').catch(() => ({ data: [] })),
-          api.get('/incident-reports').catch(() => ({ data: [] })),
+          api.get('/deliveries', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/system-logs', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/users', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/roles', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/delivery-requests', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/drivers', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/vehicles', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/vehicle-maintenances', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/incident-reports', { skipCache: true }).catch(() => ({ data: [] })),
         ]);
 
         delData = Array.isArray(deliveriesRes.data) ? deliveriesRes.data : [];
@@ -649,19 +649,46 @@ function OverviewPage() {
 
     // Instant real-time updates via Laravel Reverb WebSocket
     const unsubscribeDel = reverb.subscribe('deliveries', 'delivery.updated', () => {
-      loadData();
+      loadData(true);
     });
     const unsubscribeNotif = reverb.subscribe('system-notifications', 'notification.created', () => {
-      loadData();
+      loadData(true);
     });
     const unsubscribeAct = reverb.subscribe('system-activities', 'activity.created', () => {
-      loadData();
+      loadData(true);
     });
 
+    // Smart background polling: updates dashboard every 12 seconds when active
+    const pollInterval = setInterval(() => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        loadData(true);
+      }
+    }, 12000);
+
+    // Instant sync when user switches back to this browser tab/window
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        loadData(true);
+      }
+    };
+
+    // Instant sync when any user action (mutating API call) occurs
+    const handleDataMutated = () => {
+      loadData(true);
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('app:data-mutated', handleDataMutated);
+
     return () => {
+      clearInterval(pollInterval);
       unsubscribeDel();
       unsubscribeNotif();
       unsubscribeAct();
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('app:data-mutated', handleDataMutated);
     };
   }, [loadData]);
 
@@ -1301,17 +1328,42 @@ function OverviewPage() {
               <div className="content-section system-logs">
                 <div className="section-header">
                   <h3 className="section-title"><i className="fas fa-bolt" style={{ color: '#dc2626' }}></i> Activity Feed</h3>
-                  <a
-                    href="#"
-                    className="view-all"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setLogsModalPage(1);
-                      setShowLogsModal(true);
-                    }}
-                  >
-                    View all logs
-                  </a>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => loadData(true)}
+                      title="Refresh activity feed"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#64748b',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        padding: '3px 8px',
+                        borderRadius: 4,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        transition: 'color 0.2s',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = '#1e293b')}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = '#64748b')}
+                    >
+                      <i className="fas fa-sync-alt" style={{ fontSize: 11 }}></i>
+                      <span>Refresh</span>
+                    </button>
+                    <a
+                      href="#"
+                      className="view-all"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setLogsModalPage(1);
+                        setShowLogsModal(true);
+                      }}
+                    >
+                      View all logs
+                    </a>
+                  </div>
                 </div>
                 <div className="section-content" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {activityFeed.slice(0, 5).map((item) => (
@@ -1858,7 +1910,29 @@ function OverviewPage() {
                   Comprehensive audit trail of deliveries, customer booking requests, fleet dispatches, and system actions.
                 </p>
               </div>
-              <button className="btn-modal-close" onClick={() => setShowLogsModal(false)}>✕</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => loadData(true)}
+                  title="Refresh logs"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                    color: '#ffffff',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    padding: '4px 10px',
+                    borderRadius: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <i className="fas fa-sync-alt" style={{ fontSize: 11 }}></i>
+                  <span>Refresh</span>
+                </button>
+                <button className="btn-modal-close" onClick={() => setShowLogsModal(false)}>✕</button>
+              </div>
             </div>
             <div className="modal-body" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
               {/* Category Filter Pills & Search */}
