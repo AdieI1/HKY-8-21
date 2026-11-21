@@ -29,11 +29,12 @@ export default function Notifications() {
   const router = useRouter();
   const { isDark, colors } = useTheme();
   const [notifications, setNotifications] = useState([]);
+  const [sessionUnreadIds, setSessionUnreadIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sortOrder, setSortOrder] = useState("newest"); // "newest" | "oldest"
 
-  const fetchNotifications = useCallback(async () => {
+  const fetchNotifications = useCallback(async (isInitialOpen = false) => {
     try {
       const token = await getToken();
       if (!token) return;
@@ -41,6 +42,20 @@ export default function Notifications() {
       const data = await getCustomerNotifications();
       const list = data?.notifications || [];
       setNotifications(list);
+
+      const unreadList = list.filter((n) => !n.is_read);
+      if (isInitialOpen && unreadList.length > 0) {
+        // Record which items were unread when entering this screen so they stay highlighted
+        setSessionUnreadIds(new Set(unreadList.map((n) => n.id)));
+
+        // Automatically mark all as read on backend
+        try {
+          await markAllNotificationsRead();
+          setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+        } catch (e) {
+          console.log("Failed to auto-mark read:", e);
+        }
+      }
     } catch (error) {
       if (error.message?.toLowerCase().includes("unauthenticated")) {
         await logout();
@@ -64,33 +79,35 @@ export default function Notifications() {
           return;
         }
         if (isMounted) {
-          await fetchNotifications();
+          await fetchNotifications(true);
         }
       })();
 
       const interval = setInterval(async () => {
         const token = await getToken();
         if (token) {
-          fetchNotifications();
+          fetchNotifications(false);
         }
       }, 12000);
 
       return () => {
         isMounted = false;
         clearInterval(interval);
+        setSessionUnreadIds(new Set());
       };
     }, [fetchNotifications, router])
   );
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchNotifications();
+    await fetchNotifications(false);
   };
 
   const handleMarkAllRead = async () => {
     try {
       await markAllNotificationsRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+      setSessionUnreadIds(new Set());
     } catch (err) {
       console.log("Failed to mark notifications read:", err);
     }
@@ -106,7 +123,7 @@ export default function Notifications() {
     return sortOrder === "newest" ? timeB - timeA : timeA - timeB;
   });
 
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const unreadCount = sessionUnreadIds.size;
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.bg }]}>
@@ -120,18 +137,12 @@ export default function Notifications() {
             <Text style={[styles.pageTitle, { color: colors.text }]}>Notifications</Text>
             {unreadCount > 0 && (
               <View style={styles.unreadBadge}>
-                <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
+                <Text style={styles.unreadBadgeText}>{unreadCount} NEW</Text>
               </View>
             )}
           </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {unreadCount > 0 && (
-              <TouchableOpacity onPress={handleMarkAllRead} style={[styles.markReadBtn, { backgroundColor: isDark ? "#312E81" : "#E0E7FF" }]}>
-                <Text style={[styles.markReadText, { color: isDark ? "#C7D2FE" : "#3730A3" }]}>Mark Read</Text>
-              </TouchableOpacity>
-            )}
-
             <TouchableOpacity
               style={[styles.sortButton, { backgroundColor: isDark ? colors.cardBorder : "#D5DDF3" }]}
               onPress={toggleSort}
@@ -171,6 +182,7 @@ export default function Notifications() {
                 <NotificationCard
                   key={notification.id}
                   notification={notification}
+                  isNew={sessionUnreadIds.has(notification.id)}
                 />
               ))
             ) : (

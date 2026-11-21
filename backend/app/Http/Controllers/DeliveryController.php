@@ -558,11 +558,22 @@ class DeliveryController extends Controller
             |--------------------------------------------------------------------------
             */
 
+            $targetVehicle = \App\Models\Vehicle::find($request->vehicle_id);
+
             $odometer = $validated['starting_odometer']
                 ?? $validated['odometer_reading']
                 ?? $request->starting_odometer
                 ?? $request->odometer_reading
-                ?? null;
+                ?? $targetVehicle?->odometer_reading
+                ?? $delivery->starting_odometer;
+
+            $startingFuel = $validated['starting_fuel']
+                ?? $request->starting_fuel
+                ?? $validated['fuel_issued']
+                ?? $request->fuel_issued
+                ?? $delivery->fuel_issued
+                ?? $targetVehicle?->fuel_level
+                ?? $delivery->starting_fuel;
 
             $durationDays = isset($validated['estimated_duration_days']) ? (int) $validated['estimated_duration_days'] : ($delivery->estimated_duration_days ?: 2);
             $estDeliveryDate = $validated['estimated_delivery_date'] ?? null;
@@ -602,10 +613,11 @@ class DeliveryController extends Controller
                 'trip_date' => $validated['trip_date'] ?? ($delivery->trip_date ?: now()->toDateString()),
                 'estimated_duration_days' => $durationDays,
                 'estimated_delivery_date' => $estDeliveryDate,
-                'fuel_issued' => $validated['fuel_issued'] ?? null,
+                'fuel_issued' => $validated['fuel_issued'] ?? $delivery->fuel_issued,
                 'fuel_receipt_no' => $validated['fuel_receipt_no'] ?? null,
                 'remarks' => $validated['remarks'] ?? null,
                 'starting_odometer' => $odometer !== null ? $odometer : $delivery->starting_odometer,
+                'starting_fuel' => $startingFuel !== null ? $startingFuel : $delivery->starting_fuel,
                 'is_relief' => $isReliefAssignment,
                 'cargo_loaded' => $cargoLoaded,
                 'relief_origin_address' => $reliefOriginAddress,
@@ -1164,6 +1176,8 @@ class DeliveryController extends Controller
             }
             if (isset($validated['starting_fuel'])) {
                 $updateData['starting_fuel'] = $validated['starting_fuel'];
+            } elseif ($delivery->starting_fuel === null && $delivery->fuel_issued !== null) {
+                $updateData['starting_fuel'] = $delivery->fuel_issued;
             }
             if (!empty($updateData)) {
                 $delivery->update($updateData);

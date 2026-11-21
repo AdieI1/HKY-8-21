@@ -47,7 +47,7 @@ function isOverdue(request) {
 }
 
 const EMPTY_FORM = {
-  first_name: '', last_name: '', phone: '', email: '', username: '', password: '', confirmPassword: '',
+  first_name: '', last_name: '', phone: '', email: '',
   item_name: '', cargo_type: 'Construction Materials & Parts', fragility: 'low', weight: '',
   service_type: 'standard', container_number: '', seal_number: '',
   pickup: { address: '', lat: null, lng: null }, dropoff: { address: '', lat: null, lng: null },

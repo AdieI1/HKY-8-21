@@ -57,8 +57,9 @@ export default function NavigationMap({
 
   const [currentLocation, setCurrentLocation] = useState(null);
   const [heading, setHeading] = useState(0);
-  const [isLocked, setIsLocked] = useState(true);
+  const [isLocked, setIsLocked] = useState(navigationState !== "preview");
   const [roadCoordinates, setRoadCoordinates] = useState([]);
+  const [deliveryCoordinates, setDeliveryCoordinates] = useState([]);
   const [steepnessSegments, setSteepnessSegments] = useState([]);
   const [routeInfo, setRouteInfo] = useState({ distanceKm: 0, durationMins: 0 });
   const [initialZoomDone, setInitialZoomDone] = useState(false);
@@ -311,7 +312,43 @@ export default function NavigationMap({
     };
   }, []);
 
-  // 2. Fetch OSRM Road Route & Elevation Profile (cached per leg to eliminate in-transit lag)
+  // Background fetch of the delivery leg (Pick-up -> Drop-off) for preview and upcoming trip visibility
+  useEffect(() => {
+    if (!pickup || !dropoff) return;
+    let active = true;
+    fetchRoadRoute([pickup, dropoff])
+      .then((res) => {
+        if (active && res?.coordinates?.length > 1) {
+          setDeliveryCoordinates(res.coordinates);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [pickup?.latitude, pickup?.longitude, dropoff?.latitude, dropoff?.longitude]);
+
+  // Handle active navigation mode transitions
+  useEffect(() => {
+    if (navigationState === "preview") {
+      setIsLocked(false);
+    } else {
+      setIsLocked(true);
+      if (currentLocation && mapRef.current) {
+        mapRef.current.animateCamera(
+          {
+            center: currentLocation,
+            pitch: 45,
+            heading: heading || 0,
+            zoom: 17,
+          },
+          { duration: 800 }
+        );
+      }
+    }
+  }, [navigationState]);
+
+  // 2. Fetch OSRM Road Route & Elevation Profile (cached per leg with dynamic origin from GPS)
   const prevLegKeyRef = useRef(null);
 
   useEffect(() => {
@@ -320,7 +357,12 @@ export default function NavigationMap({
 
     if (!waypoints || waypoints.length < 2) return;
 
-    const currentLegKey = `${routeWaypoints.leg}_${routeWaypoints.destination?.latitude}_${routeWaypoints.destination?.longitude}`;
+    const originLat = routeWaypoints.origin?.latitude ? Number(routeWaypoints.origin.latitude).toFixed(3) : "hq";
+    const originLng = routeWaypoints.origin?.longitude ? Number(routeWaypoints.origin.longitude).toFixed(3) : "hq";
+    const destLat = routeWaypoints.destination?.latitude ? Number(routeWaypoints.destination.latitude).toFixed(4) : "0";
+    const destLng = routeWaypoints.destination?.longitude ? Number(routeWaypoints.destination.longitude).toFixed(4) : "0";
+    const currentLegKey = `${navigationState}_${routeWaypoints.leg}_${originLat},${originLng}_${destLat},${destLng}`;
+
     if (prevLegKeyRef.current === currentLegKey && roadCoordinates.length > 0) {
       return;
     }
@@ -353,9 +395,31 @@ export default function NavigationMap({
 
         // Fetch elevation steepness segments if road coordinates are valid
         if (route.coordinates.length >= 2) {
-          const steepnessData = await fetchRouteSteepnessMobile(route.coordinates);
-          if (active && steepnessData?.segments?.length > 0) {
-            setSteepnessSegments(steepnessData.segments);
+          fetchRouteSteepnessMobile(route.coordinates)
+            .then((steepnessData) => {
+              if (active && steepnessData?.segments?.length > 0) {
+                setSteepnessSegments(steepnessData.segments);
+              }
+            })
+            .catch(() => {});
+        }
+
+        // Fit coordinates in preview mode so driver sees the route overview
+        if (navigationState === "preview" && mapRef.current) {
+          const fitPoints = [
+            ...(currentLocation ? [currentLocation] : []),
+            ...(pickup ? [pickup] : []),
+            ...(dropoff ? [dropoff] : []),
+            ...(route.coordinates || []),
+          ].filter(Boolean);
+
+          if (fitPoints.length >= 2) {
+            setTimeout(() => {
+              mapRef.current?.fitToCoordinates(fitPoints, {
+                edgePadding: { top: 120, right: 50, bottom: 280, left: 50 },
+                animated: true,
+              });
+            }, 300);
           }
         }
       })
@@ -367,7 +431,10 @@ export default function NavigationMap({
       active = false;
     };
   }, [
+    navigationState,
     routeWaypoints.leg,
+    routeWaypoints.origin?.latitude,
+    routeWaypoints.origin?.longitude,
     routeWaypoints.destination?.latitude,
     routeWaypoints.destination?.longitude,
     pickup,
@@ -541,11 +608,23 @@ export default function NavigationMap({
           );
         })}
 
-        {/* Base Road Polyline (Blue Highway Style) */}
+        {/* Upcoming Drop-off Leg Preview (Pick-up -> Drop-off) */}
+        {(routeWaypoints.leg === "pickup" || navigationState === "preview") && deliveryCoordinates.length > 1 && (
+          <Polyline
+            coordinates={deliveryCoordinates}
+            strokeColor="#60A5FA"
+            strokeWidth={4}
+            lineDashPattern={[8, 6]}
+            lineCap="round"
+            lineJoin="round"
+          />
+        )}
+
+        {/* Active Navigation Road Polyline (Emerald for Pick-up, Blue for Drop-off) */}
         {roadCoordinates.length > 1 && (
           <Polyline
             coordinates={roadCoordinates}
-            strokeColor="#1D4ED8"
+            strokeColor={routeWaypoints.leg === "pickup" ? "#10B981" : "#1D4ED8"}
             strokeWidth={6}
             lineCap="round"
             lineJoin="round"

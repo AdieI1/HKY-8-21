@@ -7,6 +7,7 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [sessionUnreadIds, setSessionUnreadIds] = useState(new Set());
   const panelRef = useRef(null);
 
   const loadNotifications = useCallback(async () => {
@@ -63,11 +64,12 @@ export default function NotificationBell() {
     };
   }, [loadNotifications]);
 
-  // Close when clicking outside
+  // Close when clicking outside and clear session highlighted unreads
   useEffect(() => {
     function handleClickOutside(e) {
       if (panelRef.current && !panelRef.current.contains(e.target)) {
         setOpen(false);
+        setSessionUnreadIds(new Set());
       }
     }
     if (open) {
@@ -83,6 +85,11 @@ export default function NotificationBell() {
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
       );
+      setSessionUnreadIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       setUnreadCount((c) => Math.max(0, c - 1));
     } catch (err) {
       console.error('Mark as read error:', err);
@@ -93,9 +100,37 @@ export default function NotificationBell() {
     try {
       await api.post('/notifications/mark-all-read');
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+      setSessionUnreadIds(new Set());
       setUnreadCount(0);
     } catch (err) {
       console.error('Mark all read error:', err);
+    }
+  };
+
+  const handleToggleBell = async () => {
+    if (!open) {
+      // Collect IDs of current unread items to keep them highlighted while dropdown is open
+      const unreadIds = new Set(
+        notifications.filter((n) => !n.is_read).map((n) => n.id)
+      );
+      setSessionUnreadIds(unreadIds);
+      setOpen(true);
+
+      // Automatically mark all as read on the backend & clear red bell counter
+      if (unreadCount > 0 || unreadIds.size > 0) {
+        setUnreadCount(0);
+        try {
+          await api.post('/notifications/mark-all-read');
+          setNotifications((prev) =>
+            prev.map((n) => ({ ...n, is_read: true }))
+          );
+        } catch (err) {
+          console.error('Auto mark all read error:', err);
+        }
+      }
+    } else {
+      setOpen(false);
+      setSessionUnreadIds(new Set());
     }
   };
 
@@ -116,13 +151,7 @@ export default function NotificationBell() {
       <button
         type="button"
         className="notification-bell-btn"
-        onClick={() => {
-          setOpen((prev) => {
-            const next = !prev;
-            if (next) loadNotifications();
-            return next;
-          });
-        }}
+        onClick={handleToggleBell}
         aria-label="Notifications"
         style={{
           background: '#fff',
@@ -200,38 +229,21 @@ export default function NotificationBell() {
               <span style={{ fontWeight: 700, fontSize: '15px', color: '#1e293b' }}>
                 Notifications
               </span>
-              {unreadCount > 0 && (
+              {sessionUnreadIds.size > 0 && (
                 <span
                   style={{
-                    background: '#fee2e2',
-                    color: '#dc2626',
+                    background: '#e0f2fe',
+                    color: '#0284c7',
                     fontSize: '11px',
                     fontWeight: 600,
                     padding: '2px 8px',
                     borderRadius: '12px',
                   }}
                 >
-                  {unreadCount} new
+                  {sessionUnreadIds.size} new
                 </span>
               )}
             </div>
-            {unreadCount > 0 && (
-              <button
-                type="button"
-                onClick={handleMarkAllRead}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#2563eb',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
-              >
-                Mark all read
-              </button>
-            )}
           </div>
 
           {/* List */}
@@ -255,101 +267,121 @@ export default function NotificationBell() {
                 No notifications at this time
               </div>
             ) : (
-              notifications.map((n) => (
-                <Link
-                  key={n.id}
-                  to={n.link || '#'}
-                  onClick={() => {
-                    handleMarkAsRead(n.id);
-                    setOpen(false);
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '12px',
-                    padding: '12px 16px',
-                    borderBottom: '1px solid #f1f5f9',
-                    background: n.is_read ? '#ffffff' : '#f8fafc',
-                    textDecoration: 'none',
-                    color: 'inherit',
-                    transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#f1f5f9')}
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = n.is_read ? '#ffffff' : '#f8fafc')
-                  }
-                >
-                  <div
-                    style={{
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: '8px',
-                      background: n.color ? `${n.color}18` : '#e0e7ff',
-                      color: n.color || '#4f46e5',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '15px',
-                      flexShrink: 0,
-                      marginTop: '2px',
+              notifications.map((n) => {
+                const isNew = sessionUnreadIds.has(n.id);
+                return (
+                  <Link
+                    key={n.id}
+                    to={n.link || '#'}
+                    onClick={() => {
+                      handleMarkAsRead(n.id);
+                      setOpen(false);
                     }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '12px',
+                      padding: '12px 16px',
+                      borderBottom: '1px solid #f1f5f9',
+                      borderLeft: isNew ? '4px solid #2563eb' : '4px solid transparent',
+                      background: isNew ? '#f0f9ff' : '#ffffff',
+                      textDecoration: 'none',
+                      color: 'inherit',
+                      transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = isNew ? '#e0f2fe' : '#f8fafc')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = isNew ? '#f0f9ff' : '#ffffff')}
                   >
-                    <i className={n.icon || 'fas fa-info-circle'}></i>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div
                       style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '8px',
+                        background: n.color ? `${n.color}18` : '#e0e7ff',
+                        color: n.color || '#4f46e5',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '6px',
+                        justifyContent: 'center',
+                        fontSize: '15px',
+                        flexShrink: 0,
+                        marginTop: '2px',
                       }}
                     >
-                      <span
+                      <i className={n.icon || 'fas fa-info-circle'}></i>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
                         style={{
-                          fontSize: '13px',
-                          fontWeight: n.is_read ? 600 : 700,
-                          color: '#1e293b',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '6px',
                         }}
                       >
-                        {n.title}
-                      </span>
-                      <span style={{ fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>
-                        {formatTime(n.time)}
-                      </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                          <span
+                            style={{
+                              fontSize: '13px',
+                              fontWeight: isNew ? 700 : 600,
+                              color: isNew ? '#0f172a' : '#334155',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {n.title}
+                          </span>
+                          {isNew && (
+                            <span
+                              style={{
+                                background: '#dbeafe',
+                                color: '#1d4ed8',
+                                fontSize: '9px',
+                                fontWeight: 700,
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.4px',
+                              }}
+                            >
+                              New
+                            </span>
+                          )}
+                        </div>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>
+                          {formatTime(n.time)}
+                        </span>
+                      </div>
+                      <p
+                        style={{
+                          margin: '4px 0 0',
+                          fontSize: '12px',
+                          color: isNew ? '#475569' : '#64748b',
+                          lineHeight: '1.4',
+                          overflow: 'hidden',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                        }}
+                      >
+                        {n.message}
+                      </p>
                     </div>
-                    <p
-                      style={{
-                        margin: '4px 0 0',
-                        fontSize: '12px',
-                        color: '#64748b',
-                        lineHeight: '1.4',
-                        overflow: 'hidden',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                      }}
-                    >
-                      {n.message}
-                    </p>
-                  </div>
-                  {!n.is_read && (
-                    <span
-                      style={{
-                        width: '8px',
-                        height: '8px',
-                        borderRadius: '50%',
-                        background: '#3b82f6',
-                        flexShrink: 0,
-                        marginTop: '6px',
-                      }}
-                    ></span>
-                  )}
-                </Link>
-              ))
+                    {isNew && (
+                      <span
+                        style={{
+                          width: '8px',
+                          height: '8px',
+                          borderRadius: '50%',
+                          background: '#2563eb',
+                          flexShrink: 0,
+                          marginTop: '6px',
+                        }}
+                      ></span>
+                    )}
+                  </Link>
+                );
+              })
             )}
           </div>
         </div>

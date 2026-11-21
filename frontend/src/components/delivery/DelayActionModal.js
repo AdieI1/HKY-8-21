@@ -199,6 +199,7 @@ export default function DelayActionModal({
                 </label>
                 <input
                   type="date"
+                  min={new Date().toISOString().split('T')[0]}
                   value={revisedDate}
                   onChange={(e) => setRevisedDate(e.target.value)}
                   style={{

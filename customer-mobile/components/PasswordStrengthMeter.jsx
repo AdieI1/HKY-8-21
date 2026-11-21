@@ -4,12 +4,16 @@ import { View, Text, StyleSheet } from "react-native";
 export const getPasswordStrength = (password = "") => {
   if (!password) return { score: 0, label: "", color: "#E2E8F0" };
 
-  let score = 0;
-  if (password.length >= 8) score++;
-  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score++;
+  if (password.length < 6) {
+    return { score: 0, label: "Too Short", color: "#94A3B8" };
+  }
+
+  let score = 1;
+  if (password.length >= 8) score += 0.5;
+  if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
   else if (/[a-zA-Z]/.test(password)) score += 0.5;
-  if (/\d/.test(password)) score++;
-  if (/[!@#$%^&*(),.?":{}|<>_\-]/.test(password)) score++;
+  if (/\d/.test(password)) score += 0.8;
+  if (/[!@#$%^&*(),.?":{}|<>_\-]/.test(password)) score += 0.7;
 
   const roundedScore = Math.min(4, Math.floor(score));
 
@@ -23,7 +27,7 @@ export const getPasswordStrength = (password = "") => {
     case 4:
       return { score: 4, label: "Strong", color: "#10B981" };
     default:
-      return { score: 0, label: "Too Short", color: "#94A3B8" };
+      return { score: 1, label: "Weak", color: "#EF4444" };
   }
 };
 

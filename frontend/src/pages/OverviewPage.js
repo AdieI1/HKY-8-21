@@ -319,7 +319,9 @@ function OverviewPage() {
   const [formError, setFormError] = useState('');
 
   const [addForm, setAddForm] = useState({
-    full_name: '',
+    first_name: '',
+    middle_name: '',
+    last_name: '',
     email: '',
     phone: '',
     sss_number: '',
@@ -328,9 +330,8 @@ function OverviewPage() {
     deductible_taxes: '',
     photo: null,
     photoPreview: null,
-    password: '',
-    confirmPassword: '',
   });
+  const [addFormErrors, setAddFormErrors] = useState({});
   const [editForm, setEditForm] = useState({
     full_name: '',
     email: '',
@@ -800,14 +801,32 @@ function OverviewPage() {
         setEditForm((prev) => ({ ...prev, photo: dataUrl, photoPreview: dataUrl }));
       } else {
         setAddForm((prev) => ({ ...prev, photo: dataUrl, photoPreview: dataUrl }));
+        setAddFormErrors((prev) => {
+          const next = { ...prev };
+          delete next.photo;
+          return next;
+        });
       }
     };
     reader.readAsDataURL(file);
   };
 
+  const handleAddFormFieldChange = (field, value) => {
+    setAddForm((prev) => ({ ...prev, [field]: value }));
+    if (addFormErrors[field]) {
+      setAddFormErrors((prev) => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
   const openAddModal = () => {
     setAddForm({
-      full_name: '',
+      first_name: '',
+      middle_name: '',
+      last_name: '',
       email: '',
       phone: '',
       sss_number: '',
@@ -816,49 +835,79 @@ function OverviewPage() {
       deductible_taxes: '',
       photo: null,
       photoPreview: null,
-      password: '',
-      confirmPassword: '',
     });
+    setAddFormErrors({});
     setFormError('');
     setShowAddModal(true);
   };
 
   const saveNewStaff = async () => {
-    const { full_name, email, phone, sss_number, philhealth_number, pagibig_number, deductible_taxes, photo, password, confirmPassword } = addForm;
-    if (!full_name || !email || !phone || !password || !confirmPassword) {
-      setFormError('Please fill in all required fields.');
+    const { first_name, middle_name, last_name, email, phone, sss_number, philhealth_number, pagibig_number, deductible_taxes, photo } = addForm;
+    const errs = {};
+
+    if (!photo) errs.photo = 'Profile photo is required.';
+    if (!first_name?.trim()) errs.first_name = 'First name is required.';
+    if (!middle_name?.trim()) errs.middle_name = 'Middle name is required (or N/A).';
+    if (!last_name?.trim()) errs.last_name = 'Last name is required.';
+    if (!email?.trim()) {
+      errs.email = 'Email address is required.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      errs.email = 'Please enter a valid email address.';
+    }
+    if (!phone?.trim()) {
+      errs.phone = 'Phone number is required.';
+    } else if (!validatePhoneNumber(phone)) {
+      errs.phone = 'Phone must start with "09" and be exactly 11 digits (e.g. 09123456789).';
+    }
+    if (!sss_number?.trim()) errs.sss_number = 'SSS number is required.';
+    if (!philhealth_number?.trim()) errs.philhealth_number = 'PhilHealth number is required.';
+    if (!pagibig_number?.trim()) errs.pagibig_number = 'Pag-IBIG number is required.';
+    if (!deductible_taxes?.trim()) errs.deductible_taxes = 'Deductible taxes info is required.';
+
+    if (Object.keys(errs).length > 0) {
+      setAddFormErrors(errs);
+      setFormError('Please fill in all required fields indicated in red before submitting.');
       return;
     }
-    if (!validatePhoneNumber(phone)) {
-      setFormError('Phone number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
-      return;
-    }
-    if (password !== confirmPassword) {
-      setFormError('Passwords do not match.');
-      return;
-    }
+
     setSaving(true);
     setFormError('');
     try {
+      const middlePart = middle_name?.trim() ? middle_name.trim() + ' ' : '';
+      const fullName = `${first_name.trim()} ${middlePart}${last_name.trim()}`.trim();
+
       const payload = {
         role_id: staffRoleId || 5,
-        full_name,
-        email,
-        phone,
-        sss_number: sss_number?.trim() || null,
-        philhealth_number: philhealth_number?.trim() || null,
-        pagibig_number: pagibig_number?.trim() || null,
-        deductible_taxes: deductible_taxes?.trim() || null,
-        password,
+        first_name: first_name.trim(),
+        middle_name: middle_name.trim(),
+        last_name: last_name.trim(),
+        full_name: fullName,
+        email: email.trim(),
+        phone: phone.trim(),
+        sss_number: sss_number.trim(),
+        philhealth_number: philhealth_number.trim(),
+        pagibig_number: pagibig_number.trim(),
+        deductible_taxes: deductible_taxes.trim(),
         status: 'active',
       };
       if (photo) payload.photo = photo;
+
       await api.post('/users', payload);
       setShowAddModal(false);
+      setToast({
+        type: 'success',
+        message: `Staff account created! Temporary login credentials have been emailed to ${email.trim()}.`,
+      });
       await loadData();
     } catch (err) {
       const errors = err.response?.data?.errors;
-      setFormError(errors ? Object.values(errors)[0][0] : 'Could not add staff member.');
+      if (errors) {
+        const firstKey = Object.keys(errors)[0];
+        setFormError(errors[firstKey][0]);
+        setAddFormErrors((prev) => ({ ...prev, [firstKey]: errors[firstKey][0] }));
+      } else {
+        setFormError(err.response?.data?.message || 'Could not add staff member.');
+      }
     } finally {
       setSaving(false);
     }
@@ -1126,7 +1175,7 @@ function OverviewPage() {
           <div className="content-sections">
             <div className="content-row">
               {/* ---------------- Delivery Operations (Paginated) ---------------- */}
-              <div className="content-section recent-deliveries">
+              <div className="content-section recent-deliveries" style={{ display: 'flex', flexDirection: 'column' }}>
                 <div className="section-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
                   <h3 className="section-title"><i className="fas fa-boxes"></i> Delivery Operations</h3>
                   <div className="section-controls" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1156,23 +1205,34 @@ function OverviewPage() {
                     </select>
                   </div>
                 </div>
-                <div className="section-content">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Delivery ID</th>
-                        <th>Customer</th>
-                        <th>Status</th>
-                        <th>Date</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {loading ? (
-                        <TableSkeleton rows={5} columns={5} />
-                      ) : currentDeliveries.length === 0 ? (
-                        <tr><td colSpan="5" style={{ textAlign: 'center', padding: 24 }}>No deliveries found.</td></tr>
-                      ) : (
+                <div className="section-content" style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-between' }}>
+                  <div style={{ flex: 1, width: '100%', overflowX: 'auto' }}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Delivery ID</th>
+                          <th>Customer</th>
+                          <th>Status</th>
+                          <th>Date</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loading ? (
+                          <TableSkeleton rows={5} columns={5} />
+                        ) : currentDeliveries.length === 0 ? (
+                          <tr>
+                            <td colSpan="5" className="empty-state-cell">
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                                <div className="empty-state-icon-box">
+                                  <i className="fas fa-boxes"></i>
+                                </div>
+                                <span style={{ fontSize: 14, fontWeight: 600, color: '#475569' }}>No deliveries found.</span>
+                                <span style={{ fontSize: 12, color: '#94a3b8' }}>There are currently no active delivery operations to display.</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
                         currentDeliveries.map((d) => {
                         const isOpen = expandedDeliveryId === d.delivery_id;
                         const statusInfo = getDeliveryStatusInfo(d.status);
@@ -1310,17 +1370,20 @@ function OverviewPage() {
                       })
                     )}
                   </tbody>
-                  </table>
+                    </table>
+                  </div>
 
                   {/* Deliveries Pagination */}
-                  <Pagination
-                    currentPage={deliveriesPage}
-                    totalPages={totalDeliveryPages}
-                    totalItems={sortedDeliveries.length}
-                    pageSize={DELIVERIES_PER_PAGE}
-                    onPageChange={setDeliveriesPage}
-                    showAlways={true}
-                  />
+                  <div style={{ marginTop: 'auto', width: '100%' }}>
+                    <Pagination
+                      currentPage={deliveriesPage}
+                      totalPages={totalDeliveryPages}
+                      totalItems={sortedDeliveries.length}
+                      pageSize={DELIVERIES_PER_PAGE}
+                      onPageChange={setDeliveriesPage}
+                      showAlways={true}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -2081,10 +2144,99 @@ function OverviewPage() {
 
       {/* Edit staff */}
       {showEditModal && (
-        <div className="modal" style={{ display: 'block' }}>
-          <div className="modal-content">
-            <div className="modal-header"><h2>Edit Staff Information</h2></div>
-            <div className="modal-body">
+        <div
+          className="modal"
+          style={{
+            display: 'flex',
+            position: 'fixed',
+            zIndex: 1000,
+            left: 0,
+            top: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            boxSizing: 'border-box',
+          }}
+        >
+          <div
+            className="modal-content hide-scrollbar"
+            style={{
+              width: '100%',
+              maxWidth: 680,
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              background: '#ffffff',
+              borderRadius: 14,
+              boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.35)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Modal Header */}
+            <div
+              className="modal-header"
+              style={{
+                background: 'linear-gradient(135deg, #b91c1c 0%, #dc2626 50%, #ef4444 100%)',
+                color: '#fff',
+                padding: '18px 24px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                borderTopLeftRadius: 14,
+                borderTopRightRadius: 14,
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 18,
+                  }}
+                >
+                  <i className="fas fa-user-edit"></i>
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: '#ffffff' }}>Edit Staff Information</h2>
+                  <p style={{ margin: '2px 0 0', fontSize: 12, color: 'rgba(255, 255, 255, 0.85)' }}>
+                    Update staff member profile details, contact information, and IDs
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEditModal(false)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.15)',
+                  border: 'none',
+                  color: '#ffffff',
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'; }}
+                aria-label="Close modal"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: '22px 26px', flex: 1, overflowY: 'auto' }}>
               {formError && <div className="form-error" style={{ color: '#d32f2f', marginBottom: 12 }}>{formError}</div>}
               <form className="edit-form" onSubmit={(e) => e.preventDefault()}>
                 {/* Profile Photo Upload */}
@@ -2207,9 +2359,85 @@ function OverviewPage() {
                 </div>
               </form>
             </div>
-            <div className="modal-footer">
-              <button className="btn-cancel" onClick={() => setShowEditModal(false)}>Cancel</button>
-              <button className="btn-save" onClick={saveStaffChanges} disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
+            <div
+              className="modal-footer"
+              style={{
+                background: '#f8fafc',
+                borderTop: '1px solid #e2e8f0',
+                padding: '16px 26px',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: 12,
+                borderBottomLeftRadius: 14,
+                borderBottomRightRadius: 14,
+                flexShrink: 0,
+              }}
+            >
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => setShowEditModal(false)}
+                style={{
+                  background: '#ffffff',
+                  color: '#475569',
+                  border: '1px solid #cbd5e1',
+                  padding: '10px 22px',
+                  borderRadius: 8,
+                  fontSize: 13.5,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#f1f5f9';
+                  e.currentTarget.style.borderColor = '#94a3b8';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#ffffff';
+                  e.currentTarget.style.borderColor = '#cbd5e1';
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-save"
+                onClick={saveStaffChanges}
+                disabled={saving}
+                style={{
+                  background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '10px 26px',
+                  borderRadius: 8,
+                  fontSize: 13.5,
+                  fontWeight: 600,
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 4px 12px rgba(220, 38, 38, 0.25)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  transition: 'all 0.2s ease',
+                  opacity: saving ? 0.7 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (!saving) e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  if (!saving) e.currentTarget.style.transform = 'none';
+                }}
+              >
+                {saving ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin"></i> Saving...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-save"></i> Save Changes
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
@@ -2217,125 +2445,462 @@ function OverviewPage() {
 
       {/* Add staff */}
       {showAddModal && (
-        <div className="modal" style={{ display: 'block' }}>
-          <div className="modal-content">
-            <div className="modal-header"><h2>Add New Staff Account</h2></div>
-            <div className="modal-body">
-              {formError && <div className="form-error" style={{ color: '#d32f2f', marginBottom: 12 }}>{formError}</div>}
-              <form className="edit-form" onSubmit={(e) => e.preventDefault()}>
+        <div
+          className="modal"
+          style={{
+            display: 'flex',
+            position: 'fixed',
+            zIndex: 1000,
+            left: 0,
+            top: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+            boxSizing: 'border-box',
+          }}
+        >
+          <div
+            className="modal-content hide-scrollbar"
+            style={{
+              width: '100%',
+              maxWidth: 680,
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              background: '#ffffff',
+              borderRadius: 14,
+              boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.35)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Modal Header */}
+            <div
+              className="modal-header"
+              style={{
+                background: 'linear-gradient(135deg, #b91c1c 0%, #dc2626 50%, #ef4444 100%)',
+                color: '#fff',
+                padding: '18px 24px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                borderTopLeftRadius: 14,
+                borderTopRightRadius: 14,
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 18,
+                  }}
+                >
+                  <i className="fas fa-user-plus"></i>
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 19, fontWeight: 700, color: '#ffffff' }}>Add New Staff Account</h2>
+                  <p style={{ margin: '2px 0 0', fontSize: 12, color: 'rgba(255, 255, 255, 0.85)' }}>
+                    Fill in all required fields to register a new staff member
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.15)',
+                  border: 'none',
+                  color: '#ffffff',
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'; }}
+                aria-label="Close modal"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="modal-body" style={{ padding: '22px 26px', flex: 1, overflowY: 'auto' }}>
+              {formError && (
+                <div className="sweet-alert-popup" role="alert" style={{ marginBottom: 16 }}>
+                  <div className="sweet-alert-icon">
+                    <i className="fas fa-exclamation"></i>
+                  </div>
+                  <div className="sweet-alert-body">
+                    <h4 className="sweet-alert-title">Incomplete Required Fields</h4>
+                    <p className="sweet-alert-desc">{formError}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="sweet-alert-close"
+                    onClick={() => setFormError('')}
+                    aria-label="Dismiss alert"
+                  >
+                    <i className="fas fa-times"></i>
+                  </button>
+                </div>
+              )}
+
+              <form className="edit-form" onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 {/* Profile Photo Upload */}
-                <div className="photo-upload-section">
+                <div
+                  className={`photo-upload-section ${addFormErrors.photo ? 'input-error' : ''}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 16,
+                    padding: '14px 18px',
+                    background: addFormErrors.photo ? '#fef2f2' : '#f8fafc',
+                    border: addFormErrors.photo ? '1.5px dashed #ef4444' : '1.5px dashed #cbd5e1',
+                    borderRadius: 10,
+                    margin: 0,
+                    transition: 'all 0.2s ease',
+                  }}
+                >
                   {addForm.photoPreview ? (
-                    <img src={addForm.photoPreview} alt="Preview" className="photo-preview-box" />
+                    <img
+                      src={addForm.photoPreview}
+                      alt="Preview"
+                      style={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: '50%',
+                        objectFit: 'cover',
+                        border: '2.5px solid #dc2626',
+                        flexShrink: 0,
+                      }}
+                    />
                   ) : (
-                    <div className="photo-placeholder-box"><i className="fas fa-user-plus"></i></div>
+                    <div
+                      style={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: '50%',
+                        background: addFormErrors.photo ? '#fee2e2' : '#e2e8f0',
+                        color: addFormErrors.photo ? '#dc2626' : '#64748b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 22,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <i className="fas fa-user-plus"></i>
+                    </div>
                   )}
-                  <div>
-                    <label className="photo-upload-btn-label">
-                      <i className="fas fa-camera"></i> {addForm.photoPreview ? 'Change Photo' : 'Upload Profile Photo'}
-                      <input
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp,image/jpg"
-                        style={{ display: 'none' }}
-                        onChange={(e) => handlePhotoSelect(e, false)}
-                      />
-                    </label>
-                    {addForm.photoPreview && (
-                      <button
-                        type="button"
-                        onClick={() => setAddForm((prev) => ({ ...prev, photo: null, photoPreview: null }))}
-                        style={{ marginLeft: 8, background: 'none', border: 'none', color: '#dc2626', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <label
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '7px 15px',
+                          background: '#ffffff',
+                          color: '#1e293b',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: 8,
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                          transition: 'all 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = '#dc2626';
+                          e.currentTarget.style.color = '#dc2626';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = '#cbd5e1';
+                          e.currentTarget.style.color = '#1e293b';
+                        }}
                       >
-                        Remove
-                      </button>
+                        <i className="fas fa-camera" style={{ color: '#dc2626' }}></i>
+                        {addForm.photoPreview ? 'Change Photo' : 'Upload Profile Photo'}
+                        <span style={{ color: '#dc2626', marginLeft: 2 }}>*</span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/jpg"
+                          style={{ display: 'none' }}
+                          onChange={(e) => handlePhotoSelect(e, false)}
+                        />
+                      </label>
+                      {addForm.photoPreview && (
+                        <button
+                          type="button"
+                          onClick={() => setAddForm((prev) => ({ ...prev, photo: null, photoPreview: null }))}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#dc2626',
+                            fontSize: 12.5,
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                            padding: '4px 8px',
+                          }}
+                        >
+                          <i className="fas fa-trash-alt" style={{ marginRight: 4 }}></i> Remove
+                        </button>
+                      )}
+                    </div>
+                    <p style={{ margin: '6px 0 0', fontSize: 11.5, color: '#64748b' }}>
+                      Supported formats: JPG, PNG, or WEBP (Max 5MB).
+                    </p>
+                    {addFormErrors.photo && (
+                      <span className="field-error-text" style={{ marginTop: 4 }}>{addFormErrors.photo}</span>
                     )}
-                    <p style={{ margin: '4px 0 0', fontSize: 11, color: '#64748b' }}>JPG, PNG or WEBP up to 5MB.</p>
                   </div>
                 </div>
 
-                <h4 className="form-section-title">Account Information</h4>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Full Name<span className="required">*</span></label>
-                    <input type="text" value={addForm.full_name} onChange={(e) => setAddForm({ ...addForm, full_name: e.target.value })} />
+                {/* Section 1: Account Information */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0 12px', borderBottom: '1.5px solid #f1f5f9', paddingBottom: 6 }}>
+                    <i className="fas fa-user-circle" style={{ color: '#dc2626', fontSize: 15 }}></i>
+                    <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: '#1e293b', letterSpacing: '0.2px' }}>
+                      Account Information
+                    </h4>
                   </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Email Address<span className="required">*</span></label>
-                    <input type="email" value={addForm.email} onChange={(e) => setAddForm({ ...addForm, email: e.target.value })} />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+                    <div className="form-group" style={{ minWidth: 0 }}>
+                      <label style={{ fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                        First Name <span className="required">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className={addFormErrors.first_name ? 'input-error' : ''}
+                        placeholder="e.g. Juan"
+                        value={addForm.first_name}
+                        onChange={(e) => handleAddFormFieldChange('first_name', e.target.value)}
+                      />
+                      {addFormErrors.first_name && <span className="field-error-text">{addFormErrors.first_name}</span>}
+                    </div>
+                    <div className="form-group" style={{ minWidth: 0 }}>
+                      <label style={{ fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                        Middle Name <span className="required">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className={addFormErrors.middle_name ? 'input-error' : ''}
+                        placeholder="e.g. Santos (or N/A)"
+                        value={addForm.middle_name}
+                        onChange={(e) => handleAddFormFieldChange('middle_name', e.target.value)}
+                      />
+                      {addFormErrors.middle_name && <span className="field-error-text">{addFormErrors.middle_name}</span>}
+                    </div>
+                    <div className="form-group" style={{ minWidth: 0 }}>
+                      <label style={{ fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                        Last Name <span className="required">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className={addFormErrors.last_name ? 'input-error' : ''}
+                        placeholder="e.g. Dela Cruz"
+                        value={addForm.last_name}
+                        onChange={(e) => handleAddFormFieldChange('last_name', e.target.value)}
+                      />
+                      {addFormErrors.last_name && <span className="field-error-text">{addFormErrors.last_name}</span>}
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Phone Number<span className="required">*</span></label>
-                    <input
-                      type="text"
-                      value={addForm.phone}
-                      maxLength={11}
-                      placeholder="09XXXXXXXXX"
-                      onChange={(e) => setAddForm({ ...addForm, phone: formatPhoneInput(e.target.value) })}
-                    />
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14, marginTop: 12 }}>
+                    <div className="form-group" style={{ minWidth: 0 }}>
+                      <label style={{ fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                        Email Address <span className="required">*</span>
+                      </label>
+                      <input
+                        type="email"
+                        className={addFormErrors.email ? 'input-error' : ''}
+                        placeholder="staff@hjy.com"
+                        value={addForm.email}
+                        onChange={(e) => handleAddFormFieldChange('email', e.target.value)}
+                      />
+                      {addFormErrors.email && <span className="field-error-text">{addFormErrors.email}</span>}
+                    </div>
+                    <div className="form-group" style={{ minWidth: 0 }}>
+                      <label style={{ fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                        Phone Number <span className="required">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className={addFormErrors.phone ? 'input-error' : ''}
+                        value={addForm.phone}
+                        maxLength={11}
+                        placeholder="09XXXXXXXXX"
+                        onChange={(e) => handleAddFormFieldChange('phone', formatPhoneInput(e.target.value))}
+                      />
+                      {addFormErrors.phone && <span className="field-error-text">{addFormErrors.phone}</span>}
+                    </div>
                   </div>
                 </div>
 
-                {/* Government IDs & Taxes */}
-                <h4 className="form-section-title">Government IDs &amp; Deductible Taxes</h4>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>SSS Number</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 34-1234567-8"
-                      value={addForm.sss_number}
-                      onChange={(e) => setAddForm({ ...addForm, sss_number: e.target.value })}
-                    />
+                {/* Section 2: Government IDs & Deductible Taxes */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0 12px', borderBottom: '1.5px solid #f1f5f9', paddingBottom: 6 }}>
+                    <i className="fas fa-id-card" style={{ color: '#dc2626', fontSize: 15 }}></i>
+                    <h4 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: '#1e293b', letterSpacing: '0.2px' }}>
+                      Government IDs &amp; Deductible Taxes
+                    </h4>
                   </div>
-                  <div className="form-group">
-                    <label>PhilHealth Number</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 12-345678901-2"
-                      value={addForm.philhealth_number}
-                      onChange={(e) => setAddForm({ ...addForm, philhealth_number: e.target.value })}
-                    />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
+                    <div className="form-group" style={{ minWidth: 0 }}>
+                      <label style={{ fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                        SSS Number <span className="required">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className={addFormErrors.sss_number ? 'input-error' : ''}
+                        placeholder="e.g. 34-1234567-8"
+                        value={addForm.sss_number}
+                        onChange={(e) => handleAddFormFieldChange('sss_number', e.target.value)}
+                      />
+                      {addFormErrors.sss_number && <span className="field-error-text">{addFormErrors.sss_number}</span>}
+                    </div>
+                    <div className="form-group" style={{ minWidth: 0 }}>
+                      <label style={{ fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                        PhilHealth Number <span className="required">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className={addFormErrors.philhealth_number ? 'input-error' : ''}
+                        placeholder="e.g. 12-345678901-2"
+                        value={addForm.philhealth_number}
+                        onChange={(e) => handleAddFormFieldChange('philhealth_number', e.target.value)}
+                      />
+                      {addFormErrors.philhealth_number && <span className="field-error-text">{addFormErrors.philhealth_number}</span>}
+                    </div>
                   </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Pag-IBIG (HDMF) Number</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. 1234-5678-9012"
-                      value={addForm.pagibig_number}
-                      onChange={(e) => setAddForm({ ...addForm, pagibig_number: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Deductible Taxes</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Withholding Tax (10%), BIR Form 2316"
-                      value={addForm.deductible_taxes}
-                      onChange={(e) => setAddForm({ ...addForm, deductible_taxes: e.target.value })}
-                    />
-                  </div>
-                </div>
 
-                <h4 className="form-section-title">Security</h4>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>New password<span className="required">*</span></label>
-                    <input type="password" value={addForm.password} onChange={(e) => setAddForm({ ...addForm, password: e.target.value })} />
-                  </div>
-                  <div className="form-group">
-                    <label>Confirm password<span className="required">*</span></label>
-                    <input type="password" value={addForm.confirmPassword} onChange={(e) => setAddForm({ ...addForm, confirmPassword: e.target.value })} />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 14, marginTop: 12 }}>
+                    <div className="form-group" style={{ minWidth: 0 }}>
+                      <label style={{ fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                        Pag-IBIG (HDMF) Number <span className="required">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className={addFormErrors.pagibig_number ? 'input-error' : ''}
+                        placeholder="e.g. 1234-5678-9012"
+                        value={addForm.pagibig_number}
+                        onChange={(e) => handleAddFormFieldChange('pagibig_number', e.target.value)}
+                      />
+                      {addFormErrors.pagibig_number && <span className="field-error-text">{addFormErrors.pagibig_number}</span>}
+                    </div>
+                    <div className="form-group" style={{ minWidth: 0 }}>
+                      <label style={{ fontSize: 12.5, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
+                        Deductible Taxes <span className="required">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className={addFormErrors.deductible_taxes ? 'input-error' : ''}
+                        placeholder="e.g. Withholding Tax (10%), BIR Form 2316"
+                        value={addForm.deductible_taxes}
+                        onChange={(e) => handleAddFormFieldChange('deductible_taxes', e.target.value)}
+                      />
+                      {addFormErrors.deductible_taxes && <span className="field-error-text">{addFormErrors.deductible_taxes}</span>}
+                    </div>
                   </div>
                 </div>
               </form>
             </div>
-            <div className="modal-footer">
-              <button className="btn-cancel" onClick={() => setShowAddModal(false)}>Cancel</button>
-              <button className="btn-save" onClick={saveNewStaff} disabled={saving}>{saving ? 'Adding...' : 'Add Staff'}</button>
+
+            {/* Modal Footer */}
+            <div
+              className="modal-footer"
+              style={{
+                background: '#f8fafc',
+                borderTop: '1px solid #e2e8f0',
+                padding: '16px 26px',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: 12,
+                borderBottomLeftRadius: 14,
+                borderBottomRightRadius: 14,
+                flexShrink: 0,
+              }}
+            >
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => setShowAddModal(false)}
+                style={{
+                  background: '#ffffff',
+                  color: '#475569',
+                  border: '1px solid #cbd5e1',
+                  padding: '10px 22px',
+                  borderRadius: 8,
+                  fontSize: 13.5,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#f1f5f9';
+                  e.currentTarget.style.borderColor = '#94a3b8';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#ffffff';
+                  e.currentTarget.style.borderColor = '#cbd5e1';
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-save"
+                onClick={saveNewStaff}
+                disabled={saving}
+                style={{
+                  background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '10px 26px',
+                  borderRadius: 8,
+                  fontSize: 13.5,
+                  fontWeight: 600,
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 4px 12px rgba(220, 38, 38, 0.25)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  transition: 'all 0.2s ease',
+                  opacity: saving ? 0.7 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (!saving) e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  if (!saving) e.currentTarget.style.transform = 'none';
+                }}
+              >
+                {saving ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin"></i> Adding Staff...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-user-plus"></i> Add Staff
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

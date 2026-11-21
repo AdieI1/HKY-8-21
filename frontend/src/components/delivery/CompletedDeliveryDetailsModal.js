@@ -46,7 +46,11 @@ export default function CompletedDeliveryDetailsModal({
   const tripDuration = formatTripDuration(delivery.start_time || delivery.created_at, delivery.end_time || delivery.updated_at);
   const fuel = getFuelMetrics(delivery);
   const distance = fuel.distance !== '—' ? fuel.distance : (req.distance_km ? `${req.distance_km} km` : '—');
-  const startOdo = delivery.starting_odometer != null ? `${Number(delivery.starting_odometer).toLocaleString()} km` : '—';
+  const preTrip = delivery.checklists?.find?.((c) => c.type === 'pre_trip');
+  const resolvedStartOdo = delivery.starting_odometer 
+    ?? preTrip?.starting_odometer 
+    ?? delivery.vehicle?.odometer_reading;
+  const startOdo = resolvedStartOdo != null && resolvedStartOdo !== '' ? `${Number(resolvedStartOdo).toLocaleString()} km` : '—';
   const endOdo = delivery.ending_odometer != null ? `${Number(delivery.ending_odometer).toLocaleString()} km` : '—';
 
   // Check for reviews
@@ -272,10 +276,29 @@ export default function CompletedDeliveryDetailsModal({
                   </span>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px solid #F9FAFB' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 6, borderBottom: '1px solid #F9FAFB' }}>
                   <span style={{ color: '#6B7280' }}>Receiver:</span>
-                  <span style={{ fontWeight: 600, color: '#111827' }}>
-                    {req.receiver_name ? `${req.receiver_name} (${req.receiver_phone || '—'})` : (customer.full_name || 'Same as Customer')}
+                  <span style={{ fontWeight: 600, color: '#111827', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <span>{req.receiver_name || customer.full_name || 'Same as Customer'}</span>
+                    {(req.receiver_phone || customer.phone) && (
+                      <a
+                        href={`tel:${req.receiver_phone || customer.phone}`}
+                        style={{
+                          color: '#0284c7',
+                          background: '#e0f2fe',
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          textDecoration: 'none',
+                          fontSize: '12px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                        }}
+                      >
+                        <i className="fas fa-phone-alt" style={{ fontSize: '10px' }}></i>
+                        {req.receiver_phone || customer.phone}
+                      </a>
+                    )}
                   </span>
                 </div>
 
@@ -462,101 +485,6 @@ export default function CompletedDeliveryDetailsModal({
                     </div>
                   )}
                 </div>
-
-                {/* Official Collection Receipt Section */}
-                <div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      margin: '0 0 10px 0',
-                      paddingBottom: 8,
-                      borderBottom: '1px solid #F3F4F6',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <i className="fas fa-receipt" style={{ color: '#C53030', fontSize: 13 }}></i>
-                      <h4 style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                        Official Collection Receipt
-                      </h4>
-                    </div>
-                    {delivery.collection_receipt_no && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          background: '#DCFCE7',
-                          color: '#15803D',
-                          padding: '2px 8px',
-                          borderRadius: 10,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                        }}
-                      >
-                        <i className="fas fa-check-circle"></i> Issued &amp; Emailed
-                      </span>
-                    )}
-                  </div>
-
-                  {delivery.collection_receipt_no ? (
-                    <div style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 13 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px solid #F3F4F6' }}>
-                        <span style={{ color: '#6B7280' }}>Receipt Number:</span>
-                        <strong style={{ color: '#111827' }}>{delivery.collection_receipt_no}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6' }}>
-                        <span style={{ color: '#6B7280' }}>Amount Collected:</span>
-                        <strong style={{ color: '#15803D', fontSize: 15 }}>
-                          ₱{Number(delivery.collection_receipt_amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
-                        </strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6 }}>
-                        <span style={{ color: '#6B7280' }}>Payment Mode:</span>
-                        <span style={{ color: '#374151', fontWeight: 600 }}>{delivery.collection_receipt_payment_mode || 'Cash'}</span>
-                      </div>
-                      <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px dashed #E5E7EB', fontSize: 11, color: '#6B7280', display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <i className="fas fa-envelope-circle-check" style={{ color: '#16A34A' }}></i>
-                        <span>Auto-delivered to customer email &amp; mobile app</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ padding: '14px 12px', background: '#F9FAFB', borderRadius: 8, textAlign: 'center', color: '#6B7280', fontSize: 12, marginBottom: 12 }}>
-                      <i className="fas fa-circle-info" style={{ color: '#9CA3AF', marginBottom: 4, display: 'block', fontSize: 18 }}></i>
-                      No official collection receipt has been issued yet for this shipment.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <button
-                  type="button"
-                  onClick={() => onOpenReceipt(delivery)}
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    background: '#C53030', // System red button
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: 6,
-                    fontWeight: 700,
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    boxShadow: '0 2px 4px rgba(197, 48, 48, 0.25)',
-                    transition: 'all 0.15s ease',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = '#9B2C2C'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = '#C53030'; }}
-                >
-                  <i className="fas fa-file-invoice"></i>
-                  View Official Receipt
-                </button>
               </div>
             </div>
           </div>

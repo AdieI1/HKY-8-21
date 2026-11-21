@@ -85,6 +85,41 @@ export const getCurrentUser = async () => {
     return data;
 };
 
+export const changeDriverPassword = async (currentPassword, newPassword, confirmPassword) => {
+    const token = await getToken();
+    if (!token) throw new Error("Not authenticated.");
+
+    const response = await fetch(`${API_URL}/driver/change-password`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+            current_password: currentPassword,
+            new_password: newPassword,
+            new_password_confirmation: confirmPassword,
+        }),
+    });
+
+    const data = await safeJson(response);
+    if (!response.ok) {
+        throw new Error(
+            data?.message ||
+            data?.errors?.new_password?.[0] ||
+            data?.errors?.current_password?.[0] ||
+            "Failed to update password."
+        );
+    }
+
+    if (data?.user) {
+        await AsyncStorage.setItem(USER_KEY, JSON.stringify(data.user));
+    }
+
+    return data;
+};
+
 /* =========================================================
    DRIVER DELIVERIES & NOTIFICATIONS
 ========================================================= */

@@ -411,7 +411,18 @@ function StaffDashboardPage() {
 
     const mappedFleet = vehiclesList.map((v, idx) => {
       const vehId = `VCL${String(v.vehicle_id || idx + 1).padStart(3, '0')}`;
-      const model = v.model || v.brand || 'Truck';
+      const brand = (v.brand || '').trim();
+      const rawModel = (v.model || '').trim();
+      let model = '';
+      if (brand && rawModel) {
+        if (rawModel.toLowerCase().startsWith(brand.toLowerCase())) {
+          model = rawModel;
+        } else {
+          model = `${brand} - ${rawModel}`;
+        }
+      } else {
+        model = rawModel || brand || 'Truck';
+      }
       const plate = v.plate_number || 'XYZ 1213';
       const vehicleType = v.vehicle_type || 'Active Fleet';
 
@@ -1237,7 +1248,7 @@ function StaffDashboardPage() {
               <table className="adm-fleet-table">
                 <thead>
                   <tr>
-                    <th className="adm-fleet-veh-col">VEHICLE / DRIVER</th>
+                    <th className="adm-fleet-veh-col" style={{ width: '270px', minWidth: '250px', paddingLeft: '16px' }}>VEHICLE / DRIVER</th>
                     {weekDays.map((d) => (
                       <th key={d.key} className={d.highlight ? 'adm-fleet-day-col highlight' : 'adm-fleet-day-col'}>
                         <div className="adm-day-label">{d.label}</div>
@@ -1262,17 +1273,53 @@ function StaffDashboardPage() {
                   ) : (
                     fleetList.map((row) => (
                       <tr key={row.id}>
-                        <td className="adm-fleet-veh-td">
-                          <div className="adm-veh-info">
+                        <td className="adm-fleet-veh-td" style={{ padding: '14px 12px 14px 16px' }}>
+                          <div className="adm-veh-info" style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                             <img
                               src={row.photo_url || '/images/trucknisiya.png'}
                               alt="truck"
                               className="adm-veh-img"
+                              style={{
+                                width: '78px',
+                                height: '56px',
+                                minWidth: '78px',
+                                objectFit: 'cover',
+                                borderRadius: '8px',
+                                border: '1.5px solid #cbd5e1',
+                                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.08)',
+                                flexShrink: 0,
+                                backgroundColor: '#f8fafc',
+                              }}
                               onError={(e) => { e.currentTarget.src = '/images/trucknisiya.png'; }}
                             />
-                            <div>
-                              <div className="adm-veh-model">{row.model}</div>
-                              <div className="adm-veh-plate">{row.plate}</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
+                              <div
+                                className="adm-veh-model"
+                                title={row.model}
+                                style={{
+                                  fontWeight: '800',
+                                  fontSize: '16px',
+                                  color: '#0f172a',
+                                  lineHeight: 1.25,
+                                  letterSpacing: '-0.2px',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {row.model}
+                              </div>
+                              <div
+                                className="adm-veh-plate"
+                                style={{
+                                  fontSize: '13.5px',
+                                  fontWeight: '700',
+                                  color: '#475569',
+                                  letterSpacing: '0.4px',
+                                }}
+                              >
+                                {row.plate}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -1425,12 +1472,12 @@ function StaffDashboardPage() {
             <table className="adm-priority-table" style={{ width: '100%', tableLayout: 'auto' }}>
               <thead>
                 <tr>
-                  <th style={{ width: '90px', whiteSpace: 'nowrap' }}>Reference</th>
-                  <th style={{ minWidth: '150px' }}>Details &amp; Cargo</th>
-                  <th style={{ minWidth: '150px' }}>Vehicle / Driver</th>
-                  <th style={{ width: '130px', whiteSpace: 'nowrap' }}>Schedule / Date</th>
-                  <th style={{ width: '165px', whiteSpace: 'nowrap' }}>Status</th>
-                  <th style={{ textAlign: 'right', width: '175px', whiteSpace: 'nowrap' }}>Action</th>
+                  <th style={{ width: '100px', whiteSpace: 'nowrap', fontSize: '12.5px', padding: '12px 16px' }}>Reference</th>
+                  <th style={{ minWidth: '160px', fontSize: '12.5px', padding: '12px 16px' }}>Details &amp; Cargo</th>
+                  <th style={{ minWidth: '160px', fontSize: '12.5px', padding: '12px 16px' }}>Vehicle / Driver</th>
+                  <th style={{ width: '140px', whiteSpace: 'nowrap', fontSize: '12.5px', padding: '12px 16px' }}>Schedule / Date</th>
+                  <th style={{ width: '170px', whiteSpace: 'nowrap', fontSize: '12.5px', padding: '12px 16px' }}>Status</th>
+                  <th style={{ textAlign: 'right', width: '180px', whiteSpace: 'nowrap', fontSize: '12.5px', padding: '12px 16px' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1438,8 +1485,8 @@ function StaffDashboardPage() {
                   <TableSkeleton rows={4} columns={6} />
                 ) : actionItems.length === 0 ? (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: 'center', padding: '32px 16px', color: '#6B7280', fontSize: '13px' }}>
-                      <i className="far fa-check-circle" style={{ fontSize: '22px', color: '#10B981', display: 'block', marginBottom: '8px' }}></i>
+                    <td colSpan={6} style={{ textAlign: 'center', padding: '36px 16px', color: '#6B7280', fontSize: '14px' }}>
+                      <i className="far fa-check-circle" style={{ fontSize: '24px', color: '#10B981', display: 'block', marginBottom: '8px' }}></i>
                       You currently don't have any overdue deliveries or requests requiring action.
                     </td>
                   </tr>
@@ -1451,70 +1498,71 @@ function StaffDashboardPage() {
 
                     return pagedActionItems.map((item) => (
                       <tr key={`${item.type}-${item.id}`}>
-                        <td>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                            <span className={`adm-action-badge-tag ${item.type}`}>
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <span className={`adm-action-badge-tag ${item.type}`} style={{ fontSize: '10.5px', fontWeight: 700, padding: '2px 7px' }}>
                               {item.type === 'delivery' ? <i className="fas fa-truck"></i> : item.type === 'incident' ? <i className="fas fa-exclamation-triangle"></i> : <i className="fas fa-file-invoice"></i>}
                               {item.type}
                             </span>
-                            <span style={{ fontWeight: 700, fontSize: '12px', color: '#1E293B' }}>{item.id}</span>
+                            <span style={{ fontWeight: 800, fontSize: '13.5px', color: '#1E293B' }}>{item.id}</span>
                           </div>
                         </td>
-                        <td>
-                          <div style={{ fontWeight: 600, color: '#0F172A', fontSize: '12px' }}>{item.item}</div>
-                          <div style={{ fontSize: '11px', color: '#64748B' }}>{item.customer}</div>
-                          {item.route && <div style={{ fontSize: '10px', color: '#94A3B8', marginTop: '1px' }}>{item.route}</div>}
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ fontWeight: 700, color: '#0F172A', fontSize: '14px' }}>{item.item}</div>
+                          <div style={{ fontSize: '12.5px', color: '#475569', marginTop: '2px' }}>{item.customer}</div>
+                          {item.route && <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '3px' }}>{item.route}</div>}
                         </td>
-                        <td>
+                        <td style={{ padding: '14px 16px' }}>
                           {item.vehicle && item.vehicle !== 'Unassigned' ? (
                             <div>
-                              <div style={{ fontWeight: 600, fontSize: '11.5px', color: '#334155' }}>{item.vehicle}</div>
-                              <div style={{ fontSize: '10.5px', color: '#64748B' }}>{item.driver}</div>
+                              <div style={{ fontWeight: 700, fontSize: '13px', color: '#1E293B' }}>{item.vehicle}</div>
+                              <div style={{ fontSize: '12px', color: '#475569', marginTop: '2px' }}>{item.driver}</div>
                             </div>
                           ) : (
-                            <span style={{ fontSize: '11px', color: '#94A3B8', fontStyle: 'italic' }}>Unassigned</span>
+                            <span style={{ fontSize: '12.5px', color: '#94A3B8', fontStyle: 'italic', fontWeight: 500 }}>Unassigned</span>
                           )}
                         </td>
-                        <td>
-                          <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#334155' }}>{item.date}</div>
+                        <td style={{ padding: '14px 16px' }}>
+                          <div style={{ fontSize: '13px', fontWeight: 700, color: '#1E293B' }}>{item.date}</div>
                           {item.urgency === 'delayed' && (
-                            <span style={{ fontSize: '10.5px', color: '#DC2626', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <span style={{ fontSize: '11px', color: '#DC2626', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px', marginTop: '3px' }}>
                               <i className="fas fa-exclamation-triangle"></i> {item.delayDays}d delayed
                             </span>
                           )}
                           {item.urgency === 'overdue' && (
-                            <span style={{ fontSize: '10.5px', color: '#EA580C', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <span style={{ fontSize: '11px', color: '#EA580C', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px', marginTop: '3px' }}>
                               <i className="fas fa-clock"></i> Overdue ({item.daysOld}d)
                             </span>
                           )}
                         </td>
-                        <td>
+                        <td style={{ padding: '14px 16px' }}>
                           <span
                             style={{
-                              fontSize: '10.5px',
+                              fontSize: '12px',
                               fontWeight: 700,
-                              padding: '2px 8px',
+                              padding: '3px 10px',
                               borderRadius: '12px',
                               background: DELIVERY_STAGE_COLORS[item.stageType]?.bg || '#F3F4F6',
                               color: DELIVERY_STAGE_COLORS[item.stageType]?.color || '#374151',
                               border: `1px solid ${DELIVERY_STAGE_COLORS[item.stageType]?.border || '#D1D5DB'}`,
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: '4px',
+                              gap: '5px',
                             }}
                           >
-                            {item.urgency === 'delayed' && <i className="fas fa-exclamation-triangle" style={{ fontSize: '9px', color: '#DC2626' }}></i>}
+                            {item.urgency === 'delayed' && <i className="fas fa-exclamation-triangle" style={{ fontSize: '10px', color: '#DC2626' }}></i>}
                             {item.statusLabel}
                           </span>
                         </td>
-                        <td style={{ textAlign: 'right' }}>
+                        <td style={{ textAlign: 'right', padding: '14px 16px' }}>
                           {item.type === 'delivery' ? (
-                            <div style={{ display: 'inline-flex', gap: '4px' }}>
+                            <div style={{ display: 'inline-flex', gap: '6px' }}>
                               {item.isUnassigned && (
                                 <Link
                                   to={`/dispatch?delivery_id=${item.rawId}`}
                                   className="adm-action-btn primary"
                                   title="Assign Vehicle and Driver in Dispatch"
+                                  style={{ padding: '6px 12px', fontSize: '12px', fontWeight: 700 }}
                                 >
                                   <i className="fas fa-truck-loading"></i> Assign
                                 </Link>
@@ -1528,6 +1576,7 @@ function StaffDashboardPage() {
                                 }}
                                 className={`adm-action-btn ${item.isUnassigned ? '' : 'primary'}`}
                                 title="Jump to scheduled date in calendar"
+                                style={{ padding: '6px 12px', fontSize: '12px', fontWeight: 700 }}
                               >
                                 <i className="fas fa-calendar-alt"></i> Calendar
                               </button>
@@ -1535,6 +1584,7 @@ function StaffDashboardPage() {
                                 to={`/delivery?delivery_id=${item.rawId}`}
                                 className="adm-action-btn"
                                 title={`Open details modal for ${item.id}`}
+                                style={{ padding: '6px 12px', fontSize: '12px', fontWeight: 700 }}
                               >
                                 <i className="fas fa-eye"></i> View
                               </Link>
@@ -1544,6 +1594,7 @@ function StaffDashboardPage() {
                               to={item.deliveryId ? `/delivery?delivery_id=${item.deliveryId}` : '/delivery'}
                               className="adm-action-btn primary"
                               title="Assist and view incident monitoring"
+                              style={{ padding: '6px 12px', fontSize: '12px', fontWeight: 700 }}
                             >
                               <i className="fas fa-wrench"></i> Assist
                             </Link>
@@ -1552,6 +1603,7 @@ function StaffDashboardPage() {
                               to={`/requests?request_id=${item.rawId}`}
                               className="adm-action-btn primary"
                               title="Review and dispatch request"
+                              style={{ padding: '6px 12px', fontSize: '12px', fontWeight: 700 }}
                             >
                               <i className="fas fa-clipboard-check"></i> Dispatch
                             </Link>
@@ -1564,9 +1616,10 @@ function StaffDashboardPage() {
               </tbody>
             </table>
 
-            {/* Pagination Controls */}
+            {/* Pagination Controls - Only shown when more than 1 page exists */}
             {actionItems.length > 0 && (() => {
               const totalActionPages = Math.max(1, Math.ceil(actionItems.length / ACTION_PAGE_SIZE));
+              if (totalActionPages <= 1) return null;
               const safePage = Math.min(actionPage, totalActionPages);
               const startIdx = (safePage - 1) * ACTION_PAGE_SIZE + 1;
               const endIdx = Math.min(safePage * ACTION_PAGE_SIZE, actionItems.length);
@@ -1577,10 +1630,10 @@ function StaffDashboardPage() {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '9px 16px',
+                    padding: '10px 16px',
                     borderTop: '1px solid #F1F5F9',
                     background: '#FAFAFA',
-                    fontSize: '11.5px',
+                    fontSize: '12px',
                     color: '#64748B',
                   }}
                 >

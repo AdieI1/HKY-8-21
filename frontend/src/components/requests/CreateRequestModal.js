@@ -49,7 +49,6 @@ export default function CreateRequestModal({
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [errors, setErrors] = useState({});
-  const [showPassword, setShowPassword] = useState(false);
   const [locating, setLocating] = useState('');
   const [receiptPreview, setReceiptPreview] = useState(null);
   const [pricingRates, setPricingRates] = useState({
@@ -205,14 +204,6 @@ export default function CreateRequestModal({
     }
 
     if (!form.email?.trim()) newErrors.email = 'Missing output';
-    if (!form.username?.trim()) newErrors.username = 'Missing output';
-    if (!form.password?.trim()) newErrors.password = 'Missing output';
-
-    if (!form.confirmPassword?.trim()) {
-      newErrors.confirmPassword = 'Missing output';
-    } else if (form.password && form.confirmPassword && form.password !== form.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
 
     // Cargo Information
     if (!form.item_name?.trim()) newErrors.item_name = 'Missing output';
@@ -243,6 +234,11 @@ export default function CreateRequestModal({
     if (form.is_scheduled && !asDraft) {
       if (!form.scheduled_date) {
         newErrors.scheduled_date = 'Please select a delivery date';
+      } else {
+        const todayStr = new Date().toISOString().split('T')[0];
+        if (form.scheduled_date < todayStr) {
+          newErrors.scheduled_date = 'Scheduled delivery date cannot be in the past';
+        }
       }
     }
 
@@ -258,8 +254,6 @@ export default function CreateRequestModal({
         setFormError('Pick-up and Drop-off locations must be strictly within Mindanao only.');
       } else if (validationErrors.phone === 'Invalid phone number') {
         setFormError('Contact number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
-      } else if (validationErrors.confirmPassword === 'Passwords do not match') {
-        setFormError('Passwords do not match.');
       } else if (validationErrors.scheduled_date) {
         setFormError(validationErrors.scheduled_date);
       } else {
@@ -277,8 +271,6 @@ export default function CreateRequestModal({
       formData.append('last_name', form.last_name);
       formData.append('phone', form.phone);
       formData.append('email', form.email);
-      if (form.username) formData.append('username', form.username);
-      formData.append('password', form.password);
       if (form.item_name) formData.append('item_name', form.item_name);
       formData.append('cargo_type', form.cargo_type);
       formData.append('service_type', form.service_type || 'standard');
@@ -377,6 +369,23 @@ export default function CreateRequestModal({
               </div>
 
               <div className="form-group" style={{ position: 'relative' }}>
+                <label>Last Name<span className="required">*</span></label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className={`form-input ${errors.last_name ? 'input-error' : ''}`}
+                    placeholder={errors.last_name ? 'Missing output' : 'Enter last name'}
+                    value={form.last_name}
+                    onChange={(e) => handleInputChange('last_name', e.target.value)}
+                  />
+                  {errors.last_name && <span className="input-missing-tag">Missing output</span>}
+                </div>
+                {errors.last_name && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.last_name}</div>}
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group" style={{ position: 'relative' }}>
                 <label>Contact Number<span className="required">*</span></label>
                 <div style={{ position: 'relative' }}>
                   <input
@@ -404,30 +413,7 @@ export default function CreateRequestModal({
                 </div>
                 {errors.phone && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.phone}</div>}
               </div>
-            </div>
 
-            <div className="form-row">
-              <div className="form-group" style={{ position: 'relative' }}>
-                <label>Last Name<span className="required">*</span></label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    type="text"
-                    className={`form-input ${errors.last_name ? 'input-error' : ''}`}
-                    placeholder={errors.last_name ? 'Missing output' : 'Enter last name'}
-                    value={form.last_name}
-                    onChange={(e) => handleInputChange('last_name', e.target.value)}
-                  />
-                  {errors.last_name && <span className="input-missing-tag">Missing output</span>}
-                </div>
-                {errors.last_name && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.last_name}</div>}
-              </div>
-            </div>
-          </div>
-
-          {/* Account Setup */}
-          <div className="form-section">
-            <h3 className="section-title-form">Account Setup</h3>
-            <div className="form-row">
               <div className="form-group" style={{ position: 'relative' }}>
                 <label>Email Address<span className="required">*</span></label>
                 <div style={{ position: 'relative' }}>
@@ -441,56 +427,6 @@ export default function CreateRequestModal({
                   {errors.email && <span className="input-missing-tag">Missing output</span>}
                 </div>
                 {errors.email && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.email}</div>}
-              </div>
-
-              <div className="form-group" style={{ position: 'relative' }}>
-                <label>Username<span className="required">*</span></label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    type="text"
-                    className={`form-input ${errors.username ? 'input-error' : ''}`}
-                    placeholder={errors.username ? 'Missing output' : 'Enter username'}
-                    value={form.username}
-                    onChange={(e) => handleInputChange('username', e.target.value)}
-                  />
-                  {errors.username && <span className="input-missing-tag">Missing output</span>}
-                </div>
-                {errors.username && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.username}</div>}
-              </div>
-            </div>
-
-            <div className="form-row">
-              <div className="form-group password-group" style={{ position: 'relative' }}>
-                <label>Password<span className="required">*</span></label>
-                <div className="password-input-wrapper" style={{ position: 'relative' }}>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    className={`form-input ${errors.password ? 'input-error' : ''}`}
-                    placeholder={errors.password ? 'Missing output' : 'Enter password'}
-                    value={form.password}
-                    onChange={(e) => handleInputChange('password', e.target.value)}
-                  />
-                  {errors.password && <span className="input-missing-tag" style={{ right: 38 }}>Missing output</span>}
-                  <button type="button" className="btn-toggle-password" onClick={() => setShowPassword((p) => !p)} style={{ position: 'absolute', right: 10, top: 8, background: 'none', border: 'none', cursor: 'pointer' }}>
-                    <i className={`fas ${showPassword ? 'fa-eye' : 'fa-eye-slash'}`}></i>
-                  </button>
-                </div>
-                {errors.password && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.password}</div>}
-              </div>
-
-              <div className="form-group password-group" style={{ position: 'relative' }}>
-                <label>Confirm Password<span className="required">*</span></label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    className={`form-input ${errors.confirmPassword ? 'input-error' : ''}`}
-                    placeholder={errors.confirmPassword ? 'Missing output' : 'Confirm password'}
-                    value={form.confirmPassword}
-                    onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                  />
-                  {errors.confirmPassword && <span className="input-missing-tag">Missing output</span>}
-                </div>
-                {errors.confirmPassword && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.confirmPassword}</div>}
               </div>
             </div>
           </div>

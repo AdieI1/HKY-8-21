@@ -186,6 +186,7 @@ export default function RescheduleProposalModal({
             </label>
             <input
               type="date"
+              min={new Date().toISOString().split('T')[0]}
               value={rescheduleDate}
               onChange={(e) => setRescheduleDate(e.target.value)}
               style={{

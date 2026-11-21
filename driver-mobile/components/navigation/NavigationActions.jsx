@@ -6,6 +6,7 @@ import {
   Alert,
 } from "react-native";
 import { useState } from "react";
+import { useRouter } from "expo-router";
 
 import Ionicons from "@expo/vector-icons/Ionicons";
 
@@ -15,7 +16,9 @@ export default function NavigationActions({
   onDeliveryCompleted,
   onStatusChange,
   onRequestProofOfDelivery,
+  delivery,
 }) {
+  const router = useRouter();
   const [changing, setChanging] = useState(false);
   const getMainButtonText = () => {
     if (navigationState === "preview") {
@@ -83,10 +86,30 @@ export default function NavigationActions({
         onDeliveryCompleted();
       }
     } catch (error) {
-      Alert.alert(
-        "Unable to Update Delivery",
-        error?.message || "Could not connect to the server."
-      );
+      if (error?.message?.toLowerCase().includes("pre-trip")) {
+        Alert.alert(
+          "Pre-Trip Checklist Required",
+          "Please complete the vehicle pre-trip inspection before starting navigation.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Inspect Vehicle",
+              onPress: () => {
+                const targetId = delivery?.delivery_id || delivery?.id;
+                router.push({
+                  pathname: "/pretripcheck",
+                  params: targetId ? { deliveryId: String(targetId) } : {},
+                });
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert(
+          "Unable to Update Delivery",
+          error?.message || "Could not connect to the server."
+        );
+      }
     } finally {
       setChanging(false);
     }

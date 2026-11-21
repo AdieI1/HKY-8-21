@@ -27,7 +27,9 @@ export function formatTripDuration(startTime, endTime) {
  * Calculates fuel consumption and fuel efficiency (km/L).
  */
 export function getFuelMetrics(delivery) {
-  const startFuel = delivery?.starting_fuel != null ? Number(delivery.starting_fuel) : null;
+  const preTrip = delivery?.checklists?.find?.((c) => c.type === 'pre_trip');
+  const rawStartFuel = delivery?.starting_fuel ?? preTrip?.starting_fuel ?? delivery?.fuel_issued ?? delivery?.vehicle?.fuel_level;
+  const startFuel = rawStartFuel != null && rawStartFuel !== '' ? Number(rawStartFuel) : null;
   let endFuel = delivery?.ending_fuel != null ? Number(delivery.ending_fuel) : null;
   if (endFuel !== null && endFuel < 0) endFuel = Math.max(0, endFuel);
 
@@ -62,7 +64,11 @@ function PostDeliveryMetricsPanel({ delivery, speedMetrics, onViewRouteMap, hide
   const fuel = getFuelMetrics(delivery);
   const distance = fuel.distance !== '—' ? `${fuel.distance} km` : (delivery.request?.distance_km ? `${delivery.request.distance_km} km` : '—');
 
-  const startOdo = delivery.starting_odometer != null ? `${Number(delivery.starting_odometer).toLocaleString()} km` : '—';
+  const preTrip = delivery.checklists?.find?.((c) => c.type === 'pre_trip');
+  const resolvedStartOdo = delivery.starting_odometer 
+    ?? preTrip?.starting_odometer 
+    ?? delivery.vehicle?.odometer_reading;
+  const startOdo = resolvedStartOdo != null && resolvedStartOdo !== '' ? `${Number(resolvedStartOdo).toLocaleString()} km` : '—';
   const endOdo = delivery.ending_odometer != null ? `${Number(delivery.ending_odometer).toLocaleString()} km` : '—';
 
   const completedTime = delivery.end_time || delivery.updated_at;

@@ -192,10 +192,11 @@
 }
 
 .customers-table td {
-    font-size: 13px;
+    font-size: 13.5px;
     color: #334155;
     padding: 12px 16px;
     border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
 }
 
 .clickable-customer-row {

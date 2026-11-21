@@ -140,6 +140,16 @@ export default function AccountSetup() {
       errors.dob = true;
     }
 
+    if (dob && dob instanceof Date && dob > new Date()) {
+      setFieldErrors({ ...errors, dob: true });
+      setToastConfig({
+        visible: true,
+        message: 'Birthdate cannot be in the future',
+        type: 'error',
+      });
+      return;
+    }
+
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       setToastConfig({
@@ -370,14 +380,17 @@ export default function AccountSetup() {
                 mode="date"
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                 maximumDate={new Date()}
-                onChange={(event, selectedDate) => {
+                onValueChange={(event, selectedDate) => {
                   setShowDatePicker(false);
-                  if (event.type === 'set' && selectedDate) {
+                  if (selectedDate) {
                     setDob(selectedDate);
                     if (fieldErrors.dob) {
                       setFieldErrors((prev) => ({ ...prev, dob: false }));
                     }
                   }
+                }}
+                onDismiss={() => {
+                  setShowDatePicker(false);
                 }}
               />
             )}

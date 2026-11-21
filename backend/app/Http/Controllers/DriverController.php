@@ -9,6 +9,8 @@ use App\Models\AppNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 
 class DriverController extends Controller
@@ -37,7 +39,7 @@ class DriverController extends Controller
             'email' => 'required|email|unique:users,email',
             'username' => 'nullable|string|max:50|unique:users,username',
             'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
-            'password' => 'required|min:6',
+            'password' => 'nullable|min:6',
             'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
 
@@ -53,7 +55,7 @@ class DriverController extends Controller
 
             'experience_years' => 'nullable|integer|min:0',
             'health_condition' => 'nullable|string|max:255',
-            'birthdate' => 'nullable|date',
+            'birthdate' => 'nullable|date|before_or_equal:today',
             'nationality' => 'nullable|string|max:50',
             'last_medical_check' => 'nullable|date',
             'prescriptions' => 'nullable|string',
@@ -90,11 +92,17 @@ class DriverController extends Controller
             }
         }
 
+        // Generate cryptographically secure temporary password if not provided
+        $tempPassword = $request->filled('password')
+            ? $request->password
+            : 'HJY@' . random_int(100000, 999999);
+
         $driver = DB::transaction(function () use (
             $request,
             $driverRole,
             $photoPath,
-            $docPaths
+            $docPaths,
+            $tempPassword
         ) {
             $user = User::create([
                 'role_id' => $driverRole?->role_id,
@@ -103,7 +111,8 @@ class DriverController extends Controller
                 'username' => $request->username,
                 'phone' => $request->phone,
                 'profile_photo_path' => $photoPath,
-                'password' => Hash::make($request->password),
+                'password' => Hash::make($tempPassword),
+                'must_change_password' => true,
                 'status' => 'active',
             ]);
 
@@ -147,10 +156,71 @@ class DriverController extends Controller
             ]);
         });
 
+        // Send email with credentials to the driver (OWASP Zero-Knowledge Delivery)
+        try {
+            $createdUser = $driver->user ?: User::find($driver->user_id);
+            if ($createdUser && !empty($createdUser->email)) {
+                $this->sendDriverWelcomeEmail($createdUser, $tempPassword);
+            }
+        } catch (\Throwable $emailErr) {
+            Log::error('Failed to send driver welcome credentials email: ' . $emailErr->getMessage());
+        }
+
         $driverName = $driver->user?->full_name ?: 'Driver';
         AppNotification::notify('driver', 'New Driver Added', "Driver {$driverName} has been registered.", '/drivers');
 
         return $driver->load('user');
+    }
+
+    private function sendDriverWelcomeEmail(User $user, string $tempPassword): void
+    {
+        $driverName = e($user->full_name ?: 'Driver');
+        $driverEmail = e($user->email);
+        $tempPasswordSafe = e($tempPassword);
+
+        Mail::send([], [], function ($message) use ($user, $driverName, $driverEmail, $tempPasswordSafe) {
+            $message->to($user->email)
+                ->subject('HJY Trucking Services - Your Driver Account & Temporary Password')
+                ->html("
+                    <div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 32px 24px; border: 1px solid #e2e8f0; border-radius: 14px; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.05);'>
+                        <div style='text-align: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #b91c1c;'>
+                            <h2 style='color: #b91c1c; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0.5px;'>HJY TRUCKING SERVICES</h2>
+                            <p style='color: #64748b; font-size: 13px; margin: 4px 0 0; font-weight: 600;'>FLEET DRIVER ONBOARDING & CREDENTIALS</p>
+                        </div>
+                        <p style='color: #1e293b; font-size: 15px; margin-bottom: 12px;'>Hello <strong>{$driverName}</strong>,</p>
+                        <p style='color: #334155; font-size: 14px; line-height: 1.6; margin-bottom: 20px;'>
+                            Welcome to the <strong>HJY Trucking Services</strong> fleet team! An official driver profile has been created for you by dispatch operations. You can now sign in to the <strong>HJY Driver Mobile App</strong> to manage assigned trips, conduct pre-trip safety checks, and view turn-by-turn routes.
+                        </p>
+                        
+                        <div style='background-color: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 18px 20px; margin-bottom: 20px;'>
+                            <h4 style='color: #0f172a; margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #cbd5e1; padding-bottom: 8px;'>Your Initial Login Credentials</h4>
+                            <p style='margin: 8px 0; color: #475569; font-size: 14px;'><strong>Login Email:</strong> <span style='color: #0f172a; font-weight: 600;'>{$driverEmail}</span></p>
+                            <p style='margin: 8px 0; color: #475569; font-size: 14px;'><strong>Temporary Password:</strong> <code style='background: #fee2e2; border: 1px solid #fca5a5; padding: 4px 10px; border-radius: 5px; font-family: monospace; font-size: 15px; font-weight: 800; color: #b91c1c; letter-spacing: 0.5px;'>{$tempPasswordSafe}</code></p>
+                        </div>
+
+                        <div style='background-color: #eff6ff; border-left: 4px solid #3b82f6; padding: 14px 18px; border-radius: 6px; margin-bottom: 24px;'>
+                            <h5 style='margin: 0 0 6px; color: #1e40af; font-size: 13.5px; font-weight: 700;'>
+                                Security Notice (OWASP ASVS Standard):
+                            </h5>
+                            <p style='color: #1e3a8a; font-size: 13px; line-height: 1.5; margin: 0;'>
+                                This temporary password is for your initial login only. For your security and account confidentiality, you will be prompted to <strong>choose a new permanent password</strong> upon your first sign-in on the mobile app.
+                            </p>
+                        </div>
+
+                        <div style='background-color: #f1f5f9; padding: 14px 18px; border-radius: 8px; margin-bottom: 24px;'>
+                            <h5 style='margin: 0 0 8px; color: #334155; font-size: 13px; font-weight: 700;'>Quick Sign-In Steps:</h5>
+                            <ol style='margin: 0; padding-left: 20px; color: #475569; font-size: 13px; line-height: 1.6;'>
+                                <li>Launch the <strong>HJY Driver Mobile App</strong> on your mobile device.</li>
+                                <li>Enter your email <strong>{$driverEmail}</strong> and the temporary password above.</li>
+                                <li>Set your personal, confidential password to activate your account.</li>
+                            </ol>
+                        </div>
+
+                        <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;'>
+                        <p style='color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5; text-align: center;'>HJY Trucking Services &bull; Cagayan de Oro City, Mindanao, Philippines<br>This is an automated operational notification. Please do not reply directly to this email.</p>
+                    </div>
+                ");
+        });
     }
 
     public function show(Driver $driver)
@@ -179,6 +249,7 @@ class DriverController extends Controller
                 ',user_id',
 
             'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
+            'birthdate' => 'nullable|date|before_or_equal:today',
             'license_number' => ['nullable', 'string', 'regex:/^[A-Z]\d{2}-\d{2}-\d{6}$/i'],
             'license_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
             'medical_certificate_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
@@ -196,7 +267,16 @@ class DriverController extends Controller
                 'nullable|in:active,inactive',
         ]);
 
-        DB::transaction(function () use ($request, $driver) {
+        $oldEmail = $driver->user?->email;
+        $newEmail = $request->input('email');
+        $emailChanged = $newEmail && strtolower(trim($newEmail)) !== strtolower(trim($oldEmail ?? ''));
+
+        $generatedTempPassword = null;
+        if (($emailChanged && $driver->user?->must_change_password) || $request->boolean('resend_credentials')) {
+            $generatedTempPassword = 'HJY@' . random_int(100000, 999999);
+        }
+
+        DB::transaction(function () use ($request, $driver, $generatedTempPassword) {
             $driverData = $request->only([
                 'license_number',
                 'license_type',
@@ -243,6 +323,10 @@ class DriverController extends Controller
             if ($request->filled('password')) {
                 $userPayload['password'] =
                     Hash::make($request->password);
+            } elseif ($generatedTempPassword) {
+                $userPayload['password'] =
+                    Hash::make($generatedTempPassword);
+                $userPayload['must_change_password'] = true;
             }
 
             if ($request->hasFile('profile_photo')) {
@@ -266,10 +350,50 @@ class DriverController extends Controller
             }
         });
 
+        // Automatically dispatch credentials email if temporary password was generated or email changed
+        if ($generatedTempPassword) {
+            $updatedUser = $driver->fresh()->user;
+            if ($updatedUser && !empty($updatedUser->email)) {
+                try {
+                    $this->sendDriverWelcomeEmail($updatedUser, $generatedTempPassword);
+                } catch (\Throwable $emailErr) {
+                    Log::error('Failed to send driver credentials email on update: ' . $emailErr->getMessage());
+                }
+            }
+        }
+
         $driverName = $driver->user?->full_name ?: 'Driver';
         AppNotification::notify('driver', 'Driver Updated', "Driver {$driverName} profile was updated.", '/drivers');
 
         return $driver->fresh()->load('user');
+    }
+
+    public function resendCredentials(Driver $driver)
+    {
+        $user = $driver->user;
+        if (!$user || empty($user->email)) {
+            return response()->json([
+                'message' => 'This driver does not have a valid email address configured.'
+            ], 422);
+        }
+
+        $tempPassword = 'HJY@' . random_int(100000, 999999);
+        $user->password = Hash::make($tempPassword);
+        $user->must_change_password = true;
+        $user->save();
+
+        try {
+            $this->sendDriverWelcomeEmail($user, $tempPassword);
+            return response()->json([
+                'message' => "Login credentials and temporary password successfully sent to {$user->email}."
+            ]);
+        } catch (\Throwable $emailErr) {
+            Log::error('Failed to resend driver credentials: ' . $emailErr->getMessage());
+            return response()->json([
+                'message' => 'Temporary password was reset, but email delivery encountered an issue: ' . $emailErr->getMessage(),
+                'temp_password' => $tempPassword,
+            ], 500);
+        }
     }
 
     public function destroy(Driver $driver)

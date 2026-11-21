@@ -68,11 +68,8 @@ export function validateEmail(email) {
 }
 
 /**
- * Validates Philippine Vehicle Plate Number.
- * Accepts formats:
- * - ABC 1234 or ABC-1234 (Modern 4-digit)
- * - ABC 123 or ABC-123 (Legacy 3-digit)
- * - 1234 AB or MV File formats
+ * Validates Philippine Vehicle Plate Number (Standard hyphen format: 3 letters, hyphen, 4 numbers).
+ * Example: ABC-1234
  *
  * @param {string} plate
  * @returns {boolean}
@@ -80,21 +77,29 @@ export function validateEmail(email) {
 export function validatePlateNumber(plate) {
   if (!plate) return false;
   const cleaned = String(plate).trim().toUpperCase();
-  return /^[A-Z]{3}[-\s]?\d{3,4}$/.test(cleaned) || /^\d{4}[-\s]?[A-Z]{2,3}$/.test(cleaned);
+  return /^[A-Z]{3}-\d{4}$/.test(cleaned);
 }
 
 /**
- * Formats vehicle plate input to uppercase and standard alphanumeric with space.
+ * Formats vehicle plate input to standard uppercase ABC-1234 format.
  *
  * @param {string} val
  * @returns {string}
  */
 export function formatPlateInput(val) {
   if (!val) return '';
-  return String(val)
-    .toUpperCase()
-    .replace(/[^A-Z0-9\s-]/g, '')
-    .slice(0, 10);
+  const str = String(val).toUpperCase();
+  const clean = str.replace(/[^A-Z0-9]/g, '');
+  const letters = clean.slice(0, 3).replace(/[^A-Z]/g, '');
+  const numbers = clean.slice(letters.length, letters.length + 4).replace(/[^0-9]/g, '');
+
+  if (letters.length === 3 && (str.includes('-') || numbers.length > 0)) {
+    return numbers.length > 0 ? `${letters}-${numbers}` : `${letters}-`;
+  }
+  if (numbers.length > 0) {
+    return `${letters}-${numbers}`;
+  }
+  return letters;
 }
 
 /**
@@ -122,5 +127,78 @@ export function validatePositiveNumber(val) {
   if (val === '' || val == null) return true;
   const n = Number(val);
   return !isNaN(n) && n >= 0;
+}
+
+/**
+ * Validates Insurance Policy Number.
+ * Accepts alphanumeric characters with hyphens, slashes, or dots (4 to 30 characters).
+ * Example: POL-8921-X, PL-102938, 01-2026-12345
+ *
+ * @param {string} policy
+ * @returns {boolean}
+ */
+export function validatePolicyNumber(policy) {
+  if (!policy) return true;
+  const cleaned = String(policy).trim().toUpperCase();
+  return /^[A-Z0-9][A-Z0-9\-\/\.]{3,29}$/i.test(cleaned);
+}
+
+/**
+ * Formats insurance policy number input to uppercase alphanumeric with hyphens/slashes.
+ *
+ * @param {string} val
+ * @returns {string}
+ */
+export function formatPolicyNumberInput(val) {
+  if (!val) return '';
+  return String(val).toUpperCase().replace(/[^A-Z0-9\-\/\.]/g, '').slice(0, 30);
+}
+
+/**
+ * Validates Philippine LTO Official Receipt (OR) Number.
+ * Format: 7 to 18 alphanumeric characters, optionally prefixed with OR- (e.g. OR-8912401 or 1234567890).
+ *
+ * @param {string} orNum
+ * @returns {boolean}
+ */
+export function validateOrNumber(orNum) {
+  if (!orNum) return true;
+  const cleaned = String(orNum).trim().toUpperCase();
+  return /^((OR-)?[A-Z0-9]{6,18}|\d{7,18})$/i.test(cleaned);
+}
+
+/**
+ * Formats OR number input to uppercase alphanumeric with optional hyphen.
+ *
+ * @param {string} val
+ * @returns {string}
+ */
+export function formatOrNumberInput(val) {
+  if (!val) return '';
+  return String(val).toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 20);
+}
+
+/**
+ * Validates Philippine LTO Certificate of Registration (CR) Number.
+ * Format: 7 to 14 alphanumeric characters, optionally prefixed with CR- (e.g. CR-1928401 or 123456789).
+ *
+ * @param {string} crNum
+ * @returns {boolean}
+ */
+export function validateCrNumber(crNum) {
+  if (!crNum) return true;
+  const cleaned = String(crNum).trim().toUpperCase();
+  return /^((CR-)?[A-Z0-9]{6,14}|\d{7,14})$/i.test(cleaned);
+}
+
+/**
+ * Formats CR number input to uppercase alphanumeric with optional hyphen.
+ *
+ * @param {string} val
+ * @returns {string}
+ */
+export function formatCrNumberInput(val) {
+  if (!val) return '';
+  return String(val).toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 18);
 }
 

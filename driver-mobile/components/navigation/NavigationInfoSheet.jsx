@@ -233,33 +233,13 @@ export default function NavigationInfoSheet({
             </TouchableOpacity>
           </View>
 
-          {(navigationState === "unloading" || navigationState === "arrived_dropoff") && (
-            <TouchableOpacity
-              style={[
-                styles.ticketButton,
-                {
-                  marginTop: 10,
-                  backgroundColor: "#059669",
-                  flexDirection: "row",
-                  justifyContent: "center",
-                },
-              ]}
-              onPress={() => setPodVisible(true)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
-              <Text style={[styles.ticketButtonText, { fontWeight: "700" }]}>
-                Submit Proof of Delivery (POD)
-              </Text>
-            </TouchableOpacity>
-          )}
-
           <NavigationActions
             navigationState={navigationState}
             setNavigationState={setNavigationState}
             onDeliveryCompleted={onDeliveryCompleted}
             onStatusChange={onStatusChange}
             onRequestProofOfDelivery={() => setPodVisible(true)}
+            delivery={delivery}
           />
         </ScrollView>
       </Animated.View>

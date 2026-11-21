@@ -182,11 +182,30 @@ export default function RequestDetailsModal({
               <div className="request-info-item"><span className="request-label">Drop off location:</span><span className="request-value">{selectedRequest.dropoff_address || '—'}</span></div>
               <div className="request-info-item">
                 <span className="request-label">Receiver (Contact Person):</span>
-                <span className="request-value" style={{ fontWeight: 600, color: '#0f172a' }}>
+                <span className="request-value" style={{ fontWeight: 600, color: '#1e293b' }}>
                   {selectedRequest.receiver_name ? (
                     <>
-                      {selectedRequest.receiver_name}
-                      {selectedRequest.receiver_phone ? ` (${selectedRequest.receiver_phone})` : ''}
+                      <span>{selectedRequest.receiver_name}</span>
+                      {selectedRequest.receiver_phone && (
+                        <a
+                          href={`tel:${selectedRequest.receiver_phone}`}
+                          style={{
+                            marginLeft: '8px',
+                            color: '#0284c7',
+                            background: '#e0f2fe',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            textDecoration: 'none',
+                            fontSize: '13px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          <i className="fas fa-phone-alt" style={{ fontSize: '11px' }}></i>
+                          {selectedRequest.receiver_phone}
+                        </a>
+                      )}
                     </>
                   ) : (
                     selectedRequest.customer?.full_name || 'Same as Customer'

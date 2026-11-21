@@ -137,6 +137,58 @@ export const getCurrentUser = async () => {
   return data;
 };
 
+export const changeStaffPassword = async (arg1, arg2, arg3) => {
+  // If called with 3 arguments: (currentPassword, newPassword, confirmPassword) -> /user/change-password
+  if (arg3 !== undefined) {
+    const currentPassword = arg1;
+    const newPassword = arg2;
+    const confirmPassword = arg3;
+    const token = await getToken();
+    if (!token) throw new Error("Not authenticated.");
+
+    const response = await fetch(`${API_URL}/user/change-password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+        new_password_confirmation: confirmPassword,
+      }),
+    });
+
+    const data = await safeJson(response);
+    if (!response.ok) {
+      throw new Error(
+        data?.message ||
+        data?.errors?.new_password?.[0] ||
+        data?.errors?.current_password?.[0] ||
+        "Failed to update password."
+      );
+    }
+
+    if (data?.user) {
+      const updatedUser = { ...data.user, must_change_password: false };
+      await safeStorage.setItem(USER_KEY, JSON.stringify(updatedUser));
+    }
+
+    return data;
+  } else {
+    // If called with 2 arguments: (userId, password) -> /users/${userId}
+    const userId = arg1;
+    const password = arg2;
+    return await fetchWithAuth(`/users/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify({ password }),
+    });
+  }
+};
+
+export const updateStaffPassword = changeStaffPassword;
+
 export const getRememberedEmail = async () => {
   return await safeStorage.getItem("staff_remember_email");
 };
@@ -182,6 +234,13 @@ export const getIncidentReports = async () => {
   } catch {
     return [];
   }
+};
+
+export const createIncidentReport = async (payload) => {
+  return await fetchWithAuth("/incident-reports", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 };
 
 export const getDelivery = async (id) => {
@@ -260,12 +319,7 @@ export const updateStaffProfile = async (userId, payload) => {
   }
 };
 
-export const changeStaffPassword = async (userId, password) => {
-  return await fetchWithAuth(`/users/${userId}`, {
-    method: "PUT",
-    body: JSON.stringify({ password }),
-  });
-};
+
 
 export const getStaffNotifications = async () => {
   try {

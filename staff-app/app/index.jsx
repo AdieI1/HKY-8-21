@@ -6,6 +6,7 @@ import {
   Alert,
   ImageBackground,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -14,7 +15,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { login, getRememberedEmail, setRememberedEmail } from "../services/api";
+import { login, getRememberedEmail, setRememberedEmail, changeStaffPassword } from "../services/api";
 
 export default function Index() {
   const router = useRouter();
@@ -23,6 +24,15 @@ export default function Index() {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // OWASP First-Login Password Rotation State
+  const [mustChangePasswordModal, setMustChangePasswordModal] = useState(false);
+  const [tempPasswordUsed, setTempPasswordUsed] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     getRememberedEmail().then((saved) => {
@@ -47,14 +57,58 @@ export default function Index() {
     try {
       setLoading(true);
 
-      await login(email, password);
+      const data = await login(email, password);
       await setRememberedEmail(rememberMe ? email.trim() : null);
+
+      // OWASP Enforced First-Login Password Rotation
+      if (data?.must_change_password || data?.user?.must_change_password) {
+        setTempPasswordUsed(password);
+        setMustChangePasswordModal(true);
+        return;
+      }
 
       router.replace("/(tabs)/home");
     } catch (error) {
       Alert.alert("Login Failed", error?.message || "Unable to connect to the server.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleChangePasswordSubmit = async () => {
+    if (!newPassword.trim()) {
+      Alert.alert("Required", "Please enter a new password.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      Alert.alert("Password Too Short", "New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      Alert.alert("Mismatch", "Passwords do not match.");
+      return;
+    }
+
+    try {
+      setChangingPassword(true);
+      await changeStaffPassword(tempPasswordUsed, newPassword, confirmNewPassword);
+      Alert.alert(
+        "Password Set Successfully!",
+        "Your account is now activated with your permanent password. Proceeding to workspace...",
+        [
+          {
+            text: "Continue",
+            onPress: () => {
+              setMustChangePasswordModal(false);
+              router.replace("/(tabs)/home");
+            },
+          },
+        ]
+      );
+    } catch (err) {
+      Alert.alert("Error", err.message || "Failed to update password.");
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -176,6 +230,118 @@ export default function Index() {
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* OWASP First-Login Password Rotation Modal */}
+      <Modal
+        visible={mustChangePasswordModal}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={{ width: "100%", alignItems: "center" }}
+          >
+            <View style={styles.passwordModalCard}>
+              <View style={styles.securityHeader}>
+                <View style={styles.shieldIconWrap}>
+                  <Ionicons name="shield-checkmark" size={26} color="#E53935" />
+                </View>
+                <Text style={styles.securityTitle}>Security Setup Required</Text>
+                <View style={styles.badgeRow}>
+                  <Text style={styles.owaspBadge}>OWASP ASVS STANDARD</Text>
+                </View>
+                <Text style={styles.securityDesc}>
+                  You signed in with a temporary password. Under fleet security standards, you must set a new permanent password to activate your staff account.
+                </Text>
+              </View>
+
+              {/* NEW PASSWORD */}
+              <View style={{ marginBottom: 14 }}>
+                <Text style={styles.inputLabel}>New Password *</Text>
+                <View style={styles.modalInputWrap}>
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder="Min. 6 characters"
+                    placeholderTextColor="#77777C"
+                    secureTextEntry={!showNewPassword}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    autoCapitalize="none"
+                    editable={!changingPassword}
+                  />
+                  <Pressable
+                    onPress={() => setShowNewPassword(!showNewPassword)}
+                    style={{ padding: 6 }}
+                  >
+                    <Ionicons
+                      name={showNewPassword ? "eye-outline" : "eye-off-outline"}
+                      size={20}
+                      color="#77777C"
+                    />
+                  </Pressable>
+                </View>
+              </View>
+
+              {/* CONFIRM NEW PASSWORD */}
+              <View style={{ marginBottom: 20 }}>
+                <Text style={styles.inputLabel}>Confirm Password *</Text>
+                <View style={styles.modalInputWrap}>
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder="Repeat new password"
+                    placeholderTextColor="#77777C"
+                    secureTextEntry={!showConfirmNewPassword}
+                    value={confirmNewPassword}
+                    onChangeText={setConfirmNewPassword}
+                    autoCapitalize="none"
+                    editable={!changingPassword}
+                  />
+                  <Pressable
+                    onPress={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+                    style={{ padding: 6 }}
+                  >
+                    <Ionicons
+                      name={showConfirmNewPassword ? "eye-outline" : "eye-off-outline"}
+                      size={20}
+                      color="#77777C"
+                    />
+                  </Pressable>
+                </View>
+              </View>
+
+              {/* SUBMIT BUTTON */}
+              <Pressable
+                style={[
+                  styles.modalSubmitButton,
+                  changingPassword && { opacity: 0.7 },
+                ]}
+                onPress={handleChangePasswordSubmit}
+                disabled={changingPassword}
+              >
+                {changingPassword ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.modalSubmitText}>Activate &amp; Continue</Text>
+                )}
+              </Pressable>
+
+              {/* CANCEL */}
+              <Pressable
+                style={{ marginTop: 12, paddingVertical: 8, alignItems: "center" }}
+                onPress={() => {
+                  setMustChangePasswordModal(false);
+                  setNewPassword("");
+                  setConfirmNewPassword("");
+                }}
+                disabled={changingPassword}
+              >
+                <Text style={{ color: "#9B9B9F", fontSize: 13, fontWeight: "600" }}>Cancel &amp; Sign Out</Text>
+              </Pressable>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </ImageBackground>
   );
 }
@@ -314,5 +480,104 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     textDecorationLine: "underline",
+  },
+
+  /* Modal Styles */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  passwordModalCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#18181f",
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "rgba(227,46,46,0.4)",
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  securityHeader: {
+    alignItems: "center",
+    marginBottom: 18,
+  },
+  shieldIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(227,46,46,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(227,46,46,0.3)",
+  },
+  securityTitle: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  badgeRow: {
+    marginBottom: 10,
+  },
+  owaspBadge: {
+    backgroundColor: "#16a34a",
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "800",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  securityDesc: {
+    color: "#A0A0A5",
+    fontSize: 12.5,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  inputLabel: {
+    color: "#E2E8F0",
+    fontSize: 12.5,
+    fontWeight: "600",
+    marginBottom: 6,
+  },
+  modalInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 48,
+    backgroundColor: "#0d0d12",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#2D2D3A",
+    paddingHorizontal: 12,
+  },
+  modalInput: {
+    flex: 1,
+    color: "#FFFFFF",
+    fontSize: 14,
+  },
+  modalSubmitButton: {
+    marginTop: 10,
+    height: 48,
+    backgroundColor: "#E32E2E",
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalSubmitText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
   },
 });

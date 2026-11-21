@@ -205,6 +205,17 @@ export const getVerificationStatus = async () => {
   return data;
 };
 
+export const changeCustomerPassword = async (currentPassword, newPassword, newPasswordConfirmation) => {
+  return await request("/customer/change-password", {
+    method: "POST",
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+      new_password_confirmation: newPasswordConfirmation,
+    }),
+  });
+};
+
 export const completeAccountSetup = async (firstName, lastName, phone) => {
   const data = await request("/customer/profile", {
     method: "PATCH",

@@ -4,7 +4,6 @@ import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
 import TableSkeleton from '../components/TableSkeleton';
-import { validatePhoneNumber, formatPhoneInput } from '../utils/validation';
 
 function formatDate(dateString) {
   if (!dateString) return '—';
@@ -21,7 +20,7 @@ function customerCode(id) {
   return `CMR${String(id).padStart(3, '0')}`;
 }
 
-function CustomerDetailModal({ customer, spend, deliveries, onClose, onEdit, onToggleBlacklist }) {
+function CustomerDetailModal({ customer, spend, deliveries, onClose, onToggleBlacklist }) {
   if (!customer) return null;
   const customerDeliveries = (deliveries || []).filter(
     (d) => (d.request?.customer_id === customer.user_id || d.request?.customer?.user_id === customer.user_id)
@@ -231,29 +230,11 @@ function CustomerDetailModal({ customer, spend, deliveries, onClose, onEdit, onT
 
         {/* Footer actions */}
         <div style={{ padding: '14px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => { onClose(); onEdit(customer); }}
-              style={{
-                padding: '8px 16px',
-                borderRadius: 6,
-                border: '1px solid #cbd5e1',
-                background: '#ffffff',
-                color: '#1e293b',
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              <i className="fas fa-user-edit"></i> Edit Info
-            </button>
+          <div>
             <button
               onClick={() => { onClose(); onToggleBlacklist(customer); }}
               style={{
-                padding: '8px 16px',
+                padding: '8px 18px',
                 borderRadius: 6,
                 border: 'none',
                 background: isBlocked ? '#16a34a' : '#dc2626',
@@ -264,6 +245,7 @@ function CustomerDetailModal({ customer, spend, deliveries, onClose, onEdit, onT
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 6,
+                transition: 'background 0.2s',
               }}
             >
               <i className={isBlocked ? 'fas fa-user-check' : 'fas fa-user-slash'}></i>
@@ -309,19 +291,7 @@ function CustomersPage() {
   const [confirmAction, setConfirmAction] = useState(null); // { customer, nextStatus }
   const [toast, setToast] = useState(null);
 
-  // Edit Customer Modal
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingCustomer, setEditingCustomer] = useState(null);
-  const [editForm, setEditForm] = useState({
-    full_name: '',
-    email: '',
-    phone: '',
-    status: 'active',
-    gender: '',
-    date_of_birth: '',
-  });
-  const [savingCustomer, setSavingCustomer] = useState(false);
-  const [editError, setEditError] = useState('');
+
 
   useEffect(() => {
     const update = () => {
@@ -451,45 +421,7 @@ function CustomersPage() {
     }
   };
 
-  const openEditModal = (customer) => {
-    setEditingCustomer(customer);
-    setEditForm({
-      full_name: customer.full_name || '',
-      email: customer.email || '',
-      phone: customer.phone || '',
-      status: customer.status || 'active',
-      gender: customer.gender || '',
-      date_of_birth: customer.date_of_birth || '',
-    });
-    setEditError('');
-    setShowEditModal(true);
-  };
 
-  const handleSaveCustomer = async (e) => {
-    e.preventDefault();
-    if (editForm.phone && !validatePhoneNumber(editForm.phone)) {
-      setEditError('Phone number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
-      return;
-    }
-    setSavingCustomer(true);
-    setEditError('');
-    try {
-      const res = await api.put(`/users/${editingCustomer.user_id}`, editForm);
-      setCustomers((prev) =>
-        prev.map((c) => (c.user_id === editingCustomer.user_id ? { ...c, ...res.data.user || res.data } : c))
-      );
-      if (selectedCustomer && selectedCustomer.user_id === editingCustomer.user_id) {
-        setSelectedCustomer((prev) => ({ ...prev, ...res.data.user || res.data }));
-      }
-      setShowEditModal(false);
-      setToast({ message: `Customer information for ${editForm.full_name} updated successfully.` });
-      setTimeout(() => setToast(null), 4000);
-    } catch (err) {
-      setEditError(err.response?.data?.message || 'Failed to update customer.');
-    } finally {
-      setSavingCustomer(false);
-    }
-  };
 
   const exportCsv = () => {
     const headers = ['Customer ID', 'Name', 'Phone', 'Email', 'Date Joined', 'Cumulative Spend (PHP)', 'Status'];
@@ -524,7 +456,6 @@ function CustomersPage() {
           spend={spendFor(selectedCustomer.user_id)}
           deliveries={deliveries}
           onClose={() => setSelectedCustomer(null)}
-          onEdit={openEditModal}
           onToggleBlacklist={openConfirm}
         />
       )}
@@ -633,7 +564,7 @@ function CustomersPage() {
                   <th>Date Joined</th>
                   <th>Cumulative Spend</th>
                   <th>Status</th>
-                  <th>Action</th>
+                  <th style={{ minWidth: 200, textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -650,7 +581,26 @@ function CustomersPage() {
                       title="Click to view full customer details & trip history"
                     >
                       <td style={{ fontWeight: 700, color: '#3b82f6' }}>{customerCode(c.user_id)}</td>
-                      <td style={{ fontWeight: 600 }}>{c.full_name}</td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                          <img
+                            src={c.profile_photo_url || '/images/defaultavatar.png'}
+                            alt={c.full_name || 'Customer'}
+                            style={{
+                              width: '46px',
+                              height: '46px',
+                              borderRadius: '50%',
+                              objectFit: 'cover',
+                              border: '1.5px solid #e2e8f0',
+                              boxShadow: '0 2px 4px rgba(0,0,0,0.06)',
+                              flexShrink: 0,
+                              backgroundColor: '#f1f5f9',
+                            }}
+                            onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
+                          />
+                          <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>{c.full_name || '—'}</span>
+                        </div>
+                      </td>
                       <td>{c.phone || '—'}</td>
                       <td>{c.email || '—'}</td>
                       <td>{formatDate(c.created_at)}</td>
@@ -660,27 +610,67 @@ function CustomersPage() {
                           <i className="fas fa-circle"></i> {c.status === 'blocked' ? 'Blacklisted' : c.status === 'active' ? 'Active' : 'Inactive'}
                         </span>
                       </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
                           <button
-                            className="btn-edit"
+                            type="button"
                             onClick={(e) => { e.stopPropagation(); setSelectedCustomer(c); }}
-                            style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700, background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}
+                            style={{
+                              padding: '8px 16px',
+                              fontSize: 13,
+                              fontWeight: 600,
+                              background: '#eff6ff',
+                              color: '#2563eb',
+                              border: '1.5px solid #bfdbfe',
+                              borderRadius: 6,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              boxShadow: '0 1px 2px rgba(37,99,235,0.08)',
+                              transition: 'all 0.2s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = '#2563eb';
+                              e.currentTarget.style.color = '#ffffff';
+                              e.currentTarget.style.borderColor = '#2563eb';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = '#eff6ff';
+                              e.currentTarget.style.color = '#2563eb';
+                              e.currentTarget.style.borderColor = '#bfdbfe';
+                            }}
+                            title="View customer profile & trip history"
                           >
-                            View
+                            <i className="fas fa-eye" style={{ fontSize: 13 }}></i> View
                           </button>
                           <button
-                            className="btn-edit"
-                            onClick={(e) => { e.stopPropagation(); openEditModal(c); }}
-                            style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700 }}
-                          >
-                            Edit Info
-                          </button>
-                          <button
-                            className={c.status === 'blocked' ? 'btn-edit' : 'btn-danger'}
+                            type="button"
                             onClick={(e) => { e.stopPropagation(); openConfirm(c); }}
-                            style={{ padding: '5px 10px', fontSize: 11, fontWeight: 700 }}
+                            style={{
+                              padding: '8px 16px',
+                              fontSize: 13,
+                              fontWeight: 600,
+                              background: c.status === 'blocked' ? '#16a34a' : '#dc2626',
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: 6,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              boxShadow: c.status === 'blocked' ? '0 1px 3px rgba(22,163,74,0.25)' : '0 1px 3px rgba(220,38,38,0.25)',
+                              transition: 'all 0.2s ease',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = c.status === 'blocked' ? '#15803d' : '#b91c1c';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = c.status === 'blocked' ? '#16a34a' : '#dc2626';
+                            }}
+                            title={c.status === 'blocked' ? 'Restore customer account' : 'Blacklist customer account'}
                           >
+                            <i className={c.status === 'blocked' ? 'fas fa-user-check' : 'fas fa-user-slash'} style={{ fontSize: 13 }}></i>
                             {c.status === 'blocked' ? 'Restore' : 'Blacklist'}
                           </button>
                         </div>
@@ -734,145 +724,7 @@ function CustomersPage() {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* EDIT CUSTOMER INFO MODAL (REQUIREMENT 18)                                 */}
-      {/* ========================================================================= */}
-      {showEditModal && editingCustomer && (
-        <div
-          className="modal"
-          style={{
-            display: 'flex',
-            position: 'fixed',
-            inset: 0,
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'rgba(0,0,0,0.6)',
-            zIndex: 1100,
-            padding: 16,
-          }}
-        >
-          <div
-            className="modal-content"
-            style={{
-              width: '100%',
-              maxWidth: 500,
-              background: '#ffffff',
-              borderRadius: 12,
-              overflow: 'hidden',
-              boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
-            }}
-          >
-            <div
-              style={{
-                background: '#1e293b',
-                color: '#fff',
-                padding: '16px 24px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <h2 style={{ margin: 0, fontSize: 18, color: '#fff' }}><i className="fas fa-user-edit"></i> EDIT CUSTOMER INFO</h2>
-              <button onClick={() => setShowEditModal(false)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer' }}><i className="fas fa-times"></i></button>
-            </div>
 
-            <form onSubmit={handleSaveCustomer} style={{ padding: 24 }}>
-              {editError && <div style={{ background: '#fee2e2', color: '#dc2626', padding: '10px 14px', borderRadius: 6, marginBottom: 14, fontSize: 13 }}>{editError}</div>}
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
-                    Full Name *
-                  </label>
-                  <input
-                    type="text"
-                    value={editForm.full_name}
-                    onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
-                    Email Address *
-                  </label>
-                  <input
-                    type="email"
-                    value={editForm.email}
-                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
-                    Contact Number
-                  </label>
-                  <input
-                    type="text"
-                    value={editForm.phone}
-                    maxLength={11}
-                    placeholder="09XXXXXXXXX"
-                    onChange={(e) => setEditForm({ ...editForm, phone: formatPhoneInput(e.target.value) })}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
-                  />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
-                      Status
-                    </label>
-                    <select
-                      value={editForm.status}
-                      onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
-                      style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', boxSizing: 'border-box' }}
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                      <option value="blocked">Blocked / Blacklisted</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
-                      Gender
-                    </label>
-                    <select
-                      value={editForm.gender}
-                      onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}
-                      style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', boxSizing: 'border-box' }}
-                    >
-                      <option value="">-- Optional --</option>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowEditModal(false)}
-                  style={{ padding: '8px 18px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingCustomer}
-                  style={{ padding: '8px 22px', borderRadius: 6, border: 'none', background: '#d32f2f', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
-                >
-                  {savingCustomer ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </>
   );
 }

@@ -1315,18 +1315,51 @@ function DeliveryPage() {
                 </span>
               </div>
               <div className="panel-detail"><span className="panel-detail-label">Drop-Off:</span><span className="panel-detail-value">{selectedDelivery.request?.dropoff_address || '—'}</span></div>
-              <div className="panel-detail">
-                <span className="panel-detail-label">Receiver (Contact):</span>
-                <span className="panel-detail-value" style={{ fontWeight: 600, color: '#0f172a' }}>
-                  {selectedDelivery.request?.receiver_name ? (
-                    <>
-                      {selectedDelivery.request.receiver_name}
-                      {selectedDelivery.request.receiver_phone ? ` (${selectedDelivery.request.receiver_phone})` : ''}
-                    </>
-                  ) : (
-                    selectedDelivery.request?.customer?.full_name || 'Same as Customer'
-                  )}
-                </span>
+              <div
+                className="panel-detail"
+                style={{
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  margin: '8px 0',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <span className="panel-detail-label" style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    <i className="fas fa-user-tag" style={{ marginRight: '5px', color: '#38bdf8' }}></i> Receiver (Contact):
+                  </span>
+                  <span style={{ fontWeight: 700, color: '#ffffff', fontSize: '14.5px', letterSpacing: '0.2px' }}>
+                    {selectedDelivery.request?.receiver_name || selectedDelivery.request?.customer?.full_name || 'Same as Customer'}
+                  </span>
+                </div>
+                {(selectedDelivery.request?.receiver_phone || selectedDelivery.request?.customer?.phone) && (
+                  <a
+                    href={`tel:${selectedDelivery.request?.receiver_phone || selectedDelivery.request?.customer?.phone}`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      background: 'rgba(56, 189, 248, 0.15)',
+                      border: '1px solid rgba(56, 189, 248, 0.35)',
+                      color: '#38bdf8',
+                      padding: '5px 10px',
+                      borderRadius: '6px',
+                      fontWeight: 700,
+                      fontSize: '12.5px',
+                      textDecoration: 'none',
+                      whiteSpace: 'nowrap',
+                      marginTop: '2px',
+                      transition: 'all 0.15s ease',
+                    }}
+                    title="Call Receiver"
+                  >
+                    <i className="fas fa-phone-alt" style={{ fontSize: '11px' }}></i>
+                    {selectedDelivery.request?.receiver_phone || selectedDelivery.request?.customer?.phone}
+                  </a>
+                )}
               </div>
 
               {selectedDelivery.request?.service_type && selectedDelivery.request.service_type !== 'standard' && (
@@ -1364,61 +1397,6 @@ function DeliveryPage() {
                 </div>
               )}
 
-              {/* COLLECTION RECEIPT MANAGEMENT */}
-              <div className="panel-divider"></div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <div className="panel-timeline-title" style={{ margin: 0 }}>OFFICIAL COLLECTION RECEIPT</div>
-                {selectedDelivery.collection_receipt_no && (
-                  <span style={{ fontSize: '11px', fontWeight: 700, background: '#DCFCE7', color: '#15803D', padding: '2px 8px', borderRadius: '12px' }}>
-                    <i className="fas fa-check-circle" style={{ marginRight: '4px' }}></i> Issued
-                  </span>
-                )}
-              </div>
-              {selectedDelivery.collection_receipt_no ? (
-                <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '10px', marginBottom: '8px', fontSize: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#64748B' }}>Receipt Number:</span>
-                    <strong style={{ color: '#0F172A' }}>{selectedDelivery.collection_receipt_no}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
-                    <span style={{ color: '#64748B' }}>Amount Collected:</span>
-                    <strong style={{ color: '#059669', fontSize: '13px' }}>₱{Number(selectedDelivery.collection_receipt_amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
-                    <span style={{ color: '#64748B' }}>Payment Mode:</span>
-                    <span style={{ color: '#334155', fontWeight: 600 }}>{selectedDelivery.collection_receipt_payment_mode || 'Cash'}</span>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ fontSize: '12px', color: '#64748B', marginBottom: '8px' }}>
-                  No official collection receipt has been issued yet for this shipment.
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => openReceiptModal(selectedDelivery)}
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  background: selectedDelivery.collection_receipt_no ? '#F1F5F9' : '#2563EB',
-                  color: selectedDelivery.collection_receipt_no ? '#1E293B' : '#ffffff',
-                  border: selectedDelivery.collection_receipt_no ? '1px solid #CBD5E1' : 'none',
-                  borderRadius: '6px',
-                  fontWeight: 700,
-                  fontSize: '12.5px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  marginBottom: '10px',
-                  transition: 'background 0.15s ease',
-                }}
-              >
-                <i className="fas fa-file-invoice-dollar"></i>{' '}
-                {selectedDelivery.collection_receipt_no ? 'View / Manage Collection Receipt' : 'Issue Collection Receipt'}
-              </button>
-
               {selectedDelivery.status === 'completed' ? (
                 <PostDeliveryMetricsPanel
                   delivery={selectedDelivery}
@@ -1432,10 +1410,53 @@ function DeliveryPage() {
                   <div className="panel-divider"></div>
 
                   <div className="panel-timeline-title">TRIP TELEMETRY (ODOMETER &amp; FUEL)</div>
-                  <div className="panel-detail"><span className="panel-detail-label">Starting Odometer:</span><span className="panel-detail-value">{selectedDelivery.starting_odometer !== null && selectedDelivery.starting_odometer !== undefined ? `${Number(selectedDelivery.starting_odometer).toLocaleString()} km` : '—'}</span></div>
-                  <div className="panel-detail"><span className="panel-detail-label">Ending Odometer:</span><span className="panel-detail-value">{selectedDelivery.ending_odometer !== null && selectedDelivery.ending_odometer !== undefined ? `${Number(selectedDelivery.ending_odometer).toLocaleString()} km` : (selectedDelivery.status === 'completed' ? '—' : 'In Progress')}</span></div>
-                  <div className="panel-detail"><span className="panel-detail-label">Starting Fuel:</span><span className="panel-detail-value">{selectedDelivery.starting_fuel !== null && selectedDelivery.starting_fuel !== undefined ? `${selectedDelivery.starting_fuel} ${selectedDelivery.fuel_unit || 'Liters'}` : '—'}</span></div>
-                  <div className="panel-detail"><span className="panel-detail-label">Ending Fuel:</span><span className="panel-detail-value">{selectedDelivery.ending_fuel !== null && selectedDelivery.ending_fuel !== undefined ? `${selectedDelivery.ending_fuel} ${selectedDelivery.fuel_unit || 'Liters'}` : (selectedDelivery.status === 'completed' ? '—' : 'In Progress')}</span></div>
+                  {(() => {
+                    const preTrip = selectedDelivery.checklists?.find((c) => c.type === 'pre_trip');
+                    const startingOdo = selectedDelivery.starting_odometer 
+                      ?? preTrip?.starting_odometer 
+                      ?? selectedDelivery.vehicle?.odometer_reading;
+                    const startingFuel = selectedDelivery.starting_fuel 
+                      ?? preTrip?.starting_fuel 
+                      ?? selectedDelivery.fuel_issued 
+                      ?? selectedDelivery.vehicle?.fuel_level;
+
+                    return (
+                      <>
+                        <div className="panel-detail">
+                          <span className="panel-detail-label">Starting Odometer:</span>
+                          <span className="panel-detail-value">
+                            {startingOdo !== null && startingOdo !== undefined && startingOdo !== ''
+                              ? `${Number(startingOdo).toLocaleString()} km`
+                              : '—'}
+                          </span>
+                        </div>
+                        <div className="panel-detail">
+                          <span className="panel-detail-label">Ending Odometer:</span>
+                          <span className="panel-detail-value">
+                            {selectedDelivery.ending_odometer !== null && selectedDelivery.ending_odometer !== undefined
+                              ? `${Number(selectedDelivery.ending_odometer).toLocaleString()} km`
+                              : (selectedDelivery.status === 'completed' ? '—' : 'In Progress')}
+                          </span>
+                        </div>
+                        <div className="panel-detail">
+                          <span className="panel-detail-label">Starting Fuel:</span>
+                          <span className="panel-detail-value">
+                            {startingFuel !== null && startingFuel !== undefined && startingFuel !== ''
+                              ? `${Number(startingFuel).toLocaleString()} ${selectedDelivery.fuel_unit || 'Liters'}`
+                              : '—'}
+                          </span>
+                        </div>
+                        <div className="panel-detail">
+                          <span className="panel-detail-label">Ending Fuel:</span>
+                          <span className="panel-detail-value">
+                            {selectedDelivery.ending_fuel !== null && selectedDelivery.ending_fuel !== undefined
+                              ? `${Number(selectedDelivery.ending_fuel).toLocaleString()} ${selectedDelivery.fuel_unit || 'Liters'}`
+                              : (selectedDelivery.status === 'completed' ? '—' : 'In Progress')}
+                          </span>
+                        </div>
+                      </>
+                    );
+                  })()}
 
                   <div className="panel-divider"></div>
 

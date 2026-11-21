@@ -125,6 +125,16 @@ Route::middleware('auth:sanctum')->group(function () {
         'me'
     ]);
 
+    Route::post('/user/change-password', [
+        AuthController::class,
+        'changePassword'
+    ]);
+
+    Route::post('/driver/change-password', [
+        AuthController::class,
+        'changePassword'
+    ]);
+
 
     /*
     |--------------------------------------------------------------------------
@@ -145,10 +155,18 @@ Route::middleware('auth:sanctum')->group(function () {
         'users/{user}',
         [UserController::class, 'update']
     );
+    Route::post(
+        'users/{user}/resend-credentials',
+        [UserController::class, 'resendCredentials']
+    );
 
     Route::apiResource(
         'drivers',
         DriverController::class
+    );
+    Route::post(
+        'drivers/{driver}/resend-credentials',
+        [DriverController::class, 'resendCredentials']
     );
 
     Route::apiResource(
@@ -191,6 +209,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::match(['patch', 'post'], 'customer/profile', [
         CustomerAuthController::class,
         'updateProfile'
+    ]);
+
+    Route::post('customer/change-password', [
+        CustomerAuthController::class,
+        'changePassword'
     ]);
 
     Route::apiResource(

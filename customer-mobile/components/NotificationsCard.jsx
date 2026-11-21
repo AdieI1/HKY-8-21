@@ -68,21 +68,28 @@ function formatDisplayTime(rawTime) {
   });
 }
 
-export default function NotificationCard({ notification, onViewDetails }) {
+export default function NotificationCard({ notification, onViewDetails, isNew }) {
   const { isDark, colors } = useTheme();
   const config = TYPE_CONFIG[notification.type] || TYPE_CONFIG.default;
   const timeText = formatDisplayTime(notification.time || notification.created_at);
+  const showUnread = Boolean(isNew || !notification.is_read);
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }, !notification.is_read && styles.unreadCard]}>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }, showUnread && styles.unreadCard]}>
       <View style={styles.titleRow}>
         <View style={[styles.iconWrapper, { backgroundColor: isDark ? "#334155" : config.badgeBg, borderColor: config.badgeBorder }]}>
           <Ionicons name={config.icon} size={18} color={config.color} />
         </View>
 
-        <Text style={[styles.title, { color: config.color }]}>
+        <Text style={[styles.title, { color: config.color, flex: 1 }]}>
           {notification.title}
         </Text>
+
+        {showUnread && (
+          <View style={{ backgroundColor: isDark ? "#1E293B" : "#EFF6FF", borderColor: "#3B82F6", borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, marginLeft: 8 }}>
+            <Text style={{ color: isDark ? "#60A5FA" : "#2563EB", fontSize: 10, fontWeight: "700" }}>NEW</Text>
+          </View>
+        )}
       </View>
 
       <View style={[styles.divider, { backgroundColor: colors.divider }]} />

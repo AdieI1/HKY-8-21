@@ -111,6 +111,10 @@ const Profile = () => {
   const handleDateChange = (event, selectedDate) => {
     setShowDatePicker(false);
     if (selectedDate) {
+      if (selectedDate > new Date()) {
+        Alert.alert("Invalid Date", "Date of birth cannot be in the future.");
+        return;
+      }
       const mm = (selectedDate.getMonth() + 1).toString().padStart(2, "0");
       const dd = selectedDate.getDate().toString().padStart(2, "0");
       const yy = selectedDate.getFullYear().toString().slice(-2);
@@ -126,6 +130,13 @@ const Profile = () => {
     if (!phone.trim()) {
       Alert.alert("Required Field", "Please enter your phone number.");
       return;
+    }
+    if (dob) {
+      const parsedDob = new Date(dob);
+      if (!isNaN(parsedDob.getTime()) && parsedDob > new Date()) {
+        Alert.alert("Invalid Date", "Date of birth cannot be in the future.");
+        return;
+      }
     }
 
     try {
@@ -313,10 +324,11 @@ const Profile = () => {
 
           {showDatePicker && (
             <DateTimePicker
-              value={new Date(1998, 4, 16)}
+              value={dob && !isNaN(new Date(dob).getTime()) ? new Date(dob) : new Date(1998, 4, 16)}
               mode="date"
               display={Platform.OS === "ios" ? "spinner" : "default"}
-              onChange={handleDateChange}
+              onValueChange={handleDateChange}
+              onDismiss={() => setShowDatePicker(false)}
               maximumDate={new Date()}
             />
           )}

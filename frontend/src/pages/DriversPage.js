@@ -13,6 +13,7 @@ import {
   formatLicenseInput,
   validateDateSequence,
   validatePositiveNumber,
+  validateEmail,
 } from '../utils/validation';
 
 function formatDate(dateString) {
@@ -230,9 +231,36 @@ function DriversPage() {
       setFormError('Document file size exceeds 10MB limit.');
       return;
     }
-    if (docType === 'license') setLicenseFile(file);
-    if (docType === 'medical') setMedicalCertFile(file);
-    if (docType === 'clearance') setClearanceFile(file);
+    if (docType === 'license') {
+      setLicenseFile(file);
+      if (formErrors.license_file) {
+        setFormErrors((prev) => {
+          const copy = { ...prev };
+          delete copy.license_file;
+          return copy;
+        });
+      }
+    }
+    if (docType === 'medical') {
+      setMedicalCertFile(file);
+      if (formErrors.medical_cert_file) {
+        setFormErrors((prev) => {
+          const copy = { ...prev };
+          delete copy.medical_cert_file;
+          return copy;
+        });
+      }
+    }
+    if (docType === 'clearance') {
+      setClearanceFile(file);
+      if (formErrors.clearance_file) {
+        setFormErrors((prev) => {
+          const copy = { ...prev };
+          delete copy.clearance_file;
+          return copy;
+        });
+      }
+    }
     setFormError('');
   };
 
@@ -248,6 +276,27 @@ function DriversPage() {
 
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [formErrors, setFormErrors] = useState({});
+
+  useEffect(() => {
+    if (formError) {
+      const timer = setTimeout(() => {
+        setFormError('');
+      }, 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [formError]);
+
+  const handleFieldChange = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    if (formErrors[field]) {
+      setFormErrors((prev) => {
+        const copy = { ...prev };
+        delete copy[field];
+        return copy;
+      });
+    }
+  };
 
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [detailsDriver, setDetailsDriver] = useState(null);
@@ -302,7 +351,6 @@ function DriversPage() {
     let available = 0;
     let onDelivery = 0;
     let inactive = 0;
-    let resigned = archivedDrivers.length;
 
     activeDrivers.forEach((d) => {
       const lbl = availabilityLabel(d);
@@ -311,17 +359,17 @@ function DriversPage() {
       else inactive++;
     });
 
-    return { available, onDelivery, inactive, resigned };
-  }, [activeDrivers, archivedDrivers]);
+    return { available, onDelivery, inactive, incidents: incidents.length };
+  }, [activeDrivers, incidents]);
 
   const handleKpiClick = (statusKey) => {
-    if (statusKey === 'resigned') {
-      if (view === 'archives') {
+    if (statusKey === 'incidents') {
+      if (view === 'incidents') {
         setView('drivers');
         setActiveStatusFilter('all');
       } else {
-        setView('archives');
-        setActiveStatusFilter('resigned');
+        setView('incidents');
+        setActiveStatusFilter('all');
       }
       return;
     }
@@ -475,6 +523,13 @@ function DriversPage() {
       setProfilePhotoFile(file);
       setProfilePhotoPreview(URL.createObjectURL(file));
       setFormError('');
+      if (formErrors.profile_photo) {
+        setFormErrors((prev) => {
+          const copy = { ...prev };
+          delete copy.profile_photo;
+          return copy;
+        });
+      }
     }
   };
 
@@ -493,6 +548,7 @@ function DriversPage() {
     setMedicalCertFile(null);
     setClearanceFile(null);
     setFormError('');
+    setFormErrors({});
     setShowFormModal(true);
   };
 
@@ -536,46 +592,131 @@ function DriversPage() {
     setMedicalCertFile(null);
     setClearanceFile(null);
     setFormError('');
+    setFormErrors({});
     setShowFormModal(true);
   };
 
   const saveDriver = async () => {
-    if (!form.first_name || !form.last_name || !form.email || !form.phone) {
-      setFormError('Please fill in first name, last name, email, and contact number.');
-      return;
+    const errs = {};
+    const todayIso = new Date().toISOString().split('T')[0];
+
+    // 1. Personal Information
+    if (!form.first_name?.trim()) errs.first_name = 'First name is required.';
+    if (!form.middle_name?.trim()) errs.middle_name = 'Middle name is required (or N/A).';
+    if (!form.last_name?.trim()) errs.last_name = 'Last name is required.';
+    if (!form.birthdate) {
+      errs.birthdate = 'Birthdate is required.';
+    } else if (form.birthdate > todayIso) {
+      errs.birthdate = 'Birthdate cannot be in the future.';
     }
-    if (!validatePhoneNumber(form.phone)) {
-      setFormError('Contact number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
-      return;
+    if (!form.nationality?.trim()) errs.nationality = 'Nationality is required.';
+    if (!form.phone?.trim()) {
+      errs.phone = 'Contact number is required.';
+    } else if (!validatePhoneNumber(form.phone)) {
+      errs.phone = 'Contact number must start with "09" and be exactly 11 digits.';
     }
-    if (form.license_number && !validateLicenseNumber(form.license_number)) {
-      setFormError('License number must follow Philippine LTO format (e.g. D01-23-456789).');
-      return;
+
+    // 2. License Information
+    if (!form.license_number?.trim()) {
+      errs.license_number = 'License number is required.';
+    } else if (!validateLicenseNumber(form.license_number)) {
+      errs.license_number = 'Must follow LTO format (e.g. D01-23-456789).';
     }
-    if (!validateDateSequence(form.license_date_issued, form.license_expiry_date)) {
-      setFormError('License expiry date must be on or after the issue date.');
-      return;
+    if (!form.license_type) errs.license_type = 'License type is required.';
+    if (!form.restriction_code?.trim()) errs.restriction_code = 'Restriction code is required (or None).';
+    if (!form.license_date_issued) {
+      errs.license_date_issued = 'License issue date is required.';
+    } else if (form.license_date_issued > todayIso) {
+      errs.license_date_issued = 'Issue date cannot be in the future.';
     }
-    if (!validateDateSequence(form.contract_start, form.contract_end)) {
-      setFormError('Contract end date must be on or after the contract start date.');
-      return;
+    if (!form.license_expiry_date) {
+      errs.license_expiry_date = 'License expiry date is required.';
+    } else if (form.license_date_issued && !validateDateSequence(form.license_date_issued, form.license_expiry_date)) {
+      errs.license_expiry_date = 'Expiry date must be on or after issue date.';
     }
-    if (!validatePositiveNumber(form.experience_years)) {
-      setFormError('Years of experience cannot be negative.');
-      return;
+    if (!form.authorized_by?.trim()) errs.authorized_by = 'Authorized By is required.';
+
+    // 3. Health Information
+    if (!form.health_condition) errs.health_condition = 'Health condition is required.';
+    if (!form.last_medical_check) {
+      errs.last_medical_check = 'Last medical check date is required.';
+    } else if (form.last_medical_check > todayIso) {
+      errs.last_medical_check = 'Medical check date cannot be in the future.';
     }
-    if (!editingDriver && !form.password) {
-      setFormError('Password is required for a new driver.');
-      return;
+    if (!form.prescriptions?.trim()) errs.prescriptions = 'Prescriptions info is required (or "None").';
+    if (!form.existing_conditions?.trim()) errs.existing_conditions = 'Existing conditions info is required (or "None").';
+
+    // 4. Employment & Contract Information
+    if (!form.date_hired) {
+      errs.date_hired = 'Date hired is required.';
+    } else if (form.date_hired > todayIso) {
+      errs.date_hired = 'Date hired cannot be in the future.';
     }
-    const wantsPasswordChange = !editingDriver || changePassword;
-    if (wantsPasswordChange && form.password !== form.confirmPassword) {
-      setFormError('Passwords do not match.');
+    if (form.experience_years === '' || form.experience_years === null || form.experience_years === undefined) {
+      errs.experience_years = 'Years of experience is required.';
+    } else if (!validatePositiveNumber(form.experience_years)) {
+      errs.experience_years = 'Years of experience cannot be negative.';
+    }
+    if (!form.hired_by?.trim()) errs.hired_by = 'Hired By is required.';
+    if (!form.contract_start) errs.contract_start = 'Contract start date is required.';
+    if (!form.contract_end) {
+      errs.contract_end = 'Contract end date is required.';
+    } else if (form.contract_start && !validateDateSequence(form.contract_start, form.contract_end)) {
+      errs.contract_end = 'Contract end date must be on or after start date.';
+    }
+
+    // 5. Driver Documents
+    if (!editingDriver?.license_file_url && !licenseFile) {
+      errs.license_file = "Driver's license copy file is required.";
+    }
+    if (!editingDriver?.medical_certificate_file_url && !medicalCertFile) {
+      errs.medical_cert_file = 'Medical certificate file is required.';
+    }
+    if (!form.clearance_type) errs.clearance_type = 'Clearance type is required.';
+    if (!form.clearance_date) {
+      errs.clearance_date = 'Clearance date is required.';
+    } else if (form.clearance_date > todayIso) {
+      errs.clearance_date = 'Clearance date cannot be in the future.';
+    }
+    if (!editingDriver?.clearance_file_url && !clearanceFile) {
+      errs.clearance_file = 'Security clearance file is required.';
+    }
+
+    // 6. Account Information
+    if (!form.email?.trim()) {
+      errs.email = 'Email address is required.';
+    } else if (!validateEmail(form.email.trim())) {
+      errs.email = 'Please enter a valid email address.';
+    }
+
+    if (editingDriver && changePassword) {
+      if (!form.password) {
+        errs.password = 'New password is required.';
+      } else if (form.password.length < 6) {
+        errs.password = 'Password must be at least 6 characters.';
+      }
+      if (!form.confirmPassword) {
+        errs.confirmPassword = 'Confirm password is required.';
+      } else if (form.password !== form.confirmPassword) {
+        errs.confirmPassword = 'Passwords do not match.';
+      }
+    }
+
+    // 7. Profile Photo
+    if (!editingDriver?.user?.profile_photo_url && !profilePhotoFile && !profilePhotoPreview) {
+      errs.profile_photo = 'Driver profile photo is required.';
+    }
+
+    if (Object.keys(errs).length > 0) {
+      setFormErrors(errs);
+      const count = Object.keys(errs).length;
+      setFormError(`Please complete all ${count} required fields highlighted in red before saving.`);
       return;
     }
 
     setSaving(true);
     setFormError('');
+    setFormErrors({});
     try {
       const full_name = [form.first_name, form.middle_name, form.last_name].filter(Boolean).join(' ');
       const formData = new FormData();
@@ -601,7 +742,7 @@ function DriversPage() {
       if (form.contract_end) formData.append('contract_end', form.contract_end);
       if (form.clearance_type) formData.append('clearance_type', form.clearance_type);
       if (form.clearance_date) formData.append('clearance_date', form.clearance_date);
-      if (wantsPasswordChange && form.password) formData.append('password', form.password);
+      if (editingDriver && changePassword && form.password) formData.append('password', form.password);
 
       if (profilePhotoFile) {
         formData.append('profile_photo', profilePhotoFile);
@@ -614,6 +755,10 @@ function DriversPage() {
       }
       if (clearanceFile) {
         formData.append('clearance_file', clearanceFile);
+      }
+
+      if (editingDriver && form.email && form.email !== editingDriver.user?.email) {
+        formData.append('resend_credentials', '1');
       }
 
       if (editingDriver) {
@@ -630,7 +775,16 @@ function DriversPage() {
     } catch (err) {
       const errors = err.response?.data?.errors;
       const message = err.response?.data?.message;
-      setFormError(errors ? Object.values(errors)[0][0] : message || 'Could not save driver.');
+      if (errors) {
+        const backendErrs = {};
+        Object.entries(errors).forEach(([field, msgs]) => {
+          backendErrs[field] = Array.isArray(msgs) ? msgs[0] : msgs;
+        });
+        setFormErrors(backendErrs);
+        setFormError(Object.values(backendErrs)[0] || 'Validation failed.');
+      } else {
+        setFormError(message || 'Could not save driver.');
+      }
       console.error('Save driver failed:', err.response?.data || err);
     } finally {
       setSaving(false);
@@ -649,6 +803,32 @@ function DriversPage() {
       }
     } catch (err) {
       console.warn('Could not fetch detailed driver data:', err);
+    }
+  };
+
+  const [resendingEmail, setResendingEmail] = useState(false);
+
+  const handleResendCredentials = async (driver) => {
+    const email = driver?.user?.email;
+    if (!email) {
+      alert('Driver does not have an email address configured.');
+      return;
+    }
+    if (!window.confirm(`Resend initial login credentials and temporary password to ${email}?`)) {
+      return;
+    }
+    setResendingEmail(true);
+    try {
+      const res = await api.post(`/drivers/${driver.driver_id}/resend-credentials`);
+      setToast({ message: res.data?.message || `Credentials sent to ${email}!` });
+      setTimeout(() => setToast(null), 5000);
+      await loadData();
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Failed to send credentials email.';
+      setToast({ message: msg, type: 'error' });
+      setTimeout(() => setToast(null), 6000);
+    } finally {
+      setResendingEmail(false);
     }
   };
 
@@ -745,12 +925,12 @@ function DriversPage() {
             </div>
 
             <div
-              className={`stat-card${view === 'archives' || activeStatusFilter === 'resigned' ? ' active active-resigned' : ''}`}
-              onClick={() => handleKpiClick('resigned')}
-              title="Click to view Resigned / Archived drivers"
+              className={`stat-card${view === 'incidents' ? ' active active-incidents' : ''}`}
+              onClick={() => handleKpiClick('incidents')}
+              title="Click to view Incidents Reported"
             >
-              <div className="stat-badge orange">{kpiCounts.resigned}</div>
-              <span className="stat-label">Resigned</span>
+              <div className="stat-badge orange">{kpiCounts.incidents}</div>
+              <span className="stat-label">Incidents Reported</span>
             </div>
           </div>
 
@@ -804,28 +984,35 @@ function DriversPage() {
                         <tr key={driver.driver_id} className="driver-row" onClick={() => openDetails(driver)}>
                           <td className="driver-id">{driverCode(driver.driver_id)}</td>
                           <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                               <img
                                 src={driver.user?.profile_photo_url || '/images/defaultavatar.png'}
                                 alt={driver.user?.full_name || 'Driver'}
                                 style={{
-                                  width: '36px',
-                                  height: '36px',
+                                  width: '48px',
+                                  height: '48px',
                                   borderRadius: '50%',
                                   objectFit: 'cover',
-                                  border: '1px solid #e2e8f0',
+                                  border: '1.5px solid #e2e8f0',
+                                  boxShadow: '0 2px 4px rgba(0,0,0,0.06)',
                                 }}
                                 onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
                               />
-                              <span style={{ fontWeight: 600 }}>{driver.user?.full_name || '—'}</span>
+                              <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>{driver.user?.full_name || '—'}</span>
                             </div>
                           </td>
                           <td><span className={`driver-status ${availabilityClass(driver)}`}><i className="fas fa-circle"></i> {availabilityLabel(driver)}</span></td>
                           <td>{driver.contract_end ? `Valid until ${formatDate(driver.contract_end)}` : 'Not set'}</td>
                           <td>{driver.user?.phone || '—'}</td>
                           <td className="action-cell">
-                            <button className="btn-edit-info" onClick={(e) => { e.stopPropagation(); openEditModal(driver); }}>Edit</button>
-                            <button className="btn-archive" onClick={(e) => { e.stopPropagation(); openArchiveModal(driver); }}>ARCHIVE</button>
+                            <div className="driver-action-buttons">
+                              <button className="btn-edit-info" onClick={(e) => { e.stopPropagation(); openEditModal(driver); }}>
+                                <i className="fas fa-pen-to-square"></i> Edit
+                              </button>
+                              <button className="btn-archive" onClick={(e) => { e.stopPropagation(); openArchiveModal(driver); }}>
+                                <i className="fas fa-box-archive"></i> Archive
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -862,19 +1049,32 @@ function DriversPage() {
                     ) : (
                       paginatedArchivedDrivers.map((driver) => (
                         <tr key={driver.driver_id} className="driver-row">
-                          <td style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <img
-                              src={driver.user?.profile_photo_url || '/images/defaultavatar.png'}
-                              alt=""
-                              style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }}
-                              onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
-                            />
-                            <span>{driver.user?.full_name || '—'}</span>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                              <img
+                                src={driver.user?.profile_photo_url || '/images/defaultavatar.png'}
+                                alt=""
+                                style={{
+                                  width: '48px',
+                                  height: '48px',
+                                  borderRadius: '50%',
+                                  objectFit: 'cover',
+                                  border: '1.5px solid #e2e8f0',
+                                  boxShadow: '0 2px 4px rgba(0,0,0,0.06)',
+                                }}
+                                onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
+                              />
+                              <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>{driver.user?.full_name || '—'}</span>
+                            </div>
                           </td>
                           <td>{driverCode(driver.driver_id)}</td>
                           <td>{driver.user?.phone || '—'}</td>
                           <td className="action-cell">
-                            <button className="btn-return-driver" onClick={() => returnDriver(driver)}>Restore</button>
+                            <div className="driver-action-buttons">
+                              <button className="btn-return-driver" onClick={() => returnDriver(driver)}>
+                                <i className="fas fa-rotate-left"></i> Restore
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -1042,10 +1242,14 @@ function DriversPage() {
 
       {/* Toast */}
       {toast && (
-        <div className="toast-notification show">
+        <div className="toast-notification show" style={toast.type === 'error' ? { background: '#991b1b', color: '#fff' } : {}}>
           <div className="toast-content">
-            <span className="toast-message"><i className="fas fa-check-circle"></i> {toast.message}</span>
-            <button className="btn-undo" onClick={undoArchive}><i className="fa fa-undo"></i> Undo</button>
+            <span className="toast-message">
+              <i className={toast.type === 'error' ? 'fas fa-exclamation-circle' : 'fas fa-check-circle'}></i> {toast.message}
+            </span>
+            {toast.undoDriverId && (
+              <button className="btn-undo" onClick={undoArchive}><i className="fa fa-undo"></i> Undo</button>
+            )}
           </div>
         </div>
       )}
@@ -1209,6 +1413,33 @@ function DriversPage() {
                     }}
                   >
                     <i className="far fa-edit"></i> Edit Information
+                  </button>
+
+                  <button
+                    type="button"
+                    style={{
+                      width: '100%',
+                      marginTop: 8,
+                      padding: '9px 12px',
+                      background: '#eff6ff',
+                      color: '#2563eb',
+                      border: '1px solid #bfdbfe',
+                      borderRadius: 8,
+                      fontWeight: 600,
+                      fontSize: 12.5,
+                      cursor: resendingEmail ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      transition: 'all 0.2s',
+                    }}
+                    onClick={() => handleResendCredentials(detailsDriver)}
+                    disabled={resendingEmail}
+                    title="Resend welcome email with initial temporary password"
+                  >
+                    <i className={resendingEmail ? 'fas fa-spinner fa-spin' : 'fas fa-paper-plane'}></i>
+                    {resendingEmail ? 'Sending...' : 'Resend Credentials Email'}
                   </button>
                 </div>
 
@@ -1734,139 +1965,486 @@ function DriversPage() {
           }}
         >
           <div
-            className="modal-content driver-form-content"
+            className="modal-content driver-form-content hide-scrollbar"
             style={{
               width: '100%',
-              maxWidth: 950,
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              background: '#fff',
-              borderRadius: 12,
-              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              maxWidth: 1040,
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              background: '#ffffff',
+              borderRadius: 16,
+              boxShadow: '0 25px 60px -15px rgba(0,0,0,0.3)',
+              overflow: 'hidden',
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none',
             }}
           >
-            <div className="modal-header driver-form-header" style={{ position: 'sticky', top: 0, zIndex: 2, background: '#d32f2f', color: '#fff', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ color: '#fff', margin: 0, fontSize: 18 }}><i className="fas fa-user-circle"></i> {editingDriver ? 'EDIT DRIVER' : 'ADD NEW DRIVER'}</h2>
-              <button className="modal-close" onClick={() => setShowFormModal(false)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer' }}>
+            {/* Modal Header */}
+            <div
+              className="modal-header driver-form-header"
+              style={{
+                background: 'linear-gradient(135deg, #b91c1c 0%, #dc2626 50%, #ef4444 100%)',
+                color: '#fff',
+                padding: '18px 26px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div
+                  style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 10,
+                    background: 'rgba(255,255,255,0.2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 20,
+                  }}
+                >
+                  <i className="fas fa-id-card"></i>
+                </div>
+                <div>
+                  <h2 style={{ color: '#fff', margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '0.3px' }}>
+                    {editingDriver ? 'EDIT DRIVER PROFILE' : 'ADD NEW DRIVER'}
+                  </h2>
+                  <p style={{ margin: '3px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.9)', fontWeight: 400 }}>
+                    All fields are required. Please complete personal, license, medical, contract, and account details.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setShowFormModal(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.15)',
+                  border: 'none',
+                  color: '#fff',
+                  width: 34,
+                  height: 34,
+                  borderRadius: 8,
+                  fontSize: 16,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.2s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.3)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
+                aria-label="Close modal"
+              >
                 <i className="fas fa-times"></i>
               </button>
             </div>
-            <div className="modal-body driver-form-body" style={{ padding: 24 }}>
-              {formError && <div className="form-error" style={{ color: '#d32f2f', background: '#fee2e2', padding: '10px 14px', borderRadius: 6, marginBottom: 16 }}>{formError}</div>}
+
+            {/* Modal Body */}
+            <div className="modal-body driver-form-body hide-scrollbar" style={{ padding: '24px 28px', overflowY: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none', background: '#f8fafc', flex: 1 }}>
+              {/* SweetAlert-style Pop-up Toast */}
+              {formError && (
+                <div className="sweet-alert-popup" role="alert" style={{ zIndex: 100001 }}>
+                  <div className="sweet-alert-icon">
+                    <i className="fas fa-exclamation"></i>
+                  </div>
+                  <div className="sweet-alert-body">
+                    <h4 className="sweet-alert-title">Incomplete Required Fields</h4>
+                    <p className="sweet-alert-desc">{formError}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="sweet-alert-close"
+                    onClick={() => setFormError('')}
+                    aria-label="Dismiss alert"
+                  >
+                    <i className="fas fa-times"></i>
+                  </button>
+                </div>
+              )}
+
               <form className="edit-form" onSubmit={(e) => e.preventDefault()}>
-                <div
-                  className="driver-form-columns"
-                  style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 20 }}
-                >
-                  {/* Personal Information */}
-                  <div className="form-card">
-                    <h4 className="form-section-title">Personal Information</h4>
-                    <div className="form-group">
-                      <label>First Name <span className="required" style={{ color: 'red' }}>*</span></label>
-                      <input type="text" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} />
+                {/* Section 1: Personal & Contact Information */}
+                <div className="driver-section-card">
+                  <div className="driver-section-header">
+                    <div className="driver-section-icon-badge">
+                      <i className="fas fa-user"></i>
                     </div>
-                    <div className="form-group">
-                      <label>Middle Name</label>
-                      <input type="text" value={form.middle_name} onChange={(e) => setForm({ ...form, middle_name: e.target.value })} />
-                    </div>
-                    <div className="form-group">
-                      <label>Last Name <span className="required" style={{ color: 'red' }}>*</span></label>
-                      <input type="text" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
-                    </div>
-                    <div className="form-group">
-                      <label>Birthdate</label>
-                      <input type="date" value={form.birthdate || ''} onChange={(e) => setForm({ ...form, birthdate: e.target.value })} />
-                    </div>
-                    <div className="form-group">
-                      <label>Nationality</label>
-                      <input
-                        type="text"
-                        value={form.nationality || ''}
-                        placeholder="e.g. Filipino"
-                        onChange={(e) => setForm({ ...form, nationality: e.target.value })}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Contact Number <span className="required" style={{ color: 'red' }}>*</span></label>
-                      <input
-                        type="text"
-                        value={form.phone}
-                        maxLength={11}
-                        placeholder="09XXXXXXXXX"
-                        onChange={(e) => setForm({ ...form, phone: formatPhoneInput(e.target.value) })}
-                      />
+                    <div>
+                      <h4 className="driver-section-title-text">Personal &amp; Contact Information</h4>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>Driver identity, contact details, and identification photograph</span>
                     </div>
                   </div>
 
-                  {/* License Information */}
-                  <div className="form-card">
-                    <h4 className="form-section-title">License Information</h4>
-                    <div className="form-group">
-                      <label>License Number</label>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept="image/jpeg,image/png,image/jpg,image/webp"
+                    style={{ display: 'none' }}
+                    onChange={handlePhotoSelect}
+                  />
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '170px 1fr', gap: 20, alignItems: 'stretch' }}>
+                    {/* Left Column: Profile Picture Uploader */}
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <label className="driver-field-label">
+                        Profile Photo <span className="req-star">*</span>
+                      </label>
+                      <div
+                        className={`driver-photo-box ${formErrors.profile_photo ? 'input-error' : ''}`}
+                        onClick={() => fileInputRef.current?.click()}
+                        style={{ flex: 1, minHeight: 180, padding: 14 }}
+                        title="Click to select driver photo"
+                      >
+                        {profilePhotoPreview ? (
+                          <div style={{ position: 'relative' }}>
+                            <img
+                              src={profilePhotoPreview}
+                              alt="Preview"
+                              style={{ width: 84, height: 84, borderRadius: '50%', objectFit: 'cover', border: '3px solid #e2e8f0', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}
+                              onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
+                            />
+                            <p style={{ margin: '8px 0 0', fontSize: 11.5, color: '#2563eb', fontWeight: 600 }}>
+                              <i className="fas fa-sync-alt" style={{ marginRight: 4 }}></i> Change photo
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, marginBottom: 8 }}>
+                              <i className="fas fa-cloud-upload-alt"></i>
+                            </div>
+                            <p style={{ margin: '0 0 2px', fontWeight: 700, color: '#1e293b', fontSize: 12.5 }}>Upload Photo</p>
+                            <p style={{ fontSize: 11, margin: 0, color: '#64748b' }}>JPG, PNG or WEBP</p>
+                          </>
+                        )}
+                      </div>
+                      {formErrors.profile_photo && (
+                        <div className="driver-error-feedback" style={{ marginTop: 6, justifyContent: 'center' }}>
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.profile_photo}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right Column: Personal & Contact Fields */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      {/* Row 1: First Name, Middle Name, Last Name */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 14 }}>
+                        <div className="form-group" style={{ position: 'relative' }}>
+                          <label className="driver-field-label">
+                            First Name <span className="req-star">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            className={`driver-form-input ${formErrors.first_name ? 'input-error' : ''}`}
+                            placeholder="e.g. Juan"
+                            value={form.first_name}
+                            onChange={(e) => handleFieldChange('first_name', e.target.value)}
+                          />
+                          {formErrors.first_name && (
+                            <div className="driver-error-feedback">
+                              <i className="fas fa-circle-exclamation"></i>
+                              <span>{formErrors.first_name}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="form-group" style={{ position: 'relative' }}>
+                          <label className="driver-field-label">
+                            Middle Name <span className="req-star">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            className={`driver-form-input ${formErrors.middle_name ? 'input-error' : ''}`}
+                            placeholder="e.g. Santos (or N/A)"
+                            value={form.middle_name}
+                            onChange={(e) => handleFieldChange('middle_name', e.target.value)}
+                          />
+                          {formErrors.middle_name && (
+                            <div className="driver-error-feedback">
+                              <i className="fas fa-circle-exclamation"></i>
+                              <span>{formErrors.middle_name}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="form-group" style={{ position: 'relative' }}>
+                          <label className="driver-field-label">
+                            Last Name <span className="req-star">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            className={`driver-form-input ${formErrors.last_name ? 'input-error' : ''}`}
+                            placeholder="e.g. Dela Cruz"
+                            value={form.last_name}
+                            onChange={(e) => handleFieldChange('last_name', e.target.value)}
+                          />
+                          {formErrors.last_name && (
+                            <div className="driver-error-feedback">
+                              <i className="fas fa-circle-exclamation"></i>
+                              <span>{formErrors.last_name}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Row 2: Birthdate & Nationality */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                        <div className="form-group" style={{ position: 'relative' }}>
+                          <label className="driver-field-label">
+                            Birthdate <span className="req-star">*</span>
+                          </label>
+                          <input
+                            type="date"
+                            max={new Date().toISOString().split('T')[0]}
+                            className={`driver-form-input ${formErrors.birthdate ? 'input-error' : ''}`}
+                            value={form.birthdate || ''}
+                            onChange={(e) => handleFieldChange('birthdate', e.target.value)}
+                          />
+                          {formErrors.birthdate && (
+                            <div className="driver-error-feedback">
+                              <i className="fas fa-circle-exclamation"></i>
+                              <span>{formErrors.birthdate}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="form-group" style={{ position: 'relative' }}>
+                          <label className="driver-field-label">
+                            Nationality <span className="req-star">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            className={`driver-form-input ${formErrors.nationality ? 'input-error' : ''}`}
+                            placeholder="e.g. Filipino"
+                            value={form.nationality || ''}
+                            onChange={(e) => handleFieldChange('nationality', e.target.value)}
+                          />
+                          {formErrors.nationality && (
+                            <div className="driver-error-feedback">
+                              <i className="fas fa-circle-exclamation"></i>
+                              <span>{formErrors.nationality}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Row 3: Contact Number & Email Address */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.25fr', gap: 14 }}>
+                        <div className="form-group" style={{ position: 'relative' }}>
+                          <label className="driver-field-label">
+                            Contact Number <span className="req-star">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            maxLength={11}
+                            className={`driver-form-input ${formErrors.phone ? 'input-error' : ''}`}
+                            placeholder="09XXXXXXXXX"
+                            value={form.phone}
+                            onChange={(e) => handleFieldChange('phone', formatPhoneInput(e.target.value))}
+                          />
+                          {formErrors.phone && (
+                            <div className="driver-error-feedback">
+                              <i className="fas fa-circle-exclamation"></i>
+                              <span>{formErrors.phone}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="form-group" style={{ position: 'relative' }}>
+                          <label className="driver-field-label">
+                            Email Address <span className="req-star">*</span>
+                          </label>
+                          <input
+                            type="email"
+                            className={`driver-form-input ${formErrors.email ? 'input-error' : ''}`}
+                            placeholder="driver@hjytransport.com"
+                            value={form.email}
+                            onChange={(e) => handleFieldChange('email', e.target.value)}
+                          />
+                          {editingDriver && form.email && form.email !== editingDriver.user?.email && (
+                            <p style={{ margin: '6px 0 0', fontSize: 11.5, color: '#16a34a', display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className="fas fa-check-circle"></i> A new temporary password will be emailed to this corrected address upon saving.
+                            </p>
+                          )}
+                          {formErrors.email && (
+                            <div className="driver-error-feedback">
+                              <i className="fas fa-circle-exclamation"></i>
+                              <span>{formErrors.email}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 2: Driver's License Details */}
+                <div className="driver-section-card">
+                  <div className="driver-section-header">
+                    <div className="driver-section-icon-badge">
+                      <i className="fas fa-id-card"></i>
+                    </div>
+                    <div>
+                      <h4 className="driver-section-title-text">Driver's License Details</h4>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>LTO License credentials, validity, and restrictions</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16 }}>
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        License Number <span className="req-star">*</span>
+                      </label>
                       <input
                         type="text"
-                        value={form.license_number}
                         maxLength={13}
+                        className={`driver-form-input ${formErrors.license_number ? 'input-error' : ''}`}
                         placeholder="e.g. D01-23-456789"
-                        onChange={(e) => setForm({ ...form, license_number: formatLicenseInput(e.target.value) })}
+                        value={form.license_number}
+                        onChange={(e) => handleFieldChange('license_number', formatLicenseInput(e.target.value))}
                       />
+                      {formErrors.license_number && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.license_number}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group">
-                      <label>License Type</label>
+
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        License Type <span className="req-star">*</span>
+                      </label>
                       <select
+                        className={`driver-form-select ${formErrors.license_type ? 'input-error' : ''}`}
                         value={form.license_type}
-                        onChange={(e) => setForm({ ...form, license_type: e.target.value })}
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff' }}
+                        onChange={(e) => handleFieldChange('license_type', e.target.value)}
                       >
                         <option value="Professional">Professional (Prof)</option>
                         <option value="Non-Professional">Non-Professional (Non-Prof)</option>
                         <option value="Student Permit">Student Permit</option>
                       </select>
+                      {formErrors.license_type && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.license_type}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="form-row-inline" style={{ display: 'flex', gap: 10 }}>
-                      <div className="form-group" style={{ flex: 1 }}>
-                        <label>Date issued</label>
-                        <input type="date" value={form.license_date_issued || ''} onChange={(e) => setForm({ ...form, license_date_issued: e.target.value })} />
-                      </div>
-                      <div className="form-group" style={{ flex: 1 }}>
-                        <label>Date expiry</label>
-                        <input type="date" value={form.license_expiry_date || ''} onChange={(e) => setForm({ ...form, license_expiry_date: e.target.value })} />
-                      </div>
+
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        Restriction Code <span className="req-star">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className={`driver-form-input ${formErrors.restriction_code ? 'input-error' : ''}`}
+                        placeholder="e.g. 1, 2 (or None)"
+                        value={form.restriction_code}
+                        onChange={(e) => handleFieldChange('restriction_code', e.target.value)}
+                      />
+                      {formErrors.restriction_code && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.restriction_code}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        Authorized By
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16, marginTop: 14 }}>
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        Date Issued <span className="req-star">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        max={new Date().toISOString().split('T')[0]}
+                        className={`driver-form-input ${formErrors.license_date_issued ? 'input-error' : ''}`}
+                        value={form.license_date_issued || ''}
+                        onChange={(e) => handleFieldChange('license_date_issued', e.target.value)}
+                      />
+                      {formErrors.license_date_issued && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.license_date_issued}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        Date Expiry <span className="req-star">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        min={form.license_date_issued || ''}
+                        className={`driver-form-input ${formErrors.license_expiry_date ? 'input-error' : ''}`}
+                        value={form.license_expiry_date || ''}
+                        onChange={(e) => handleFieldChange('license_expiry_date', e.target.value)}
+                      />
+                      {formErrors.license_expiry_date && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.license_expiry_date}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label" style={{ justifyContent: 'space-between' }}>
+                        <span>Authorized By <span className="req-star">*</span></span>
                         {editingDriver && (
                           <span style={{ fontSize: 11, color: '#64748b', fontWeight: 'normal', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                            <i className="fas fa-lock" style={{ fontSize: 10 }}></i> Immutable Audit Field
+                            <i className="fas fa-lock" style={{ fontSize: 10 }}></i> Immutable Audit
                           </span>
                         )}
                       </label>
                       <input
                         type="text"
+                        className={`driver-form-input ${formErrors.authorized_by ? 'input-error' : ''}`}
                         value={form.authorized_by || ''}
                         disabled={Boolean(editingDriver)}
                         readOnly={Boolean(editingDriver)}
                         style={editingDriver ? { backgroundColor: '#f1f5f9', color: '#475569', cursor: 'not-allowed' } : {}}
-                        placeholder="Auto-detected authorized user"
-                        onChange={(e) => setForm({ ...form, authorized_by: e.target.value })}
+                        placeholder="Authorized user name"
+                        onChange={(e) => handleFieldChange('authorized_by', e.target.value)}
                       />
+                      {formErrors.authorized_by && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.authorized_by}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group">
-                      <label>Restriction code (if any)</label>
-                      <input type="text" value={form.restriction_code} onChange={(e) => setForm({ ...form, restriction_code: e.target.value })} />
+                  </div>
+                </div>
+
+                {/* Section 3: Health & Medical Information */}
+                <div className="driver-section-card">
+                  <div className="driver-section-header">
+                    <div className="driver-section-icon-badge">
+                      <i className="fas fa-heartbeat"></i>
+                    </div>
+                    <div>
+                      <h4 className="driver-section-title-text">Health &amp; Medical Profile</h4>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>Fitness assessment and medical condition records</span>
                     </div>
                   </div>
 
-                  {/* Health Information */}
-                  <div className="form-card">
-                    <h4 className="form-section-title">Health Information</h4>
-                    <div className="form-group">
-                      <label>Condition / Health Status</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16 }}>
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        Condition / Health Status <span className="req-star">*</span>
+                      </label>
                       <select
+                        className={`driver-form-select ${formErrors.health_condition ? 'input-error' : ''}`}
                         value={form.health_condition}
-                        onChange={(e) => setForm({ ...form, health_condition: e.target.value })}
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff' }}
+                        onChange={(e) => handleFieldChange('health_condition', e.target.value)}
                       >
                         <option value="Fit to Work">Fit to Work</option>
                         <option value="1 - None / Normal">1 - None / Normal</option>
@@ -1878,48 +2456,131 @@ function DriversPage() {
                         <option value="Medical Leave">Medical Leave</option>
                         <option value="Unfit to Work">Unfit to Work</option>
                       </select>
+                      {formErrors.health_condition && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.health_condition}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group">
-                      <label>Last Medical Check</label>
-                      <input type="date" value={form.last_medical_check || ''} onChange={(e) => setForm({ ...form, last_medical_check: e.target.value })} />
+
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        Last Medical Check <span className="req-star">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        max={new Date().toISOString().split('T')[0]}
+                        className={`driver-form-input ${formErrors.last_medical_check ? 'input-error' : ''}`}
+                        value={form.last_medical_check || ''}
+                        onChange={(e) => handleFieldChange('last_medical_check', e.target.value)}
+                      />
+                      {formErrors.last_medical_check && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.last_medical_check}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group">
-                      <label>Prescriptions</label>
-                      <textarea placeholder="Enter prescription (optional)" value={form.prescriptions} onChange={(e) => setForm({ ...form, prescriptions: e.target.value })} />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, marginTop: 14 }}>
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        Prescriptions <span className="req-star">*</span>
+                      </label>
+                      <textarea
+                        rows={2}
+                        className={`driver-form-textarea ${formErrors.prescriptions ? 'input-error' : ''}`}
+                        placeholder="Enter current medications (or enter 'None')"
+                        value={form.prescriptions}
+                        onChange={(e) => handleFieldChange('prescriptions', e.target.value)}
+                      />
+                      {formErrors.prescriptions && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.prescriptions}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group">
-                      <label>Existing Conditions</label>
-                      <textarea placeholder="Enter conditions (optional)" value={form.existing_conditions} onChange={(e) => setForm({ ...form, existing_conditions: e.target.value })} />
+
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        Existing Conditions <span className="req-star">*</span>
+                      </label>
+                      <textarea
+                        rows={2}
+                        className={`driver-form-textarea ${formErrors.existing_conditions ? 'input-error' : ''}`}
+                        placeholder="Enter health conditions or allergies (or enter 'None')"
+                        value={form.existing_conditions}
+                        onChange={(e) => handleFieldChange('existing_conditions', e.target.value)}
+                      />
+                      {formErrors.existing_conditions && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.existing_conditions}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Employment & Contract Information */}
-                <div className="form-card" style={{ marginTop: 20 }}>
-                  <h4 className="form-section-title">Employment &amp; Contract Information</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 14 }}>
-                    <div className="form-group">
-                      <label>Date Hired</label>
+                {/* Section 4: Employment & Contract Information */}
+                <div className="driver-section-card">
+                  <div className="driver-section-header">
+                    <div className="driver-section-icon-badge">
+                      <i className="fas fa-briefcase"></i>
+                    </div>
+                    <div>
+                      <h4 className="driver-section-title-text">Employment &amp; Contract Information</h4>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>Hiring date, experience, and contract tenure</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16 }}>
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        Date Hired <span className="req-star">*</span>
+                      </label>
                       <input
                         type="date"
+                        max={new Date().toISOString().split('T')[0]}
+                        className={`driver-form-input ${formErrors.date_hired ? 'input-error' : ''}`}
                         value={form.date_hired || ''}
-                        onChange={(e) => setForm({ ...form, date_hired: e.target.value })}
+                        onChange={(e) => handleFieldChange('date_hired', e.target.value)}
                       />
+                      {formErrors.date_hired && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.date_hired}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group">
-                      <label>Years of Experience</label>
+
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        Years of Experience <span className="req-star">*</span>
+                      </label>
                       <input
                         type="number"
                         min="0"
                         max="60"
                         placeholder="e.g. 5"
+                        className={`driver-form-input ${formErrors.experience_years ? 'input-error' : ''}`}
                         value={form.experience_years ?? ''}
-                        onChange={(e) => setForm({ ...form, experience_years: e.target.value })}
+                        onChange={(e) => handleFieldChange('experience_years', e.target.value)}
                       />
+                      {formErrors.experience_years && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.experience_years}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        Hired By
+
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label" style={{ justifyContent: 'space-between' }}>
+                        <span>Hired By <span className="req-star">*</span></span>
                         {editingDriver && (
                           <span style={{ fontSize: 11, color: '#64748b', fontWeight: 'normal', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                             <i className="fas fa-lock" style={{ fontSize: 10 }}></i> Immutable
@@ -1929,50 +2590,85 @@ function DriversPage() {
                       <input
                         type="text"
                         placeholder="e.g. HR / Manager"
+                        className={`driver-form-input ${formErrors.hired_by ? 'input-error' : ''}`}
                         value={form.hired_by || ''}
                         disabled={Boolean(editingDriver)}
                         readOnly={Boolean(editingDriver)}
                         style={editingDriver ? { backgroundColor: '#f1f5f9', color: '#475569', cursor: 'not-allowed' } : {}}
-                        onChange={(e) => setForm({ ...form, hired_by: e.target.value })}
+                        onChange={(e) => handleFieldChange('hired_by', e.target.value)}
                       />
+                      {formErrors.hired_by && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.hired_by}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group">
-                      <label>Contract Start Date</label>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, marginTop: 14 }}>
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        Contract Start Date <span className="req-star">*</span>
+                      </label>
                       <input
                         type="date"
+                        className={`driver-form-input ${formErrors.contract_start ? 'input-error' : ''}`}
                         value={form.contract_start || ''}
-                        onChange={(e) => setForm({ ...form, contract_start: e.target.value })}
+                        onChange={(e) => handleFieldChange('contract_start', e.target.value)}
                       />
+                      {formErrors.contract_start && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.contract_start}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group">
-                      <label>Contract End Date</label>
+
+                    <div className="form-group" style={{ position: 'relative' }}>
+                      <label className="driver-field-label">
+                        Contract End Date <span className="req-star">*</span>
+                      </label>
                       <input
                         type="date"
+                        min={form.contract_start || ''}
+                        className={`driver-form-input ${formErrors.contract_end ? 'input-error' : ''}`}
                         value={form.contract_end || ''}
-                        onChange={(e) => setForm({ ...form, contract_end: e.target.value })}
+                        onChange={(e) => handleFieldChange('contract_end', e.target.value)}
                       />
+                      {formErrors.contract_end && (
+                        <div className="driver-error-feedback">
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.contract_end}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Driver Documents (Permits & Clearances) */}
-                <div className="form-card" style={{ marginTop: 20 }}>
+                {/* Section 5: Driver Documents (Permits & Clearances) */}
+                <div className="driver-section-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                    <h4 className="form-section-title" style={{ margin: 0 }}>
-                      <i className="fas fa-folder-open" style={{ color: '#d32f2f', marginRight: 8 }}></i>
-                      Driver Documents (Permits &amp; Clearances)
-                    </h4>
-                    <span style={{ fontSize: 12, color: '#64748b' }}>
-                      Accepted formats: JPG, PNG, WEBP, PDF (Max 10MB per file)
+                    <div className="driver-section-header" style={{ marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>
+                      <div className="driver-section-icon-badge">
+                        <i className="fas fa-folder-open"></i>
+                      </div>
+                      <div>
+                        <h4 className="driver-section-title-text">Driver Documents (Permits &amp; Clearances)</h4>
+                        <span style={{ fontSize: 12, color: '#64748b' }}>Required document photocopies / PDFs</span>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 12, color: '#64748b', background: '#f1f5f9', padding: '4px 10px', borderRadius: 6 }}>
+                      Accepted formats: JPG, PNG, WEBP, PDF (Max 10MB) <span className="req-star">*</span>
                     </span>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16 }}>
                     {/* Document 1: Driver's License Copy */}
-                    <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: 14 }}>
+                    <div className={`driver-upload-card ${formErrors.license_file ? 'input-error' : ''}`}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <i className="fas fa-id-card" style={{ color: '#b91c1c' }}></i> Driver's License Copy
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <i className="fas fa-id-card" style={{ color: '#b91c1c' }}></i> License Copy <span className="req-star">*</span>
                         </span>
                         {editingDriver?.license_file_url && !licenseFile && (
                           <button
@@ -2010,19 +2706,25 @@ function DriversPage() {
                         <button
                           type="button"
                           onClick={() => licenseFileInputRef.current?.click()}
-                          style={{ width: '100%', padding: '10px 12px', border: '1.5px dashed #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                          style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                         >
                           <i className="fas fa-cloud-upload-alt" style={{ color: '#94a3b8' }}></i>
                           {editingDriver?.license_file_url ? 'Replace License File' : 'Upload License File'}
                         </button>
                       )}
+                      {formErrors.license_file && (
+                        <div className="driver-error-feedback" style={{ marginTop: 6 }}>
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.license_file}</span>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Document 2: Medical / Fit-to-Work Certificate */}
-                    <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: 14 }}>
+                    {/* Document 2: Medical Certificate */}
+                    <div className={`driver-upload-card ${formErrors.medical_cert_file ? 'input-error' : ''}`}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <i className="fas fa-heartbeat" style={{ color: '#b91c1c' }}></i> Medical Certificate
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <i className="fas fa-heartbeat" style={{ color: '#b91c1c' }}></i> Medical Certificate <span className="req-star">*</span>
                         </span>
                         {editingDriver?.medical_certificate_file_url && !medicalCertFile && (
                           <button
@@ -2060,19 +2762,25 @@ function DriversPage() {
                         <button
                           type="button"
                           onClick={() => medicalCertFileInputRef.current?.click()}
-                          style={{ width: '100%', padding: '10px 12px', border: '1.5px dashed #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                          style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                         >
                           <i className="fas fa-cloud-upload-alt" style={{ color: '#94a3b8' }}></i>
                           {editingDriver?.medical_certificate_file_url ? 'Replace Medical File' : 'Upload Medical Cert'}
                         </button>
                       )}
+                      {formErrors.medical_cert_file && (
+                        <div className="driver-error-feedback" style={{ marginTop: 6 }}>
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.medical_cert_file}</span>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Document 3: NBI / Police Clearance */}
-                    <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: 14 }}>
+                    {/* Document 3: Security Clearance */}
+                    <div className={`driver-upload-card ${formErrors.clearance_file || formErrors.clearance_type || formErrors.clearance_date ? 'input-error' : ''}`}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <i className="fas fa-shield-alt" style={{ color: '#b91c1c' }}></i> Security Clearance
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <i className="fas fa-shield-alt" style={{ color: '#b91c1c' }}></i> Security Clearance <span className="req-star">*</span>
                         </span>
                         {editingDriver?.clearance_file_url && !clearanceFile && (
                           <button
@@ -2087,8 +2795,9 @@ function DriversPage() {
                       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 6, marginBottom: 8 }}>
                         <select
                           value={form.clearance_type || 'NBI Clearance'}
-                          onChange={(e) => setForm({ ...form, clearance_type: e.target.value })}
-                          style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11, background: '#fff' }}
+                          onChange={(e) => handleFieldChange('clearance_type', e.target.value)}
+                          className={`driver-form-select ${formErrors.clearance_type ? 'input-error' : ''}`}
+                          style={{ padding: '6px 8px', borderRadius: 6, fontSize: 11, height: 34 }}
                         >
                           <option value="NBI Clearance">NBI Clearance</option>
                           <option value="Police Clearance">Police Clearance</option>
@@ -2096,9 +2805,11 @@ function DriversPage() {
                         </select>
                         <input
                           type="date"
+                          max={new Date().toISOString().split('T')[0]}
                           value={form.clearance_date || ''}
-                          onChange={(e) => setForm({ ...form, clearance_date: e.target.value })}
-                          style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11, background: '#fff' }}
+                          onChange={(e) => handleFieldChange('clearance_date', e.target.value)}
+                          className={`driver-form-input ${formErrors.clearance_date ? 'input-error' : ''}`}
+                          style={{ padding: '6px 8px', borderRadius: 6, fontSize: 11, height: 34 }}
                           title="Clearance Issue Date"
                         />
                       </div>
@@ -2128,116 +2839,180 @@ function DriversPage() {
                         <button
                           type="button"
                           onClick={() => clearanceFileInputRef.current?.click()}
-                          style={{ width: '100%', padding: '10px 12px', border: '1.5px dashed #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                          style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                         >
                           <i className="fas fa-cloud-upload-alt" style={{ color: '#94a3b8' }}></i>
                           {editingDriver?.clearance_file_url ? 'Replace Clearance File' : 'Upload Clearance'}
                         </button>
                       )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="driver-form-columns" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 20, marginTop: 20 }}>
-                  {/* Account Information */}
-                  <div className="form-card">
-                    <h4 className="form-section-title">Account Information</h4>
-                    <div className="form-group">
-                      <label>Email <span className="required" style={{ color: 'red' }}>*</span></label>
-                      <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-                    </div>
-                    <div className="form-row-inline" style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-                      <div className="form-group" style={{ flex: 1, position: 'relative' }}>
-                        <label>Password{!editingDriver && <span className="required" style={{ color: 'red' }}>*</span>}</label>
-                        <input
-                          type={showPassword ? 'text' : 'password'}
-                          value={form.password}
-                          disabled={editingDriver && !changePassword}
-                          onChange={(e) => setForm({ ...form, password: e.target.value })}
-                        />
-                        <i
-                          className={`fa-solid ${showPassword ? 'fa-eye' : 'fa-eye-slash'}`}
-                          onClick={() => setShowPassword((p) => !p)}
-                          style={{ position: 'absolute', right: 12, top: 38, cursor: 'pointer' }}
-                        ></i>
-                      </div>
-                      <div className="form-group" style={{ flex: 1, position: 'relative' }}>
-                        <label>Confirm Password{!editingDriver && <span className="required" style={{ color: 'red' }}>*</span>}</label>
-                        <input
-                          type={showConfirmPassword ? 'text' : 'password'}
-                          value={form.confirmPassword}
-                          disabled={editingDriver && !changePassword}
-                          onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
-                        />
-                        <i
-                          className={`fa-solid ${showConfirmPassword ? 'fa-eye' : 'fa-eye-slash'}`}
-                          onClick={() => setShowConfirmPassword((p) => !p)}
-                          style={{ position: 'absolute', right: 12, top: 38, cursor: 'pointer' }}
-                        ></i>
-                      </div>
-                    </div>
-                    {editingDriver && (
-                      <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                        <input type="checkbox" checked={changePassword} onChange={(e) => setChangePassword(e.target.checked)} />
-                        <span>Change password</span>
-                      </label>
-                    )}
-                  </div>
-
-                  {/* Profile Picture with live upload */}
-                  <div className="form-card">
-                    <h4 className="form-section-title">Profile Picture</h4>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      accept="image/jpeg,image/png,image/jpg,image/webp"
-                      style={{ display: 'none' }}
-                      onChange={handlePhotoSelect}
-                    />
-                    <div
-                      className="upload-box"
-                      onClick={() => fileInputRef.current?.click()}
-                      style={{
-                        border: '2px dashed #cbd5e1',
-                        borderRadius: 10,
-                        padding: 20,
-                        textAlign: 'center',
-                        color: '#64748b',
-                        cursor: 'pointer',
-                        background: '#f8fafc',
-                        transition: 'all 0.2s',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      {profilePhotoPreview ? (
-                        <div style={{ position: 'relative' }}>
-                          <img
-                            src={profilePhotoPreview}
-                            alt="Preview"
-                            style={{ width: 90, height: 90, borderRadius: '50%', objectFit: 'cover', border: '2px solid #e2e8f0' }}
-                            onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
-                          />
-                          <p style={{ margin: '8px 0 0', fontSize: 12, color: '#2563eb', fontWeight: 600 }}>Click to change</p>
+                      {(formErrors.clearance_file || formErrors.clearance_date) && (
+                        <div className="driver-error-feedback" style={{ marginTop: 6 }}>
+                          <i className="fas fa-circle-exclamation"></i>
+                          <span>{formErrors.clearance_file || formErrors.clearance_date}</span>
                         </div>
-                      ) : (
-                        <>
-                          <i className="fas fa-cloud-upload-alt" style={{ fontSize: 32, color: '#94a3b8' }}></i>
-                          <p style={{ margin: '8px 0 4px', fontWeight: 600, color: '#334155' }}>Upload Driver Photo</p>
-                          <p style={{ fontSize: 12, margin: 0, color: '#94a3b8' }}>JPG, PNG or WEBP (Max 5MB)</p>
-                        </>
                       )}
                     </div>
                   </div>
                 </div>
+
+                {/* Account Security (Password Reset) - Only for Editing Existing Driver */}
+                {editingDriver && (
+                  <div className="driver-section-card" style={{ marginBottom: 0 }}>
+                    <div className="driver-section-header">
+                      <div className="driver-section-icon-badge">
+                        <i className="fas fa-key"></i>
+                      </div>
+                      <div>
+                        <h4 className="driver-section-title-text">Account Security</h4>
+                        <span style={{ fontSize: 12, color: '#64748b' }}>Reset or update driver login password</span>
+                      </div>
+                    </div>
+
+                    <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#334155', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={changePassword} onChange={(e) => setChangePassword(e.target.checked)} />
+                      <span style={{ fontWeight: 600 }}>Change driver password</span>
+                    </label>
+
+                    {changePassword && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+                        <div className="form-group" style={{ position: 'relative' }}>
+                          <label className="driver-field-label">
+                            New Password <span className="req-star">*</span>
+                          </label>
+                          <div style={{ position: 'relative' }}>
+                            <input
+                              type={showPassword ? 'text' : 'password'}
+                              className={`driver-form-input ${formErrors.password ? 'input-error' : ''}`}
+                              placeholder="At least 6 characters"
+                              value={form.password}
+                              onChange={(e) => handleFieldChange('password', e.target.value)}
+                              style={{ paddingRight: 36 }}
+                            />
+                            <i
+                              className={`fa-solid ${showPassword ? 'fa-eye' : 'fa-eye-slash'}`}
+                              onClick={() => setShowPassword((p) => !p)}
+                              style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: '#64748b' }}
+                            ></i>
+                          </div>
+                          {formErrors.password && (
+                            <div className="driver-error-feedback">
+                              <i className="fas fa-circle-exclamation"></i>
+                              <span>{formErrors.password}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="form-group" style={{ position: 'relative' }}>
+                          <label className="driver-field-label">
+                            Confirm New Password <span className="req-star">*</span>
+                          </label>
+                          <div style={{ position: 'relative' }}>
+                            <input
+                              type={showConfirmPassword ? 'text' : 'password'}
+                              className={`driver-form-input ${formErrors.confirmPassword ? 'input-error' : ''}`}
+                              placeholder="Repeat password"
+                              value={form.confirmPassword}
+                              onChange={(e) => handleFieldChange('confirmPassword', e.target.value)}
+                              style={{ paddingRight: 36 }}
+                            />
+                            <i
+                              className={`fa-solid ${showConfirmPassword ? 'fa-eye' : 'fa-eye-slash'}`}
+                              onClick={() => setShowConfirmPassword((p) => !p)}
+                              style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', cursor: 'pointer', color: '#64748b' }}
+                            ></i>
+                          </div>
+                          {formErrors.confirmPassword && (
+                            <div className="driver-error-feedback">
+                              <i className="fas fa-circle-exclamation"></i>
+                              <span>{formErrors.confirmPassword}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </form>
             </div>
-            <div className="modal-footer" style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-              <button className="btn-cancel" onClick={() => setShowFormModal(false)} style={{ padding: '8px 20px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer' }}>Cancel</button>
-              <button className="btn-save" onClick={saveDriver} disabled={saving} style={{ padding: '8px 24px', borderRadius: 6, border: 'none', background: '#d32f2f', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
-                {saving ? 'Saving...' : 'Save Changes'}
+
+            {/* Modal Footer */}
+            <div
+              className="modal-footer"
+              style={{
+                padding: '16px 28px',
+                borderTop: '1px solid #e2e8f0',
+                background: '#ffffff',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: 12,
+                flexShrink: 0,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowFormModal(false)}
+                style={{
+                  padding: '10px 24px',
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  color: '#475569',
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#f1f5f9';
+                  e.currentTarget.style.borderColor = '#94a3b8';
+                  e.currentTarget.style.color = '#0f172a';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = '#ffffff';
+                  e.currentTarget.style.borderColor = '#cbd5e1';
+                  e.currentTarget.style.color = '#475569';
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveDriver}
+                disabled={saving}
+                style={{
+                  padding: '10px 28px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                  color: '#ffffff',
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 4px 12px rgba(220, 38, 38, 0.28)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  opacity: saving ? 0.75 : 1,
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  if (!saving) e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  if (!saving) e.currentTarget.style.transform = 'translateY(0)';
+                }}
+              >
+                {saving ? (
+                  <>
+                    <i className="fas fa-spinner fa-spin"></i> Saving...
+                  </>
+                ) : (
+                  <>
+                    <i className="fas fa-check-circle"></i> Save Changes
+                  </>
+                )}
               </button>
             </div>
           </div>

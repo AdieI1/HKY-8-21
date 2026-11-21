@@ -46,7 +46,8 @@
     box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
 }
 
-.stat-card.active.active-resigned {
+.stat-card.active.active-resigned,
+.stat-card.active.active-incidents {
     border-color: #F97316;
     box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
 }
@@ -318,53 +319,69 @@
 
 /* Action Buttons in Table */
 .action-cell {
-    display: flex;
-    gap: 8px;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.driver-action-buttons {
+    display: inline-flex;
     align-items: center;
-    justify-content: flex-start;
+    gap: 10px;
+    flex-wrap: nowrap;
 }
 
 .btn-edit-info,
-.btn-archive {
+.btn-archive,
+.btn-return-driver {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    height: 32px;
-    padding: 0 14px;
+    gap: 7px;
+    height: 38px;
+    padding: 0 16px;
     border: none;
-    border-radius: 6px;
-    font-size: 12px;
+    border-radius: 7px;
+    font-size: 14px;
     font-weight: 700;
     cursor: pointer;
     box-sizing: border-box;
-    transition: background 0.2s ease, transform 0.1s ease;
+    transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
     white-space: nowrap;
     line-height: 1;
 }
 
+.btn-edit-info i,
+.btn-archive i,
+.btn-return-driver i {
+    font-size: 13.5px;
+}
+
 .btn-edit-info {
-    background: #4B5563;
-    color: white;
+    background: #334155;
+    color: #ffffff;
 }
 
 .btn-edit-info:hover {
-    background: #374151;
+    background: #1e293b;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
 }
 
 .btn-edit {
     background: #9CA3AF;
     color: white;
     border: none;
-    height: 32px;
-    padding: 0 14px;
+    height: 34px;
+    padding: 0 13px;
     border-radius: 6px;
-    font-size: 12px;
-    font-weight: 700;
+    font-size: 13px;
+    font-weight: 600;
     cursor: pointer;
     transition: background 0.2s ease;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
 }
 
 .btn-edit:hover {
@@ -378,6 +395,8 @@
 
 .btn-archive:hover {
     background: #B91C1C;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(220, 38, 38, 0.25);
 }
 
 /* Drivers Footer */
@@ -623,19 +642,14 @@
 }
 
 .btn-return-driver {
-    background: #DC2626;
+    background: #2563eb;
     color: white;
-    border: none;
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s ease;
 }
 
 .btn-return-driver:hover {
-    background: #B91C1C;
+    background: #1d4ed8;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(37, 99, 235, 0.25);
 }
 
 /* Driver Edit Modal Styles */
@@ -3451,4 +3465,28 @@
         box-shadow: none !important;
         border-radius: 0 !important;
     }
+}
+
+/* ==========================================================================
+   Universal Scrollbar Hiding for Modals (WebKit, Firefox, Edge, IE)
+   ========================================================================== */
+
+.hide-scrollbar,
+.driver-form-content,
+.driver-form-body,
+.driver-modal-content,
+.modal-content.hide-scrollbar {
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+}
+
+.hide-scrollbar::-webkit-scrollbar,
+.driver-form-content::-webkit-scrollbar,
+.driver-form-body::-webkit-scrollbar,
+.driver-modal-content::-webkit-scrollbar,
+.modal-content.hide-scrollbar::-webkit-scrollbar {
+    display: none !important;
+    width: 0px !important;
+    height: 0px !important;
+    background: transparent !important;
 }

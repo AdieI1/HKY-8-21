@@ -52,6 +52,14 @@ export default function EditProfileModal({
 
     const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
 
+    if (dateOfBirth.trim()) {
+      const parsed = new Date(dateOfBirth.trim());
+      if (!isNaN(parsed.getTime()) && parsed > new Date()) {
+        Alert.alert("Invalid Date", "Date of birth cannot be in the future.");
+        return;
+      }
+    }
+
     try {
       setSaving(true);
       await onSave({

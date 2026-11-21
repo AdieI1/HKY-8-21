@@ -28,6 +28,7 @@ class User extends Authenticatable
         'profile_photo_path',
         'password',
         'status',
+        'must_change_password',
         'verification_code',
         'verification_code_expires_at',
     ];
@@ -69,6 +70,7 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'verification_code_expires_at' => 'datetime',
         'password' => 'hashed',
+        'must_change_password' => 'boolean',
     ];
 
     public function role()

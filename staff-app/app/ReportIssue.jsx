@@ -122,8 +122,10 @@ export default function ReportIssue() {
 
 
           {/* ISSUE FORM */}
-
           <ReportIssueForm
+            deliveryId={params?.deliveryId}
+            vehiclePlate={vehiclePlate}
+            odometer={odometer}
             initialSeverity={initialSeverity}
             initialDescription={initialDescription}
           />

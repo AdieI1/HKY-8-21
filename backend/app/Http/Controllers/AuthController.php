@@ -64,6 +64,7 @@ class AuthController extends Controller
                 $isCustomer && !$user->email_verified_at,
             'requires_profile_setup' =>
                 $isCustomer && !$user->profile_completed,
+            'must_change_password' => (bool) $user->must_change_password,
         ]);
     }
 
@@ -102,6 +103,46 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Logged out successfully.',
+        ]);
+    }
+
+    /**
+     * Change user password (e.g. forced first-login password rotation or self-service update).
+     */
+    public function changePassword(Request $request)
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'current_password' => 'required|string',
+            'new_password' => 'required|string|min:6|confirmed',
+        ]);
+
+        if (!Hash::check($validated['current_password'], $user->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['The current password you entered is incorrect.'],
+            ]);
+        }
+
+        $user->forceFill([
+            'password' => Hash::make($validated['new_password']),
+            'must_change_password' => false,
+        ])->save();
+
+        // Automatically record password change in system log
+        try {
+            $log = SystemLog::create([
+                'user_id' => $user->user_id,
+                'action' => 'Changed Password',
+            ]);
+            \App\Events\UserActivityLogged::dispatch($log);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Broadcast password change error: ' . $e->getMessage());
+        }
+
+        return response()->json([
+            'message' => 'Password updated successfully!',
+            'user' => $user->fresh()->load(['role', 'driver']),
         ]);
     }
 }

@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -87,13 +88,15 @@ class DeliveryRequestController extends Controller
             'payment_term' => 'nullable|in:downpayment,full',
             'payment_method' => 'nullable|in:bank_transfer,cash',
             'is_scheduled' => 'nullable|boolean',
-            'scheduled_date' => 'nullable|date',
+            'scheduled_date' => 'nullable|date|after_or_equal:today',
             'scheduled_time_slot' => 'nullable|string|max:100',
             'status' => 'required|in:draft,pending,approved,rejected',
             'item_permit_type' => 'nullable|string|max:100',
             'service_type' => 'nullable|string|max:50',
             'container_number' => 'nullable|string|max:50',
             'seal_number' => 'nullable|string|max:50',
+        ], [
+            'scheduled_date.after_or_equal' => 'The scheduled delivery date cannot be in the past.',
         ]);
 
         $data = $request->all();
@@ -127,8 +130,8 @@ class DeliveryRequestController extends Controller
             'last_name' => 'required|string|max:50',
             'phone' => ['required', 'string', 'regex:/^09\d{9}$/'],
             'email' => 'required|email|unique:users,email',
-            'username' => 'required|string|max:50|unique:users,username',
-            'password' => 'required|min:6',
+            'username' => 'nullable|string|max:50|unique:users,username',
+            'password' => 'nullable|string|min:6',
             'item_name' => 'nullable|string|max:150',
             'cargo_type' => 'nullable|string|max:100',
             'fragility' => 'nullable|in:low,medium,high',
@@ -152,21 +155,41 @@ class DeliveryRequestController extends Controller
             'item_permit' => 'nullable',
             'item_permit_type' => 'nullable|string|max:100',
             'is_scheduled' => 'nullable|boolean',
-            'scheduled_date' => 'nullable|date',
+            'scheduled_date' => 'nullable|date|after_or_equal:today',
             'scheduled_time_slot' => 'nullable|string|max:100',
             'is_draft' => 'nullable|boolean',
+        ], [
+            'scheduled_date.after_or_equal' => 'The scheduled delivery date cannot be in the past.',
         ]);
 
         $customerRole = Role::where('role_name', 'Customer')->first();
 
-        $deliveryRequest = DB::transaction(function () use ($request, $customerRole) {
+        // Auto-generate secure temporary password (e.g. HJY@847291)
+        $tempPassword = $request->filled('password')
+            ? $request->password
+            : 'HJY@' . random_int(100000, 999999);
+
+        // Generate 6-digit OTP verification code valid for 15 minutes
+        $otp = str_pad((string) random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+
+        // Auto-derive username if not provided
+        $username = $request->filled('username')
+            ? $request->username
+            : $this->uniqueUsername($request->email);
+
+        $deliveryRequest = DB::transaction(function () use ($request, $customerRole, $tempPassword, $otp, $username) {
             $user = User::create([
                 'role_id' => $customerRole?->role_id,
                 'full_name' => trim($request->first_name . ' ' . $request->last_name),
                 'email' => $request->email,
-                'username' => $request->username,
+                'username' => $username,
                 'phone' => $request->phone,
-                'password' => Hash::make($request->password),
+                'gender' => 'Other',
+                'date_of_birth' => '2000-01-01',
+                'password' => Hash::make($tempPassword),
+                'email_verified_at' => null,
+                'verification_code' => $otp,
+                'verification_code_expires_at' => now()->addMinutes(15),
                 'status' => 'active',
             ]);
 
@@ -224,12 +247,81 @@ class DeliveryRequestController extends Controller
             ]);
         });
 
+        // Send email with credentials and OTP code to customer
+        try {
+            $createdUser = $deliveryRequest->customer ?: User::find($deliveryRequest->customer_id);
+            if ($createdUser && !empty($createdUser->email)) {
+                $this->sendCustomerWelcomeEmail($createdUser, $tempPassword, $otp);
+            }
+        } catch (\Throwable $emailErr) {
+            Log::error('Failed to send customer welcome/OTP email: ' . $emailErr->getMessage());
+        }
+
         if (!$request->boolean('is_draft')) {
             $customerName = $deliveryRequest->customer?->full_name ?: 'Customer';
             AppNotification::notify('request', 'New Delivery Request', "{$customerName} submitted a new delivery request (" . ($deliveryRequest->cargo_type ?: 'Cargo') . ").", '/requests');
         }
 
         return $deliveryRequest->load('customer');
+    }
+
+    private function uniqueUsername(string $email): string
+    {
+        $base = preg_replace('/[^a-z0-9_]/', '', strtolower(strstr($email, '@', true))) ?: 'customer';
+        $username = substr($base, 0, 42);
+        $suffix = 1;
+
+        while (User::where('username', $username)->exists()) {
+            $username = substr($base, 0, 42) . $suffix;
+            $suffix++;
+        }
+
+        return $username;
+    }
+
+    private function sendCustomerWelcomeEmail(User $user, string $tempPassword, string $otp): void
+    {
+        $customerName = e($user->full_name ?: 'Valued Customer');
+        $customerEmail = e($user->email);
+        $tempPasswordSafe = e($tempPassword);
+
+        Mail::send([], [], function ($message) use ($user, $customerName, $customerEmail, $tempPasswordSafe, $otp) {
+            $message->to($user->email)
+                ->subject('HJY Trucking Services - Your Customer Account & Verification Code')
+                ->html("
+                    <div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;'>
+                        <div style='text-align: center; margin-bottom: 24px;'>
+                            <h2 style='color: #0f172a; margin: 0; font-size: 22px; font-weight: 700;'>HJY Trucking Services</h2>
+                            <p style='color: #64748b; font-size: 13px; margin: 4px 0 0; letter-spacing: 0.5px;'>ACCOUNT & DELIVERY DETAILS</p>
+                        </div>
+                        <p style='color: #334155; font-size: 15px; margin-bottom: 16px;'>Hello <strong>{$customerName}</strong>,</p>
+                        <p style='color: #334155; font-size: 15px; line-height: 1.6; margin-bottom: 20px;'>A delivery request has been registered for you by our team! An account has been created so you can monitor your cargo in real-time using the <strong>HJY Customer Mobile App</strong>.</p>
+                        
+                        <div style='background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 20px; margin-bottom: 24px;'>
+                            <h4 style='color: #0f172a; margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;'>Your Mobile App Login Credentials</h4>
+                            <p style='margin: 6px 0; color: #475569; font-size: 14px;'><strong>Login Email:</strong> <span style='color: #0f172a;'>{$customerEmail}</span></p>
+                            <p style='margin: 6px 0; color: #475569; font-size: 14px;'><strong>Temporary Password:</strong> <code style='background: #fee2e2; padding: 3px 8px; border-radius: 4px; font-family: monospace; font-size: 14px; font-weight: bold; color: #b91c1c;'>{$tempPasswordSafe}</code></p>
+                        </div>
+
+                        <div style='text-align: center; margin: 24px 0;'>
+                            <p style='color: #334155; font-size: 14px; margin-bottom: 8px;'>Your 6-Digit Email Verification Code:</p>
+                            <div style='display: inline-block; background-color: #fef2f2; border: 2px dashed #dc2626; border-radius: 12px; padding: 14px 32px; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #dc2626;'>
+                                {$otp}
+                            </div>
+                            <p style='color: #64748b; font-size: 12px; margin-top: 8px;'>Valid for 15 minutes</p>
+                        </div>
+
+                        <div style='background-color: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 4px; margin-bottom: 24px;'>
+                            <p style='color: #1e40af; font-size: 13px; line-height: 1.5; margin: 0;'>
+                                <strong>Instructions:</strong> Open the HJY Customer Mobile App, log in using your <strong>email address</strong> and the <strong>temporary password</strong> above, then enter the 6-digit verification code. Once logged in, you can update your password to your own anytime in Settings.
+                            </p>
+                        </div>
+
+                        <hr style='border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;'>
+                        <p style='color: #94a3b8; font-size: 12px; margin: 0; line-height: 1.5; text-align: center;'>HJY Trucking Services &bull; Cagayan de Oro City, Mindanao, Philippines</p>
+                    </div>
+                ");
+        });
     }
 
     public function storeForCustomer(Request $request)
@@ -265,9 +357,11 @@ class DeliveryRequestController extends Controller
             'container_number' => 'nullable|string|max:50',
             'seal_number' => 'nullable|string|max:50',
             'is_scheduled' => 'nullable|boolean',
-            'scheduled_date' => 'nullable|date',
+            'scheduled_date' => 'nullable|date|after_or_equal:today',
             'scheduled_time_slot' => 'nullable|string|max:100',
             'is_draft' => 'nullable|boolean',
+        ], [
+            'scheduled_date.after_or_equal' => 'The scheduled delivery date cannot be in the past.',
         ]);
 
         if (

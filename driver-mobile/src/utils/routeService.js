@@ -108,12 +108,12 @@ export function getRouteWaypoints(delivery, navigationState, driverLocation) {
 
   const pickupLat = isTransshipment && Number.isFinite(Number(delivery?.relief_origin_lat))
     ? Number(delivery.relief_origin_lat)
-    : Number(request.pickup_lat);
+    : Number(request.pickup_lat ?? delivery?.pickup_lat);
   const pickupLng = isTransshipment && Number.isFinite(Number(delivery?.relief_origin_lng))
     ? Number(delivery.relief_origin_lng)
-    : Number(request.pickup_lng);
-  const dropoffLat = Number(request.dropoff_lat);
-  const dropoffLng = Number(request.dropoff_lng);
+    : Number(request.pickup_lng ?? delivery?.pickup_lng);
+  const dropoffLat = Number(request.dropoff_lat ?? delivery?.dropoff_lat);
+  const dropoffLng = Number(request.dropoff_lng ?? delivery?.dropoff_lng);
 
   const pickupCoord =
     Number.isFinite(pickupLat) && Number.isFinite(pickupLng)
@@ -129,9 +129,23 @@ export function getRouteWaypoints(delivery, navigationState, driverLocation) {
 
   switch (navigationState) {
     // -------------------------------------------------------------
-    // LEG 1: Heading to Pick-up Location & Loading Cargo
+    // PREVIEW: Route Overview
     // -------------------------------------------------------------
     case "preview":
+      return {
+        leg: "preview",
+        legTitle: "Delivery Route Preview",
+        origin,
+        destination: pickupCoord,
+        pickupCoord,
+        dropoffCoord,
+        waypoints: [origin, pickupCoord].filter(Boolean),
+        deliveryWaypoints: [pickupCoord, dropoffCoord].filter(Boolean),
+      };
+
+    // -------------------------------------------------------------
+    // LEG 1: Heading to Pick-up Location & Loading Cargo
+    // -------------------------------------------------------------
     case "assigned":
     case "accepted":
     case "in_transit_pickup":
@@ -143,7 +157,10 @@ export function getRouteWaypoints(delivery, navigationState, driverLocation) {
         legTitle: isTransshipment ? "Heading to Breakdown / Pick-up Point" : "Heading to Pick-up Location",
         origin,
         destination: pickupCoord,
+        pickupCoord,
+        dropoffCoord,
         waypoints: [origin, pickupCoord].filter(Boolean),
+        deliveryWaypoints: [pickupCoord, dropoffCoord].filter(Boolean),
       };
 
     // -------------------------------------------------------------
@@ -159,6 +176,8 @@ export function getRouteWaypoints(delivery, navigationState, driverLocation) {
         legTitle: "Delivering to Drop-off Destination",
         origin: driverLocation || pickupCoord || DEFAULT_HQ_COORDINATES,
         destination: dropoffCoord,
+        pickupCoord,
+        dropoffCoord,
         waypoints: [driverLocation || pickupCoord || DEFAULT_HQ_COORDINATES, dropoffCoord].filter(Boolean),
       };
 
@@ -172,6 +191,8 @@ export function getRouteWaypoints(delivery, navigationState, driverLocation) {
         legTitle: "Returning to HQ Depot",
         origin: driverLocation || dropoffCoord || DEFAULT_HQ_COORDINATES,
         destination: DEFAULT_HQ_COORDINATES,
+        pickupCoord,
+        dropoffCoord,
         waypoints: [driverLocation || dropoffCoord || DEFAULT_HQ_COORDINATES, DEFAULT_HQ_COORDINATES].filter(Boolean),
       };
 
@@ -181,7 +202,10 @@ export function getRouteWaypoints(delivery, navigationState, driverLocation) {
         legTitle: "Heading to Pick-up Location",
         origin,
         destination: pickupCoord,
+        pickupCoord,
+        dropoffCoord,
         waypoints: [origin, pickupCoord].filter(Boolean),
+        deliveryWaypoints: [pickupCoord, dropoffCoord].filter(Boolean),
       };
   }
 }

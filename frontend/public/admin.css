@@ -603,6 +603,47 @@ body {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
+.content-section.recent-deliveries {
+    display: flex;
+    flex-direction: column;
+}
+
+.content-section.recent-deliveries .section-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    justify-content: space-between;
+}
+
+.content-section.recent-deliveries .hjy-pagination {
+    margin-top: auto;
+}
+
+.content-section.recent-deliveries .empty-state-cell {
+    text-align: center;
+    padding: 48px 20px;
+    color: #64748b;
+}
+
+.empty-state-icon-box {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    font-size: 20px;
+}
+
+body.dark-theme .empty-state-icon-box {
+    background: #1e293b;
+    border-color: #334155;
+    color: #64748b;
+}
+
 .section-header {
     display: flex;
     justify-content: space-between;
@@ -916,18 +957,19 @@ body {
 
 .data-table thead th {
     text-align: left;
-    padding: 12px;
+    padding: 14px 14px;
     color: #C53030;
     font-size: 15px;
-    font-weight: 600;
-    border-bottom: 1px solid #eee;
+    font-weight: 700;
+    border-bottom: 2px solid #e2e8f0;
+    letter-spacing: 0.2px;
 }
 
 .data-table tbody td {
-    padding: 12px;
-    font-size: 15px;
-    color: #1a1a1a;
-    border-bottom: 1px solid #f5f5f5;
+    padding: 15px 14px;
+    font-size: 14.5px;
+    color: #1e293b;
+    border-bottom: 1px solid #f1f5f9;
 }
 
 .status {
@@ -1070,19 +1112,22 @@ body {
 .status-badge {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
+    justify-content: center;
+    gap: 7px;
+    padding: 5px 14px;
+    min-width: 84px;
+    box-sizing: border-box;
     border-radius: 20px;
     font-size: 12px;
     font-weight: 600;
     white-space: nowrap;
-    line-height: 1.4;
+    line-height: 1;
 }
 
 .status-badge.active {
     background: #dcfce7;
     color: #15803d;
-    border: 1px solid #bbf7d0;
+    border: 1px solid #86efac;
 }
 
 .status-badge.active i {
@@ -1093,7 +1138,7 @@ body {
 .status-badge.inactive {
     background: #fee2e2;
     color: #991b1b;
-    border: 1px solid #fecaca;
+    border: 1px solid #fca5a5;
 }
 
 .status-badge.inactive i {
@@ -1473,6 +1518,7 @@ th.action-cell {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    min-width: 0;
 }
 
 .form-group label {
@@ -1486,18 +1532,24 @@ th.action-cell {
 }
 
 .form-group input[type="text"],
-.form-group input[type="email"] {
+.form-group input[type="email"],
+.form-group input[type="password"] {
+    width: 100%;
+    box-sizing: border-box;
     padding: 10px 12px;
-    border: 1px solid #ccc;
-    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
     font-size: 14px;
     background: white;
     outline: none;
+    transition: all 0.2s ease;
 }
 
 .form-group input[type="text"]:focus,
-.form-group input[type="email"]:focus {
-    border-color: #C53030;
+.form-group input[type="email"]:focus,
+.form-group input[type="password"]:focus {
+    border-color: #dc2626;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
 }
 
 .password-section {
@@ -1916,17 +1968,20 @@ th.action-cell {
     background: #16A34A;
 }
 
-/* Inactive Status Badge */
 .status-badge.inactive {
     background: #FEE2E2;
     color: #DC2626;
-    padding: 4px 10px;
-    border-radius: 12px;
+    padding: 5px 14px;
+    min-width: 84px;
+    box-sizing: border-box;
+    border-radius: 20px;
+    border: 1px solid #fca5a5;
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    justify-content: center;
+    gap: 7px;
 }
 
 .status-badge.inactive i {
@@ -3770,4 +3825,280 @@ body.dark-theme .photo-upload-btn-label {
     background: #0f172a;
     color: #f1f5f9;
     border-color: #475569;
+}
+
+/* ==========================================================================
+   Driver Form Modal & Validation Red Highlight Styles
+   ========================================================================== */
+
+.driver-section-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px 22px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.driver-section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.driver-section-icon-badge {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: #fee2e2;
+    color: #dc2626;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.driver-section-title-text {
+    font-size: 15px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0;
+}
+
+.driver-form-input,
+.driver-form-select,
+.driver-form-textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 13.5px;
+    color: #1e293b;
+    background: #ffffff;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+    font-family: inherit;
+}
+
+.driver-form-input,
+.driver-form-select {
+    height: 40px;
+}
+
+.driver-form-textarea {
+    resize: vertical;
+    min-height: 52px;
+}
+
+.driver-form-input:focus,
+.driver-form-select:focus,
+.driver-form-textarea:focus {
+    outline: none;
+    border-color: #dc2626;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
+}
+
+/* Error States with Red Pulse Glow */
+.driver-form-input.input-error,
+.driver-form-select.input-error,
+.driver-form-textarea.input-error {
+    border-color: #ef4444 !important;
+    background-color: #fff5f5 !important;
+    color: #991b1b !important;
+    animation: redGlowPulse 2s ease-in-out infinite !important;
+}
+
+.driver-form-input.input-error::placeholder,
+.driver-form-textarea.input-error::placeholder {
+    color: #ef4444 !important;
+    opacity: 0.8;
+}
+
+.driver-upload-card {
+    background: #ffffff;
+    border: 1.5px dashed #cbd5e1;
+    border-radius: 10px;
+    padding: 14px;
+    transition: all 0.2s ease;
+}
+
+.driver-upload-card.input-error {
+    border-color: #ef4444 !important;
+    background-color: #fff5f5 !important;
+    animation: redGlowPulse 2s ease-in-out infinite !important;
+}
+
+.driver-photo-box {
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+    color: #64748b;
+    cursor: pointer;
+    background: #f8fafc;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 140px;
+}
+
+.driver-photo-box.input-error {
+    border-color: #ef4444 !important;
+    background-color: #fff5f5 !important;
+    animation: redGlowPulse 2s ease-in-out infinite !important;
+}
+
+.driver-field-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 6px;
+}
+
+.driver-field-label .req-star {
+    color: #ef4444;
+    font-weight: 700;
+}
+
+.driver-error-feedback {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: #dc2626;
+    font-size: 11.5px;
+    font-weight: 600;
+    margin-top: 4px;
+    line-height: 1.3;
+}
+
+/* ==========================================================================
+   Universal Scrollbar Hiding for Modals (WebKit, Firefox, Edge, IE)
+   ========================================================================== */
+
+.hide-scrollbar,
+.driver-form-content,
+.driver-form-body,
+.vehicle-modal-content,
+.driver-form-columns,
+.modal-content.hide-scrollbar {
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+}
+
+.hide-scrollbar::-webkit-scrollbar,
+.driver-form-content::-webkit-scrollbar,
+.driver-form-body::-webkit-scrollbar,
+.vehicle-modal-content::-webkit-scrollbar,
+.driver-form-columns::-webkit-scrollbar,
+.modal-content.hide-scrollbar::-webkit-scrollbar {
+    display: none !important;
+    width: 0px !important;
+    height: 0px !important;
+    background: transparent !important;
+}
+
+/* SweetAlert-style Pop-up Toast */
+.sweet-alert-popup {
+    position: fixed;
+    top: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 999999;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #ffffff;
+    color: #1e293b;
+    padding: 14px 20px;
+    border-radius: 12px;
+    box-shadow: 0 14px 38px -4px rgba(239, 68, 68, 0.28), 0 8px 16px -2px rgba(0, 0, 0, 0.12);
+    min-width: 320px;
+    max-width: 560px;
+    animation: sweetToastBounce 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    border: 1px solid #fee2e2;
+    border-left: 6px solid #ef4444;
+}
+
+@keyframes sweetToastBounce {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -24px) scale(0.92);
+    }
+    100% {
+        opacity: 1;
+        transform: translate(-50%, 0) scale(1);
+    }
+}
+
+.sweet-alert-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: #fee2e2;
+    border: 2px solid #ef4444;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: #dc2626;
+    font-size: 16px;
+}
+
+.sweet-alert-body {
+    flex: 1;
+}
+
+.sweet-alert-title {
+    margin: 0 0 3px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #991b1b;
+}
+
+.sweet-alert-desc {
+    margin: 0;
+    font-size: 12.5px;
+    color: #475569;
+    line-height: 1.4;
+}
+
+.sweet-alert-close {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 4px;
+    border-radius: 4px;
+}
+
+.sweet-alert-close:hover {
+    color: #1e293b;
+}
+
+/* Input error state */
+.input-error,
+input.input-error,
+select.input-error,
+textarea.input-error {
+    border-color: #dc2626 !important;
+    background-color: #fff5f5 !important;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15) !important;
+}
+
+.field-error-text {
+    color: #dc2626;
+    font-size: 11.5px;
+    margin-top: 4px;
+    font-weight: 500;
+    display: block;
 }

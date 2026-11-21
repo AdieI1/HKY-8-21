@@ -180,7 +180,7 @@ export default function CreateAccount() {
               {/* Password */}
               <View style={styles.inputWrapper}>
                 <TextInput
-                  placeholder="Password"
+                  placeholder="Enter new password"
                   placeholderTextColor="#888"
                   secureTextEntry={!showPass}
                   style={styles.inputFlex}

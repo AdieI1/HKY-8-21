@@ -57,11 +57,12 @@ export default function ProofOfDeliveryModal({
         return;
       }
 
+      const mediaType = ImagePicker.MediaTypeOptions?.Images || "images";
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ["images"],
-        allowsEditing: true,
-        quality: 0.65,
-        base64: true,
+        mediaTypes: mediaType,
+        allowsEditing: false, // Prevents Android OS intent crop crash
+        quality: 0.6,
+        base64: false, // Prevents Hermes/V8 Out of Memory crashes on high-res camera capture
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -74,6 +75,7 @@ export default function ProofOfDeliveryModal({
         });
       }
     } catch (err) {
+      console.warn("Camera Error:", err);
       Alert.alert("Camera Error", err?.message || "Could not open camera.");
     }
   };
@@ -89,11 +91,12 @@ export default function ProofOfDeliveryModal({
         return;
       }
 
+      const mediaType = ImagePicker.MediaTypeOptions?.Images || "images";
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsEditing: true,
-        quality: 0.65,
-        base64: true,
+        mediaTypes: mediaType,
+        allowsEditing: false,
+        quality: 0.6,
+        base64: false,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -106,6 +109,7 @@ export default function ProofOfDeliveryModal({
         });
       }
     } catch (err) {
+      console.warn("Photo Error:", err);
       Alert.alert("Photo Error", err?.message || "Could not choose photo.");
     }
   };

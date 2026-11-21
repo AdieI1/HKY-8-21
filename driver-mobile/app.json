@@ -23,7 +23,14 @@
         "image": "./assets/images/hjylogo.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.adiei1.driverapp"
+      "package": "com.adiei1.driverapp",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
     "web": {
       "output": "static",
@@ -49,6 +56,13 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "Allow driver-app to share your location while navigating a delivery."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow driver-app to access your photos for proof of delivery.",
+          "cameraPermission": "Allow driver-app to take photos for proof of delivery."
         }
       ]
     ],

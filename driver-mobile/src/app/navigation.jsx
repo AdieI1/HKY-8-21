@@ -125,16 +125,16 @@ export default function Navigation() {
         ? routeMetrics.distanceFormatted
         : routeMetrics?.distanceKm != null
           ? `${routeMetrics.distanceKm} km`
-          : distance
-            ? `${distance} km`
-            : "—",
+          : navigationState === "in_transit_dropoff"
+            ? (distance ? `${distance} km` : "—")
+            : "Calculating...",
       eta: routeMetrics?.etaFormatted
         ? routeMetrics.etaFormatted
         : routeMetrics?.durationMins != null
           ? `${routeMetrics.durationMins} mins`
-          : distance
-            ? `${Math.max(Math.round((distance / 40) * 60), 1)} mins`
-            : "—",
+          : navigationState === "in_transit_dropoff"
+            ? (distance ? `${Math.max(Math.round((distance / 40) * 60), 1)} mins` : "—")
+            : "Calculating...",
       startingOdometer:
         preTrip?.starting_odometer || vehicle.odometer_reading || "",
       startingFuel: preTrip?.starting_fuel || "",
@@ -146,7 +146,7 @@ export default function Navigation() {
       fragility: request.fragility || "",
       remarks: backendDelivery.remarks || "N/A",
     };
-  }, [backendDelivery, routeMetrics]);
+  }, [backendDelivery, routeMetrics, navigationState]);
 
   useEffect(() => {
     if (navigationState !== "completed") return;

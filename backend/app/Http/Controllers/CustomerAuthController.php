@@ -229,7 +229,19 @@ class CustomerAuthController extends Controller
             'full_name' => 'nullable|string|max:100',
             'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'gender' => 'nullable|string|max:20',
-            'date_of_birth' => 'nullable|string|max:30',
+            'date_of_birth' => [
+                'nullable',
+                'string',
+                'max:30',
+                function ($attribute, $value, $fail) {
+                    if (!empty($value)) {
+                        $timestamp = strtotime($value);
+                        if ($timestamp !== false && $timestamp > time()) {
+                            $fail('The date of birth cannot be a future date.');
+                        }
+                    }
+                },
+            ],
             'photo' => 'nullable|file|image|max:10240',
         ]);
 
@@ -329,6 +341,31 @@ class CustomerAuthController extends Controller
                     </div>
                 ");
         });
+    }
+
+    public function changePassword(Request $request)
+    {
+        $user = $request->user();
+        $this->ensureCustomer($user);
+
+        $validated = $request->validate([
+            'current_password' => 'required|string',
+            'new_password' => 'required|string|min:6|confirmed',
+        ]);
+
+        if (!Hash::check($validated['current_password'], $user->password)) {
+            return response()->json([
+                'message' => 'The current password you entered is incorrect.'
+            ], 422);
+        }
+
+        $user->forceFill([
+            'password' => Hash::make($validated['new_password']),
+        ])->save();
+
+        return response()->json([
+            'message' => 'Password changed successfully!',
+        ]);
     }
 
     private function ensureCustomer(User $user): void

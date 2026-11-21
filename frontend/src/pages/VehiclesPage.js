@@ -4,10 +4,18 @@ import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
 import TableSkeleton from '../components/TableSkeleton';
+import PrintableIncidentModal from '../components/driver/PrintableIncidentModal';
 import {
   validatePlateNumber,
+  formatPlateInput,
   validateDateSequence,
   validatePositiveNumber,
+  validatePolicyNumber,
+  formatPolicyNumberInput,
+  validateOrNumber,
+  formatOrNumberInput,
+  validateCrNumber,
+  formatCrNumberInput,
 } from '../utils/validation';
 
 const ACTIVE_DELIVERY_STATUSES = [
@@ -28,8 +36,9 @@ const SERVICE_TYPES = [
   'Emergency Maintenance',
   'Routine Maintenance',
   'Major Maintenance',
-  'Inspection',
 ];
+
+const PAGE_SIZE = 10;
 
 function formatDate(dateString) {
   if (!dateString) return '—';
@@ -38,8 +47,35 @@ function formatDate(dateString) {
   return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' });
 }
 
+function formatDateTime(dateString) {
+  if (!dateString) return '—';
+  const d = new Date(dateString);
+  if (isNaN(d)) return '—';
+  return d.toLocaleString('en-US', {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
 function vehicleCode(id) {
   return `VCL${String(id).padStart(3, '0')}`;
+}
+
+function formatVehicleName(vehicle) {
+  if (!vehicle) return '—';
+  const brand = (vehicle.brand || '').trim();
+  const model = (vehicle.model || '').trim();
+  if (brand && model) {
+    if (model.toLowerCase().startsWith(brand.toLowerCase())) {
+      return model;
+    }
+    return `${brand} - ${model}`;
+  }
+  return model || brand || '—';
 }
 
 function statusLabel(status) {
@@ -56,6 +92,109 @@ function statusLabel(status) {
 function statusClass(status) {
   const map = { available: 'available', in_use: 'in-use', maintenance: 'maintenance', broken: 'broken', decommissioned: 'decommissioned' };
   return map[status] || '';
+}
+
+const VEHICLE_COLOR_MAP = {
+  white: '#ffffff',
+  black: '#000000',
+  silver: '#c0c0c0',
+  gray: '#808080',
+  grey: '#808080',
+  red: '#dc2626',
+  blue: '#2563eb',
+  green: '#16a34a',
+  yellow: '#eab308',
+  orange: '#f97316',
+  brown: '#78350f',
+  gold: '#d97706',
+  navy: '#1e3a8a',
+  maroon: '#800000',
+  purple: '#9333ea',
+  beige: '#f5f5dc',
+  bronze: '#cd7f32',
+  charcoal: '#334155',
+  teal: '#0d9488',
+  cyan: '#06b6d4',
+  pink: '#ec4899',
+};
+
+const HEX_TO_COLOR_NAME = {
+  '#ffffff': 'White',
+  '#000000': 'Black',
+  '#c0c0c0': 'Silver',
+  '#808080': 'Gray',
+  '#dc2626': 'Red',
+  '#ff0000': 'Red',
+  '#ef4444': 'Red',
+  '#2563eb': 'Blue',
+  '#0000ff': 'Blue',
+  '#3b82f6': 'Blue',
+  '#16a34a': 'Green',
+  '#008000': 'Green',
+  '#22c55e': 'Green',
+  '#eab308': 'Yellow',
+  '#ffff00': 'Yellow',
+  '#f97316': 'Orange',
+  '#ffa500': 'Orange',
+  '#78350f': 'Brown',
+  '#a52a2a': 'Brown',
+  '#d97706': 'Gold',
+  '#ffd700': 'Gold',
+  '#1e3a8a': 'Navy Blue',
+  '#000080': 'Navy Blue',
+  '#800000': 'Maroon',
+  '#9333ea': 'Purple',
+  '#800080': 'Purple',
+  '#f5f5dc': 'Beige',
+  '#cd7f32': 'Bronze',
+  '#334155': 'Charcoal',
+  '#0d9488': 'Teal',
+  '#06b6d4': 'Cyan',
+  '#ec4899': 'Pink',
+};
+
+function parseColorToHex(input) {
+  if (!input) return null;
+  const str = String(input).trim().toLowerCase();
+  if (/^#([0-9a-f]{6})$/i.test(str)) {
+    return str.toLowerCase();
+  }
+  if (/^#([0-9a-f]{3})$/i.test(str)) {
+    return ('#' + str[1] + str[1] + str[2] + str[2] + str[3] + str[3]).toLowerCase();
+  }
+  if (VEHICLE_COLOR_MAP[str]) {
+    return VEHICLE_COLOR_MAP[str];
+  }
+  if (typeof document !== 'undefined') {
+    try {
+      const opt = new Option();
+      opt.style.color = str;
+      if (opt.style.color) {
+        const d = document.createElement('div');
+        d.style.color = str;
+        document.body.appendChild(d);
+        const rgb = window.getComputedStyle(d).color;
+        document.body.removeChild(d);
+        const m = rgb.match(/\d+/g);
+        if (m && m.length >= 3) {
+          const r = parseInt(m[0], 10).toString(16).padStart(2, '0');
+          const g = parseInt(m[1], 10).toString(16).padStart(2, '0');
+          const b = parseInt(m[2], 10).toString(16).padStart(2, '0');
+          return `#${r}${g}${b}`;
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function isColorDark(hex) {
+  if (!hex || !/^#[0-9a-f]{6}$/i.test(hex)) return false;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq < 128;
 }
 
 const EMPTY_FORM = {
@@ -97,11 +236,19 @@ function VehiclesPage() {
   const [loadError, setLoadError] = useState('');
   const [currentDate, setCurrentDate] = useState('');
 
-  const [view, setView] = useState('list'); // 'list' | 'archives'
+  const [view, setView] = useState('list'); // 'list' | 'archives' | 'incidents'
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [conditionFilter, setConditionFilter] = useState('all');
   const [sortBy, setSortBy] = useState('vehicle-id');
+
+  // Vehicle incident reports & inspections state
+  const [incidents, setIncidents] = useState([]);
+  const [incidentSearch, setIncidentSearch] = useState('');
+  const [incidentTypeFilter, setIncidentTypeFilter] = useState('All');
+  const [incidentSeverityFilter, setIncidentSeverityFilter] = useState('All');
+  const [incidentPage, setIncidentPage] = useState(1);
+  const [selectedIncident, setSelectedIncident] = useState(null);
 
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [vehicleDetailsData, setVehicleDetailsData] = useState(null);
@@ -130,6 +277,7 @@ function VehiclesPage() {
 
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [formErrors, setFormErrors] = useState({});
 
   // Schedule Maintenance Modal (Matches Reference Image)
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -163,18 +311,74 @@ function VehiclesPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // Auto-dismiss SweetAlert popup notification after 5 seconds
+  useEffect(() => {
+    if (formError) {
+      const timer = setTimeout(() => setFormError(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [formError]);
+
+  useEffect(() => {
+    if (scheduleError) {
+      const timer = setTimeout(() => setScheduleError(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [scheduleError]);
+
+  const getAlertTitle = (msg) => {
+    if (!msg) return 'Validation Notice';
+    const lower = String(msg).toLowerCase();
+    if (lower.includes('required') || lower.includes('fill in')) return 'Incomplete Required Fields';
+    if (lower.includes('plate number') || lower.includes('plate')) return 'Invalid Plate Number';
+    if (lower.includes('policy')) return 'Invalid Policy Number';
+    if (lower.includes('or number') || lower.includes('official receipt')) return 'Invalid OR Number';
+    if (lower.includes('cr number') || lower.includes('certificate of registration')) return 'Invalid CR Number';
+    if (lower.includes('date') || lower.includes('expiry') || lower.includes('expiration')) return 'Invalid Date Sequence';
+    if (lower.includes('capacity')) return 'Invalid Capacity';
+    return 'Validation Notice';
+  };
+
+  const handleFormFieldChange = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    if (formErrors[field]) {
+      setFormErrors((prev) => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
+  const getFieldStyle = (fieldName, extraStyles = {}) => {
+    const hasErr = Boolean(formErrors[fieldName]);
+    return {
+      padding: '9px 12px',
+      borderRadius: 6,
+      border: hasErr ? '1.5px solid #ef4444' : '1px solid #cbd5e1',
+      background: hasErr ? '#fff5f5' : '#fff',
+      boxShadow: hasErr ? '0 0 0 3px rgba(239, 68, 68, 0.2)' : 'none',
+      fontSize: 13,
+      transition: 'all 0.2s ease',
+      boxSizing: 'border-box',
+      ...extraStyles,
+    };
+  };
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setLoadError('');
     try {
-      const [vehiclesRes, deliveriesRes, partsRes] = await Promise.all([
+      const [vehiclesRes, deliveriesRes, partsRes, incidentsRes] = await Promise.all([
         api.get('/vehicles'),
         api.get('/deliveries'),
         api.get('/spare-parts'),
+        api.get('/incident-reports').catch(() => ({ data: [] })),
       ]);
-      setVehicles(vehiclesRes.data);
-      setDeliveries(deliveriesRes.data);
-      setSpareParts(partsRes.data);
+      setVehicles(Array.isArray(vehiclesRes?.data) ? vehiclesRes.data : (vehiclesRes?.data?.data || []));
+      setDeliveries(Array.isArray(deliveriesRes?.data) ? deliveriesRes.data : (deliveriesRes?.data?.data || []));
+      setSpareParts(Array.isArray(partsRes?.data) ? partsRes.data : (partsRes?.data?.data || []));
+      setIncidents(Array.isArray(incidentsRes?.data) ? incidentsRes.data : (incidentsRes?.data?.data || []));
     } catch (err) {
       setLoadError('Could not load vehicle data. Is the backend running and are you logged in?');
     } finally {
@@ -188,6 +392,7 @@ function VehiclesPage() {
 
   const assignedDriverFor = useCallback(
     (vehicleId) => {
+      if (!Array.isArray(deliveries)) return null;
       const active = deliveries
         .filter((d) => d.vehicle_id === vehicleId && ACTIVE_DELIVERY_STATUSES.includes(d.status) && d.driver)
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -196,18 +401,98 @@ function VehiclesPage() {
     [deliveries]
   );
 
-  const listedVehicles = useMemo(() => vehicles.filter((v) => v.status !== 'decommissioned'), [vehicles]);
-  const archivedVehicles = useMemo(() => vehicles.filter((v) => v.status === 'decommissioned'), [vehicles]);
+  const listedVehicles = useMemo(
+    () => (Array.isArray(vehicles) ? vehicles.filter((v) => v.status !== 'decommissioned') : []),
+    [vehicles]
+  );
+  const archivedVehicles = useMemo(
+    () => (Array.isArray(vehicles) ? vehicles.filter((v) => v.status === 'decommissioned') : []),
+    [vehicles]
+  );
 
   const stats = useMemo(
     () => ({
       available: listedVehicles.filter((v) => v.status === 'available').length,
       inUse: listedVehicles.filter((v) => v.status === 'in_use').length,
       maintenance: listedVehicles.filter((v) => v.status === 'maintenance').length,
-      broken: listedVehicles.filter((v) => v.status === 'broken').length,
+      broken: archivedVehicles.length,
     }),
-    [listedVehicles]
+    [listedVehicles, archivedVehicles]
   );
+
+  const vehicleIncidents = useMemo(() => {
+    const safeIncidents = Array.isArray(incidents) ? incidents : [];
+    const safeDeliveries = Array.isArray(deliveries) ? deliveries : [];
+    const safeVehicles = Array.isArray(vehicles) ? vehicles : [];
+    return safeIncidents.map((inc) => {
+      const del = inc.delivery || safeDeliveries.find((d) => d.delivery_id === inc.delivery_id);
+      const veh = del?.vehicle || safeVehicles.find((v) => v.vehicle_id === del?.vehicle_id);
+      return {
+        ...inc,
+        resolvedVehicle: veh,
+        resolvedDelivery: del,
+      };
+    });
+  }, [incidents, deliveries, vehicles]);
+
+  const filteredVehicleIncidents = useMemo(() => {
+    let list = [...vehicleIncidents];
+    const term = incidentSearch.toLowerCase().trim();
+    if (term) {
+      list = list.filter((inc) => {
+        const v = inc.resolvedVehicle;
+        const vModel = v?.model || '';
+        const vPlate = v?.plate_number || '';
+        const vCode = v?.vehicle_id ? `VCL${String(v.vehicle_id).padStart(3, '0')}` : '';
+        const inspector =
+          inc.resolvedDelivery?.checklists?.[0]?.inspector_name ||
+          inc.reporter?.full_name ||
+          '';
+        const incCode = `INC-${String(inc.incident_id).padStart(5, '0')}`;
+        const desc = inc.description || '';
+        const rawType = inc.incident_type || '';
+        const type = typeof rawType === 'string'
+          ? rawType.replace(/_/g, ' ')
+          : Array.isArray(rawType)
+          ? rawType.join(' ').replace(/_/g, ' ')
+          : '';
+        return (
+          vModel.toLowerCase().includes(term) ||
+          vPlate.toLowerCase().includes(term) ||
+          vCode.toLowerCase().includes(term) ||
+          inspector.toLowerCase().includes(term) ||
+          incCode.toLowerCase().includes(term) ||
+          desc.toLowerCase().includes(term) ||
+          type.toLowerCase().includes(term)
+        );
+      });
+    }
+
+    if (incidentTypeFilter !== 'All') {
+      const target = incidentTypeFilter.toLowerCase().replace(/\s+/g, '_');
+      list = list.filter((inc) => {
+        const rawType = inc.incident_type || '';
+        const typeStr = typeof rawType === 'string'
+          ? rawType.toLowerCase()
+          : Array.isArray(rawType)
+          ? rawType.join(' ').toLowerCase()
+          : '';
+        return typeStr.includes(target) || typeStr.includes(incidentTypeFilter.toLowerCase());
+      });
+    }
+
+    if (incidentSeverityFilter !== 'All') {
+      list = list.filter((inc) => (inc.severity || '').toLowerCase() === incidentSeverityFilter.toLowerCase());
+    }
+
+    return list;
+  }, [vehicleIncidents, incidentSearch, incidentTypeFilter, incidentSeverityFilter]);
+
+  const totalIncidentPages = Math.ceil(filteredVehicleIncidents.length / PAGE_SIZE) || 1;
+  const paginatedIncidents = useMemo(() => {
+    const start = (incidentPage - 1) * PAGE_SIZE;
+    return filteredVehicleIncidents.slice(start, start + PAGE_SIZE);
+  }, [filteredVehicleIncidents, incidentPage]);
 
   const filteredVehicles = useMemo(() => {
     let list = [...listedVehicles];
@@ -230,7 +515,6 @@ function VehiclesPage() {
   }, [listedVehicles, search, statusFilter, conditionFilter, sortBy]);
 
   // Pagination states
-  const PAGE_SIZE = 10;
   const [vehiclePage, setVehiclePage] = useState(1);
   const [archivePage, setArchivePage] = useState(1);
   const [maintenancePage, setMaintenancePage] = useState(1);
@@ -274,6 +558,13 @@ function VehiclesPage() {
       setVehiclePhotoFile(file);
       setVehiclePhotoPreview(URL.createObjectURL(file));
       setFormError('');
+      if (formErrors.photo) {
+        setFormErrors((prev) => {
+          const next = { ...prev };
+          delete next.photo;
+          return next;
+        });
+      }
     }
   };
 
@@ -283,10 +574,46 @@ function VehiclesPage() {
       setFormError('Document file size exceeds 10MB limit.');
       return;
     }
-    if (docType === 'or') setOrFile(file);
-    if (docType === 'cr') setCrFile(file);
-    if (docType === 'insurance') setInsuranceFile(file);
-    if (docType === 'emission') setEmissionFile(file);
+    if (docType === 'or') {
+      setOrFile(file);
+      if (formErrors.orFile) {
+        setFormErrors((prev) => {
+          const next = { ...prev };
+          delete next.orFile;
+          return next;
+        });
+      }
+    }
+    if (docType === 'cr') {
+      setCrFile(file);
+      if (formErrors.crFile) {
+        setFormErrors((prev) => {
+          const next = { ...prev };
+          delete next.crFile;
+          return next;
+        });
+      }
+    }
+    if (docType === 'insurance') {
+      setInsuranceFile(file);
+      if (formErrors.insuranceFile) {
+        setFormErrors((prev) => {
+          const next = { ...prev };
+          delete next.insuranceFile;
+          return next;
+        });
+      }
+    }
+    if (docType === 'emission') {
+      setEmissionFile(file);
+      if (formErrors.emissionFile) {
+        setFormErrors((prev) => {
+          const next = { ...prev };
+          delete next.emissionFile;
+          return next;
+        });
+      }
+    }
     setFormError('');
   };
 
@@ -310,6 +637,7 @@ function VehiclesPage() {
     setInsuranceFile(null);
     setEmissionFile(null);
     setFormError('');
+    setFormErrors({});
     setShowFormModal(true);
   };
 
@@ -352,40 +680,125 @@ function VehiclesPage() {
     setInsuranceFile(null);
     setEmissionFile(null);
     setFormError('');
+    setFormErrors({});
     setShowFormModal(true);
   };
 
   const saveVehicle = async () => {
-    if (!form.model || !form.plate_number || !form.color || !form.vehicle_type || !form.fuel_type) {
-      setFormError('Please fill in all required fields (Model, Plate Number, Color, Type, Fuel Type).');
-      return;
+    const errors = {};
+
+    // Section 1: Vehicle Information
+    if (!form.model || !form.model.trim()) {
+      errors.model = 'Vehicle Model is required';
     }
-    if (!validatePlateNumber(form.plate_number)) {
-      setFormError('Please enter a valid Philippine plate number (e.g. ABC 1234 or ABC 123).');
-      return;
+    if (!form.brand || !form.brand.trim()) {
+      errors.brand = 'Brand / Make is required';
     }
-    if (!validateDateSequence(form.registration_valid_from, form.registration_valid_until)) {
-      setFormError('Registration expiry date must be on or after the issue date.');
-      return;
+    if (!form.plate_number || !form.plate_number.trim()) {
+      errors.plate_number = 'Plate Number is required';
+    } else if (!validatePlateNumber(form.plate_number)) {
+      errors.plate_number = 'Format must be ABC-1234 (3 letters, hyphen, 4 numbers)';
     }
-    if (form.insurance_valid_from && form.insurance_valid_until && !validateDateSequence(form.insurance_valid_from, form.insurance_valid_until)) {
-      setFormError('Insurance valid until date must be on or after valid from date.');
-      return;
+    if (!form.color || !form.color.trim()) {
+      errors.color = 'Color is required';
     }
-    if (form.registration_date && form.expiration_date && !validateDateSequence(form.registration_date, form.expiration_date)) {
-      setFormError('Registration expiration date must be on or after registration date.');
-      return;
+    if (!form.vehicle_type) {
+      errors.vehicle_type = 'Vehicle Type is required';
     }
-    if (!validateDateSequence(form.last_maintenance_date, form.next_maintenance_date)) {
-      setFormError('Next maintenance date must be on or after the last maintenance date.');
-      return;
+    if (!form.fuel_type) {
+      errors.fuel_type = 'Fuel Type is required';
     }
-    if (!validatePositiveNumber(form.capacity)) {
-      setFormError('Capacity must be a positive number.');
+
+    // Section 2: Specifications & Vehicle Photo
+    if (form.capacity === '' || form.capacity == null) {
+      errors.capacity = 'Load Capacity is required';
+    } else if (!validatePositiveNumber(form.capacity)) {
+      errors.capacity = 'Capacity must be a positive number';
+    }
+    if (form.mileage === '' || form.mileage == null) {
+      errors.mileage = 'Mileage is required';
+    } else if (!validatePositiveNumber(form.mileage)) {
+      errors.mileage = 'Mileage must be a positive number';
+    }
+    if (!form.status) {
+      errors.status = 'Status is required';
+    }
+    if (!form.condition || !form.condition.trim()) {
+      errors.condition = 'Condition is required';
+    }
+    if (!vehiclePhotoFile && (!editingVehicle || !editingVehicle.photo_url)) {
+      errors.photo = 'Vehicle Photo is required';
+    }
+
+    // Section 3: Insurance Information
+    if (!form.insurance_provider || !form.insurance_provider.trim()) {
+      errors.insurance_provider = 'Provider is required';
+    }
+    if (!form.insurance_policy_number || !form.insurance_policy_number.trim()) {
+      errors.insurance_policy_number = 'Policy Number is required';
+    } else if (!validatePolicyNumber(form.insurance_policy_number)) {
+      errors.insurance_policy_number = 'Format must be e.g. POL-8921-X (4-30 chars)';
+    }
+    if (!form.insurance_coverage_type) {
+      errors.insurance_coverage_type = 'Coverage Type is required';
+    }
+    if (!form.insurance_valid_from) {
+      errors.insurance_valid_from = 'Valid From date is required';
+    }
+    if (!form.insurance_valid_until) {
+      errors.insurance_valid_until = 'Valid Until date is required';
+    } else if (form.insurance_valid_from && !validateDateSequence(form.insurance_valid_from, form.insurance_valid_until)) {
+      errors.insurance_valid_until = 'Valid Until must be on or after Valid From date';
+    }
+
+    // Section 4: Registration Info
+    if (!form.or_number || !form.or_number.trim()) {
+      errors.or_number = 'OR Number is required';
+    } else if (!validateOrNumber(form.or_number)) {
+      errors.or_number = 'Format must be e.g. OR-8912401 or 7-18 alphanumeric';
+    }
+    if (!form.cr_number || !form.cr_number.trim()) {
+      errors.cr_number = 'CR Number is required';
+    } else if (!validateCrNumber(form.cr_number)) {
+      errors.cr_number = 'Format must be e.g. CR-1928401 or 7-14 alphanumeric';
+    }
+    if (!form.registration_date) {
+      errors.registration_date = 'Registration Date is required';
+    }
+    if (!form.expiration_date) {
+      errors.expiration_date = 'Expiration Date is required';
+    } else if (form.registration_date && !validateDateSequence(form.registration_date, form.expiration_date)) {
+      errors.expiration_date = 'Expiration date must be on or after registration date';
+    }
+    if (!form.last_maintenance_date) {
+      errors.last_maintenance_date = 'Last Maintenance Date is required';
+    }
+
+    // Section 5: Documents Requirements & File Uploads
+    if (!orFile && (!editingVehicle || !editingVehicle.official_receipt_url)) {
+      errors.orFile = 'Official Receipt document file is required';
+    }
+    if (!crFile && (!editingVehicle || !editingVehicle.certificate_of_registration_url)) {
+      errors.crFile = 'Certificate of Registration document file is required';
+    }
+    if (!insuranceFile && (!editingVehicle || !editingVehicle.insurance_policy_url)) {
+      errors.insuranceFile = 'Insurance Policy document file is required';
+    }
+    if (!form.emission_date) {
+      errors.emission_date = 'Emission Test Date is required';
+    }
+    if (!emissionFile && (!editingVehicle || !editingVehicle.emission_certificate_url)) {
+      errors.emissionFile = 'Emission Certificate document file is required';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      setFormError('Please fill in all required fields and upload all required documents.');
       return;
     }
     setSaving(true);
     setFormError('');
+    setFormErrors({});
     try {
       const formData = new FormData();
       formData.append('model', form.model);
@@ -444,9 +857,18 @@ function VehiclesPage() {
       setToast({ message: editingVehicle ? `Vehicle ${form.model} updated successfully.` : `Vehicle ${form.model} added successfully.` });
       setTimeout(() => setToast(null), 5000);
     } catch (err) {
-      const errors = err.response?.data?.errors;
+      const backendErrors = err.response?.data?.errors;
       const message = err.response?.data?.message;
-      setFormError(errors ? Object.values(errors)[0][0] : message || 'Could not save vehicle.');
+      if (backendErrors && typeof backendErrors === 'object') {
+        const mapped = {};
+        Object.entries(backendErrors).forEach(([k, v]) => {
+          mapped[k] = Array.isArray(v) ? v[0] : String(v);
+        });
+        setFormErrors((prev) => ({ ...prev, ...mapped }));
+        setFormError(Object.values(backendErrors)[0]?.[0] || 'Please fix the errors below.');
+      } else {
+        setFormError(message || 'Could not save vehicle.');
+      }
       console.error('Save vehicle failed:', err.response?.data || err);
     } finally {
       setSaving(false);
@@ -584,16 +1006,66 @@ function VehiclesPage() {
 
           {loadError && <div className="form-error" style={{ margin: '16px 0', color: '#d32f2f' }}>{loadError}</div>}
 
-          {view === 'list' && (
-            <div className="vehicle-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              <div className="stat-card"><div className="vehicle-stat-badge green">{stats.available}</div><span className="vehicle-stat-label">Available<br /><small>Ready for Dispatch</small></span></div>
-              <div className="stat-card"><div className="vehicle-stat-badge blue">{stats.inUse}</div><span className="vehicle-stat-label">In Use</span></div>
-              <div className="stat-card"><div className="vehicle-stat-badge orange">{stats.maintenance}</div><span className="vehicle-stat-label">Under Maintenance</span></div>
-              <div className="stat-card"><div className="vehicle-stat-badge red">{stats.broken}</div><span className="vehicle-stat-label">Broken<br /><small>Out of Service</small></span></div>
+          {/* KPI Cards Row */}
+          <div className="vehicle-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+            <div
+              className={`stat-card${statusFilter === 'available' ? ' active' : ''}`}
+              style={{ cursor: 'pointer' }}
+              onClick={() => {
+                if (view !== 'list') setView('list');
+                setStatusFilter((prev) => (prev === 'available' ? 'all' : 'available'));
+              }}
+              title="Click to filter Available vehicles"
+            >
+              <div className="vehicle-stat-badge green">{stats.available}</div>
+              <span className="vehicle-stat-label">Available<br /><small>Ready for Dispatch</small></span>
             </div>
-          )}
 
-          {view === 'list' ? (
+            <div
+              className={`stat-card${statusFilter === 'in_use' ? ' active' : ''}`}
+              style={{ cursor: 'pointer' }}
+              onClick={() => {
+                if (view !== 'list') setView('list');
+                setStatusFilter((prev) => (prev === 'in_use' ? 'all' : 'in_use'));
+              }}
+              title="Click to filter In Use vehicles"
+            >
+              <div className="vehicle-stat-badge blue">{stats.inUse}</div>
+              <span className="vehicle-stat-label">In Use</span>
+            </div>
+
+            <div
+              className={`stat-card${statusFilter === 'maintenance' ? ' active' : ''}`}
+              style={{ cursor: 'pointer' }}
+              onClick={() => {
+                if (view !== 'list') setView('list');
+                setStatusFilter((prev) => (prev === 'maintenance' ? 'all' : 'maintenance'));
+              }}
+              title="Click to filter Under Maintenance vehicles"
+            >
+              <div className="vehicle-stat-badge orange">{stats.maintenance}</div>
+              <span className="vehicle-stat-label">Under Maintenance</span>
+            </div>
+
+            <div
+              className={`stat-card${view === 'archives' ? ' active' : ''}`}
+              style={{ cursor: 'pointer' }}
+              onClick={() => {
+                if (view === 'archives') {
+                  setView('list');
+                } else {
+                  setView('archives');
+                  setStatusFilter('all');
+                }
+              }}
+              title="Click to view Decommissioned / Archived vehicles"
+            >
+              <div className="vehicle-stat-badge red">{stats.broken}</div>
+              <span className="vehicle-stat-label">Broken<br /><small>Out of Service</small></span>
+            </div>
+          </div>
+
+          {view === 'list' && (
             <div className="content-section vehicles-section">
               <div className="vehicles-toolbar" style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, margin: '16px 0' }}>
                 <div className="vehicles-toolbar-left" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -628,7 +1100,33 @@ function VehiclesPage() {
                     </select>
                   </div>
                 </div>
-                <div className="vehicles-toolbar-right" style={{ display: 'flex', gap: 8 }}>
+                <div className="vehicles-toolbar-right" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className="btn-incidents"
+                    onClick={() => setView('incidents')}
+                    style={{
+                      height: 38,
+                      padding: '0 18px',
+                      background: '#F59E0B',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: 8,
+                      fontSize: 14,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      whiteSpace: 'nowrap',
+                      transition: 'background 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#D97706')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = '#F59E0B')}
+                  >
+                    <i className="fas fa-triangle-exclamation"></i>
+                    <span>Incidents</span>
+                  </button>
                   <button className="btn-archives" onClick={() => setView('archives')}>Archives</button>
                   <button className="btn-add-vehicle" onClick={openAddModal}><i className="fas fa-plus"></i> Add Vehicle</button>
                 </div>
@@ -656,36 +1154,36 @@ function VehiclesPage() {
                       paginatedVehicles.map((vehicle) => (
                         <tr key={vehicle.vehicle_id} className="vehicle-row" onClick={() => openVehicleDetails(vehicle)}>
                           <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                               <img
                                 src={vehicle.photo_url || '/images/default-truck.png'}
                                 alt={vehicle.model}
-                                style={{ width: 36, height: 30, objectFit: 'cover', borderRadius: 4, border: '1px solid #e2e8f0', flexShrink: 0 }}
+                                style={{ width: 64, height: 48, objectFit: 'cover', borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.06)', flexShrink: 0 }}
                                 onError={(e) => { e.currentTarget.src = '/images/default-truck.png'; }}
                               />
-                              <span style={{ fontWeight: 600, fontSize: 13 }}>{vehicle.model || vehicle.brand || '—'}</span>
+                              <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>{formatVehicleName(vehicle)}</span>
                             </div>
                           </td>
-                          <td className="vehicle-id" style={{ fontWeight: 600, fontSize: 13 }}>{vehicleCode(vehicle.vehicle_id)}</td>
-                          <td style={{ fontWeight: 600, fontSize: 13 }}>{vehicle.plate_number}</td>
+                          <td className="vehicle-id" style={{ fontWeight: 600, fontSize: 14, color: '#334155' }}>{vehicleCode(vehicle.vehicle_id)}</td>
+                          <td style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', letterSpacing: '0.3px' }}>{vehicle.plate_number}</td>
                           <td>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                              <span className={`vehicle-status ${statusClass(vehicle.status)}`} style={{ fontSize: 12 }}>
-                                <i className="fas fa-circle"></i> {statusLabel(vehicle.status)}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                              <span className={`vehicle-status ${statusClass(vehicle.status)}`} style={{ fontSize: 14, fontWeight: 600 }}>
+                                <i className="fas fa-circle" style={{ fontSize: 9 }}></i> {statusLabel(vehicle.status)}
                               </span>
                               {vehicle.status === 'broken' && (
                                 <span
                                   style={{
-                                    fontSize: 10,
+                                    fontSize: 11.5,
                                     fontWeight: 700,
                                     color: '#991b1b',
                                     background: '#fee2e2',
                                     border: '1px solid #fca5a5',
-                                    padding: '3px 6px',
-                                    borderRadius: 4,
+                                    padding: '4px 8px',
+                                    borderRadius: 5,
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: 4,
+                                    gap: 5,
                                     whiteSpace: 'nowrap',
                                     width: 'fit-content',
                                   }}
@@ -696,8 +1194,8 @@ function VehiclesPage() {
                               )}
                             </div>
                           </td>
-                          <td style={{ fontSize: 13 }}>{vehicle.condition || '—'}</td>
-                          <td style={{ fontSize: 13 }}>{formatDate(vehicle.last_maintenance_date)}</td>
+                          <td style={{ fontSize: 14, fontWeight: 500, color: '#334155' }}>{vehicle.condition || '—'}</td>
+                          <td style={{ fontSize: 14, fontWeight: 500, color: '#334155' }}>{formatDate(vehicle.last_maintenance_date)}</td>
                           <td className="action-cell" onClick={(e) => e.stopPropagation()}>
                             {(() => {
                               const isAvailable = vehicle.status === 'available';
@@ -709,7 +1207,7 @@ function VehiclesPage() {
                               const canEdit = isAvailable;
 
                               return (
-                                <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'nowrap' }}>
+                                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'nowrap' }}>
                                   <button
                                     className="btn-action-schedule"
                                     onClick={(e) => canSchedule && openScheduleMaintenanceModal(vehicle, e)}
@@ -727,20 +1225,21 @@ function VehiclesPage() {
                                       background: !canSchedule ? '#cbd5e1' : (isBroken ? '#dc2626' : '#f97316'),
                                       color: !canSchedule ? '#64748b' : '#fff',
                                       border: 'none',
-                                      padding: '5px 8px',
-                                      borderRadius: 5,
-                                      fontSize: 11,
+                                      padding: '8px 14px',
+                                      borderRadius: 6,
+                                      fontSize: 13,
                                       fontWeight: 700,
                                       cursor: !canSchedule ? 'not-allowed' : 'pointer',
                                       opacity: !canSchedule ? 0.55 : 1,
                                       display: 'inline-flex',
                                       alignItems: 'center',
-                                      gap: 3,
+                                      gap: 5,
                                       whiteSpace: 'nowrap',
-                                      boxShadow: isBroken ? '0 0 8px rgba(220, 38, 38, 0.4)' : 'none',
+                                      boxShadow: isBroken ? '0 0 10px rgba(220, 38, 38, 0.4)' : 'none',
+                                      transition: 'all 0.15s ease',
                                     }}
                                   >
-                                    <i className={isBroken ? 'fas fa-wrench' : 'fas fa-tools'}></i>
+                                    <i className={isBroken ? 'fas fa-wrench' : 'fas fa-tools'} style={{ fontSize: 12 }}></i>
                                     {isBroken ? 'Schedule Repair' : 'Schedule'}
                                   </button>
                                   <button
@@ -758,13 +1257,14 @@ function VehiclesPage() {
                                       background: !canDecommission ? '#fca5a5' : '#ef4444',
                                       color: '#fff',
                                       border: 'none',
-                                      padding: '5px 8px',
-                                      borderRadius: 5,
-                                      fontSize: 11,
+                                      padding: '8px 14px',
+                                      borderRadius: 6,
+                                      fontSize: 13,
                                       fontWeight: 700,
                                       cursor: !canDecommission ? 'not-allowed' : 'pointer',
                                       opacity: !canDecommission ? 0.45 : 1,
                                       whiteSpace: 'nowrap',
+                                      transition: 'all 0.15s ease',
                                     }}
                                   >
                                     Decommission
@@ -787,13 +1287,14 @@ function VehiclesPage() {
                                       background: !canEdit ? '#94a3b8' : '#475569',
                                       color: '#fff',
                                       border: 'none',
-                                      padding: '5px 8px',
-                                      borderRadius: 5,
-                                      fontSize: 11,
+                                      padding: '8px 14px',
+                                      borderRadius: 6,
+                                      fontSize: 13,
                                       fontWeight: 700,
                                       cursor: !canEdit ? 'not-allowed' : 'pointer',
                                       opacity: !canEdit ? 0.45 : 1,
                                       whiteSpace: 'nowrap',
+                                      transition: 'all 0.15s ease',
                                     }}
                                   >
                                     Edit
@@ -820,7 +1321,9 @@ function VehiclesPage() {
                 </p>
               </div>
             </div>
-          ) : (
+          )}
+
+          {view === 'archives' && (
             <div className="content-section vehicles-section">
               <div className="vehicles-toolbar" style={{ display: 'flex', justifyContent: 'space-between', margin: '16px 0' }}>
                 <h2 className="vehicle-archives-title">Vehicle Archives</h2>
@@ -836,18 +1339,28 @@ function VehiclesPage() {
                   ) : (
                     paginatedArchivedVehicles.map((vehicle) => (
                       <tr key={vehicle.vehicle_id}>
-                        <td style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <img
-                            src={vehicle.photo_url || '/images/default-truck.png'}
-                            alt=""
-                            style={{ width: 36, height: 32, objectFit: 'cover', borderRadius: 4 }}
-                            onError={(e) => { e.currentTarget.src = '/images/default-truck.png'; }}
-                          />
-                          <span>{vehicle.model || '—'}</span>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                            <img
+                              src={vehicle.photo_url || '/images/default-truck.png'}
+                              alt=""
+                              style={{ width: 60, height: 44, objectFit: 'cover', borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.06)' }}
+                              onError={(e) => { e.currentTarget.src = '/images/default-truck.png'; }}
+                            />
+                            <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>{formatVehicleName(vehicle)}</span>
+                          </div>
                         </td>
-                        <td>{vehicleCode(vehicle.vehicle_id)}</td>
-                        <td>{vehicle.condition || '—'}</td>
-                        <td><button className="btn-edit" onClick={() => restoreVehicle(vehicle)}>Restore</button></td>
+                        <td style={{ fontWeight: 600, fontSize: 14, color: '#334155' }}>{vehicleCode(vehicle.vehicle_id)}</td>
+                        <td style={{ fontSize: 14, color: '#334155' }}>{vehicle.condition || '—'}</td>
+                        <td>
+                          <button
+                            className="btn-edit"
+                            onClick={() => restoreVehicle(vehicle)}
+                            style={{ padding: '8px 16px', fontSize: 13, fontWeight: 700, borderRadius: 6 }}
+                          >
+                            Restore
+                          </button>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -863,6 +1376,323 @@ function VehiclesPage() {
               />
             </div>
           )}
+
+          {view === 'incidents' && (
+            <div className="content-section vehicles-section" id="vehicleIncidentsSection">
+              <div className="vehicles-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0', flexWrap: 'wrap', gap: 12 }}>
+                <h2 className="section-title" style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <i className="fas fa-triangle-exclamation" style={{ color: '#F59E0B' }}></i>
+                  Vehicle Incident Reports &amp; Inspections
+                </h2>
+                <button
+                  type="button"
+                  className="btn-return-vehicles"
+                  onClick={() => setView('list')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: '#B91C1C',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '9px 18px',
+                    borderRadius: 8,
+                    fontSize: 14,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span>Return to Vehicles</span>
+                  <i className="fas fa-reply"></i>
+                </button>
+              </div>
+
+              {/* Incidents Search & Filter Bar */}
+              <div className="incidents-controls" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', margin: '14px 0', alignItems: 'center' }}>
+                <div className="search-bar" style={{ width: 300 }}>
+                  <i className="fas fa-search"></i>
+                  <input
+                    type="text"
+                    placeholder="Search vehicle, plate, inspector, defect..."
+                    value={incidentSearch}
+                    onChange={(e) => {
+                      setIncidentSearch(e.target.value);
+                      setIncidentPage(1);
+                    }}
+                  />
+                </div>
+
+                {/* Filter Pills */}
+                <div className="incident-tabs" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {['All', 'Breakdown', 'Flat Tire', 'Engine', 'Brake', 'Body Damage', 'Accident', 'Other'].map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={`incident-tab${incidentTypeFilter === t ? ' active' : ''}`}
+                      onClick={() => {
+                        setIncidentTypeFilter(t);
+                        setIncidentPage(1);
+                      }}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: 20,
+                        border: incidentTypeFilter === t ? '1.5px solid #b91c1c' : '1px solid #cbd5e1',
+                        background: incidentTypeFilter === t ? '#b91c1c' : '#fff',
+                        color: incidentTypeFilter === t ? '#fff' : '#475569',
+                        fontSize: 12.5,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Severity Dropdown */}
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#64748b' }}>Severity:</span>
+                  <select
+                    value={incidentSeverityFilter}
+                    onChange={(e) => {
+                      setIncidentSeverityFilter(e.target.value);
+                      setIncidentPage(1);
+                    }}
+                    style={{
+                      padding: '7px 12px',
+                      borderRadius: 8,
+                      border: '1px solid #cbd5e1',
+                      background: '#fff',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: '#1e293b',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value="All">All Severities</option>
+                    <option value="high">High Severity</option>
+                    <option value="medium">Medium Severity</option>
+                    <option value="low">Low Severity</option>
+                  </select>
+                </div>
+              </div>
+
+              <p style={{ fontSize: 13, color: '#64748b', fontWeight: 600, margin: '8px 0 14px' }}>
+                Showing {filteredVehicleIncidents.length} of {vehicleIncidents.length} vehicle incident reports.
+              </p>
+
+              {/* Table */}
+              <div className="section-content vehicles-table-wrap">
+                <table className="data-table vehicles-table">
+                  <thead>
+                    <tr>
+                      <th>Incident #</th>
+                      <th>Vehicle</th>
+                      <th>Inspected / Reported By</th>
+                      <th>Date &amp; Time</th>
+                      <th>Issue Type</th>
+                      <th>Details &amp; Defects</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <TableSkeleton rows={4} columns={7} />
+                    ) : paginatedIncidents.length === 0 ? (
+                      <tr>
+                        <td colSpan="7" style={{ textAlign: 'center', padding: 28, color: '#6B7280' }}>
+                          No vehicle incident or inspection reports found matching your criteria.
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedIncidents.map((inc) => {
+                        const veh = inc.resolvedVehicle;
+                        const inspectorName =
+                          inc.resolvedDelivery?.checklists?.[0]?.inspector_name ||
+                          inc.reporter?.full_name ||
+                          'Staff Inspector';
+                        const inspectorPhoto =
+                          inc.resolvedDelivery?.checklists?.[0]?.inspector?.profile_photo_url ||
+                          inc.reporter?.profile_photo_url ||
+                          '/images/defaultavatar.png';
+                        const inspectorRole = inc.reporter?.role?.role_name || 'Staff Inspector';
+                        const incCode = `INC-${String(inc.incident_id).padStart(5, '0')}`;
+                        const dateStr = inc.reported_at || inc.resolvedDelivery?.checklists?.[0]?.completed_at || inc.created_at;
+
+                        return (
+                          <tr key={inc.incident_id}>
+                            {/* Incident ID with Severity */}
+                            <td>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <span style={{ fontWeight: 800, color: '#DC2626', fontSize: 14 }}>{incCode}</span>
+                                <span
+                                  style={{
+                                    display: 'inline-block',
+                                    width: 'fit-content',
+                                    fontSize: 10.5,
+                                    fontWeight: 800,
+                                    padding: '2px 7px',
+                                    borderRadius: 4,
+                                    textTransform: 'uppercase',
+                                    background:
+                                      inc.severity === 'high'
+                                        ? '#FEE2E2'
+                                        : inc.severity === 'low'
+                                        ? '#DCFCE7'
+                                        : '#FEF3C7',
+                                    color:
+                                      inc.severity === 'high'
+                                        ? '#DC2626'
+                                        : inc.severity === 'low'
+                                        ? '#15803D'
+                                        : '#D97706',
+                                  }}
+                                >
+                                  {(inc.severity || 'medium').toUpperCase()}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Vehicle Details */}
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <img
+                                  src={veh?.photo_url || '/images/default-truck.png'}
+                                  alt=""
+                                  style={{
+                                    width: 56,
+                                    height: 42,
+                                    objectFit: 'cover',
+                                    borderRadius: 6,
+                                    border: '1px solid #e2e8f0',
+                                    boxShadow: '0 2px 4px rgba(0,0,0,0.06)',
+                                    flexShrink: 0,
+                                  }}
+                                  onError={(e) => {
+                                    e.currentTarget.src = '/images/default-truck.png';
+                                  }}
+                                />
+                                <div>
+                                  <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
+                                    {formatVehicleName(veh)}
+                                  </div>
+                                  <div style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>
+                                    {veh?.plate_number || 'No Plate'} • {vehicleCode(veh?.vehicle_id || inc.resolvedDelivery?.vehicle_id || 0)}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Inspected By */}
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <img
+                                  src={inspectorPhoto}
+                                  alt=""
+                                  style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', border: '1px solid #cbd5e1' }}
+                                  onError={(e) => {
+                                    e.currentTarget.src = '/images/defaultavatar.png';
+                                  }}
+                                />
+                                <div>
+                                  <div style={{ fontWeight: 700, fontSize: 13.5, color: '#1e293b' }}>
+                                    {inspectorName}
+                                  </div>
+                                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600, background: '#f1f5f9', padding: '1px 6px', borderRadius: 4 }}>
+                                    {inspectorRole}
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Date & Time */}
+                            <td>
+                              <div style={{ fontWeight: 600, color: '#1F2937', fontSize: 13 }}>
+                                {formatDateTime(dateStr)}
+                              </div>
+                              <div style={{ fontSize: 11, color: '#64748b' }}>
+                                Inspection Log
+                              </div>
+                            </td>
+
+                            {/* Issue Type */}
+                            <td>
+                              <span
+                                style={{
+                                  textTransform: 'capitalize',
+                                  fontWeight: 700,
+                                  color: '#B91C1C',
+                                  fontSize: 13,
+                                  background: '#FEF2F2',
+                                  padding: '4px 8px',
+                                  borderRadius: 6,
+                                  display: 'inline-block',
+                                }}
+                              >
+                                {(inc.incident_type || 'Other').replace(/_/g, ' ')}
+                              </span>
+                            </td>
+
+                            {/* Details & Defects */}
+                            <td style={{ maxWidth: 260 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 600, color: '#1F2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {inc.description || 'No defect description provided.'}
+                              </div>
+                              {inc.resolvedDelivery?.starting_odometer && (
+                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                                  <i className="fas fa-gauge" style={{ marginRight: 4 }}></i>
+                                  Odometer: {Number(inc.resolvedDelivery.starting_odometer).toLocaleString()} km
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Action */}
+                            <td>
+                              <button
+                                type="button"
+                                className="btn-print-incident"
+                                onClick={() => setSelectedIncident(inc)}
+                                title="View Detailed Inspection & Operational Report"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  background: '#334155',
+                                  color: '#fff',
+                                  border: 'none',
+                                  padding: '7px 14px',
+                                  borderRadius: 6,
+                                  fontSize: 12.5,
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  whiteSpace: 'nowrap',
+                                  transition: 'all 0.15s ease',
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = '#1e293b')}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = '#334155')}
+                              >
+                                <i className="fas fa-eye"></i>
+                                <span>View Details</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                <Pagination
+                  currentPage={incidentPage}
+                  totalPages={totalIncidentPages}
+                  totalItems={filteredVehicleIncidents.length}
+                  pageSize={PAGE_SIZE}
+                  onPageChange={setIncidentPage}
+                  showAlways={true}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -873,6 +1703,48 @@ function VehiclesPage() {
             <span className="toast-message"><i className="fas fa-check-circle"></i> {toast.message}</span>
             {toast.undoId && <button className="btn-undo" onClick={undoDecommission}><i className="fa fa-undo"></i> Undo</button>}
           </div>
+        </div>
+      )}
+
+      {/* SweetAlert-style Pop-up Toast for Vehicle Form Validation */}
+      {formError && (
+        <div className="sweet-alert-popup" role="alert">
+          <div className="sweet-alert-icon">
+            <i className="fas fa-exclamation"></i>
+          </div>
+          <div className="sweet-alert-body">
+            <h4 className="sweet-alert-title">{getAlertTitle(formError)}</h4>
+            <p className="sweet-alert-desc">{formError}</p>
+          </div>
+          <button
+            type="button"
+            className="sweet-alert-close"
+            onClick={() => setFormError('')}
+            aria-label="Dismiss alert"
+          >
+            <i className="fas fa-times"></i>
+          </button>
+        </div>
+      )}
+
+      {/* SweetAlert-style Pop-up Toast for Maintenance Scheduling */}
+      {scheduleError && (
+        <div className="sweet-alert-popup" role="alert">
+          <div className="sweet-alert-icon">
+            <i className="fas fa-exclamation"></i>
+          </div>
+          <div className="sweet-alert-body">
+            <h4 className="sweet-alert-title">Maintenance Notice</h4>
+            <p className="sweet-alert-desc">{scheduleError}</p>
+          </div>
+          <button
+            type="button"
+            className="sweet-alert-close"
+            onClick={() => setScheduleError('')}
+            aria-label="Dismiss alert"
+          >
+            <i className="fas fa-times"></i>
+          </button>
         </div>
       )}
 
@@ -1005,11 +1877,6 @@ function VehiclesPage() {
                 </div>
               </div>
 
-              {scheduleError && (
-                <div style={{ background: '#fee2e2', color: '#dc2626', padding: '10px 14px', borderRadius: 6, marginBottom: 16, fontSize: 13 }}>
-                  {scheduleError}
-                </div>
-              )}
 
               {/* Maintenance Details section */}
               <h4 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 800, color: '#0f172a', letterSpacing: '0.3px', textTransform: 'uppercase' }}>
@@ -1229,6 +2096,7 @@ function VehiclesPage() {
           onClick={() => setSelectedVehicle(null)}
         >
           <div
+            className="hide-scrollbar"
             style={{
               width: '100%',
               maxWidth: '1080px',
@@ -1236,6 +2104,8 @@ function VehiclesPage() {
               background: '#ffffff',
               borderRadius: 12,
               overflowY: 'auto',
+              scrollbarWidth: 'none',
+              msOverflowStyle: 'none',
               boxShadow: '0 25px 60px rgba(0,0,0,0.35)',
               display: 'flex',
               flexDirection: 'column',
@@ -1442,7 +2312,22 @@ function VehiclesPage() {
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Vehicle Type:</strong> {selectedVehicle.vehicle_type || '—'}</p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Fuel Type:</strong> <span style={{ textTransform: 'capitalize' }}>{selectedVehicle.fuel_type || 'diesel'}</span></p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Load Capacity:</strong> {selectedVehicle.capacity ? `${selectedVehicle.capacity} kg` : '—'}</p>
-                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Color:</strong> {selectedVehicle.color || '—'}</p>
+                  <p style={{ margin: '6px 0', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <strong>Color:</strong>
+                    {selectedVehicle.color && parseColorToHex(selectedVehicle.color) && (
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: 12,
+                          height: 12,
+                          borderRadius: '50%',
+                          backgroundColor: parseColorToHex(selectedVehicle.color),
+                          border: '1px solid #cbd5e1',
+                        }}
+                      />
+                    )}
+                    <span>{selectedVehicle.color || '—'}</span>
+                  </p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Condition:</strong> {selectedVehicle.condition || 'Good'}</p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Registration Valid:</strong> {formatDate(selectedVehicle.registration_valid_from)} to {formatDate(selectedVehicle.registration_valid_until)}</p>
                 </div>
@@ -1800,7 +2685,7 @@ function VehiclesPage() {
           className="modal"
           style={{ display: 'flex', position: 'fixed', inset: 0, alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.65)', zIndex: 1000, padding: 20 }}
         >
-          <div className="modal-content" style={{ width: '100%', maxWidth: 820, maxHeight: '92vh', overflowY: 'auto', background: '#fff', borderRadius: 14, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+          <div className="modal-content hide-scrollbar" style={{ width: '100%', maxWidth: 820, maxHeight: '92vh', overflowY: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none', background: '#fff', borderRadius: 14, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
             {/* Modal Header */}
             <div className="modal-header" style={{ position: 'sticky', top: 0, zIndex: 10, background: 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)', color: '#fff', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
               <div>
@@ -1813,7 +2698,7 @@ function VehiclesPage() {
               </div>
               <button
                 className="modal-close"
-                onClick={() => setShowFormModal(false)}
+                onClick={() => { setShowFormModal(false); setFormErrors({}); setFormError(''); }}
                 style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, cursor: 'pointer', transition: 'all 0.2s' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.3)'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
@@ -1824,12 +2709,6 @@ function VehiclesPage() {
 
             {/* Modal Body */}
             <div className="modal-body" style={{ padding: '24px 28px' }}>
-              {formError && (
-                <div style={{ color: '#991b1b', background: '#fee2e2', border: '1px solid #fecaca', padding: '12px 16px', borderRadius: 8, marginBottom: 20, fontSize: 13, display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <i className="fas fa-exclamation-circle" style={{ fontSize: 16, color: '#dc2626' }}></i>
-                  <span>{formError}</span>
-                </div>
-              )}
 
               <form className="edit-form" onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                 {/* Section 1: Basic Vehicle Information */}
@@ -1839,73 +2718,180 @@ function VehiclesPage() {
                   </h4>
                   <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 14 }}>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Vehicle Model <span style={{ color: '#dc2626' }}>*</span></label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.model ? '#dc2626' : '#334155', marginBottom: 4 }}>Vehicle Model <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="text"
                         placeholder="e.g. FUSO FJ 2823R"
                         value={form.model}
-                        onChange={(e) => setForm({ ...form, model: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => handleFormFieldChange('model', e.target.value)}
+                        style={getFieldStyle('model')}
                       />
+                      {formErrors.model && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.model}
+                        </span>
+                      )}
                     </div>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Brand / Make</label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.brand ? '#dc2626' : '#334155', marginBottom: 4 }}>Brand / Make <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="text"
                         placeholder="e.g. Mitsubishi / Isuzu / Hino"
                         value={form.brand}
-                        onChange={(e) => setForm({ ...form, brand: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => handleFormFieldChange('brand', e.target.value)}
+                        style={getFieldStyle('brand')}
                       />
+                      {formErrors.brand && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.brand}
+                        </span>
+                      )}
                     </div>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Plate Number <span style={{ color: '#dc2626' }}>*</span></label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.plate_number ? '#dc2626' : '#334155', marginBottom: 4 }}>Plate Number <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="text"
-                        placeholder="e.g. ABC 1234"
+                        placeholder="e.g. ABC-1234"
+                        maxLength={8}
                         value={form.plate_number}
-                        onChange={(e) => setForm({ ...form, plate_number: e.target.value.toUpperCase() })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff', textTransform: 'uppercase', letterSpacing: 0.5 }}
+                        onChange={(e) => handleFormFieldChange('plate_number', formatPlateInput(e.target.value))}
+                        style={getFieldStyle('plate_number', { textTransform: 'uppercase', letterSpacing: 0.5 })}
                       />
+                      {formErrors.plate_number && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.plate_number}
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Color <span style={{ color: '#dc2626' }}>*</span></label>
-                      <input
-                        type="text"
-                        placeholder="e.g. White / Blue"
-                        value={form.color}
-                        onChange={(e) => setForm({ ...form, color: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
-                      />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.color ? '#dc2626' : '#334155' }}>
+                          Color <span style={{ color: '#dc2626' }}>*</span>
+                        </label>
+                        {parseColorToHex(form.color) && (
+                          <span style={{ fontSize: 11, fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            Hex: <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, fontSize: 11, color: '#0f172a' }}>{parseColorToHex(form.color).toUpperCase()}</code>
+                          </span>
+                        )}
+                      </div>
+
+                      <div
+                        style={getFieldStyle('color', {
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '0 8px 0 12px',
+                          height: 38,
+                        })}
+                      >
+                        <input
+                          type="text"
+                          placeholder="e.g. White / Blue"
+                          value={form.color}
+                          onChange={(e) => handleFormFieldChange('color', e.target.value)}
+                          style={{
+                            flex: 1,
+                            border: 'none',
+                            outline: 'none',
+                            padding: 0,
+                            fontSize: 13,
+                            background: 'transparent',
+                            minWidth: 0,
+                          }}
+                        />
+
+                        {/* Interactive Color Swatch integrated inside the input */}
+                        <div
+                          style={{
+                            position: 'relative',
+                            width: 24,
+                            height: 24,
+                            flexShrink: 0,
+                            borderRadius: '50%',
+                            backgroundColor: parseColorToHex(form.color) || '#f1f5f9',
+                            border: '1.5px solid #cbd5e1',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxSizing: 'border-box',
+                          }}
+                          title="Click to pick a color"
+                        >
+                          <input
+                            type="color"
+                            value={parseColorToHex(form.color) || '#3b82f6'}
+                            onChange={(e) => {
+                              const hex = e.target.value.toLowerCase();
+                              const matchedName = HEX_TO_COLOR_NAME[hex];
+                              handleFormFieldChange('color', matchedName || hex.toUpperCase());
+                            }}
+                            style={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              width: '100%',
+                              height: '100%',
+                              opacity: 0,
+                              cursor: 'pointer',
+                              borderRadius: '50%',
+                            }}
+                          />
+                          <i
+                            className="fas fa-eye-dropper"
+                            style={{
+                              fontSize: 10,
+                              color: isColorDark(parseColorToHex(form.color)) ? '#ffffff' : '#64748b',
+                              pointerEvents: 'none',
+                            }}
+                          />
+                        </div>
+                      </div>
+                      {formErrors.color && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.color}
+                        </span>
+                      )}
                     </div>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Vehicle Type <span style={{ color: '#dc2626' }}>*</span></label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.vehicle_type ? '#dc2626' : '#334155', marginBottom: 4 }}>Vehicle Type <span style={{ color: '#dc2626' }}>*</span></label>
                       <select
                         value={form.vehicle_type}
-                        onChange={(e) => setForm({ ...form, vehicle_type: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => handleFormFieldChange('vehicle_type', e.target.value)}
+                        style={getFieldStyle('vehicle_type')}
                       >
                         <option value="10-Wheeler Truck">10-Wheeler Truck</option>
                         <option value="6-Wheeler Truck">6-Wheeler Truck</option>
                         <option value="4-Wheeler Closed Van">4-Wheeler Closed Van</option>
                         <option value="Trailer Truck">Trailer Truck</option>
                       </select>
+                      {formErrors.vehicle_type && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.vehicle_type}
+                        </span>
+                      )}
                     </div>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Fuel Type <span style={{ color: '#dc2626' }}>*</span></label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.fuel_type ? '#dc2626' : '#334155', marginBottom: 4 }}>Fuel Type <span style={{ color: '#dc2626' }}>*</span></label>
                       <select
                         value={form.fuel_type}
-                        onChange={(e) => setForm({ ...form, fuel_type: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => handleFormFieldChange('fuel_type', e.target.value)}
+                        style={getFieldStyle('fuel_type')}
                       >
                         <option value="diesel">Diesel</option>
                         <option value="gasoline">Gasoline</option>
                         <option value="electric">Electric</option>
                         <option value="hybrid">Hybrid</option>
                       </select>
+                      {formErrors.fuel_type && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.fuel_type}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1919,59 +2905,79 @@ function VehiclesPage() {
                     <div>
                       <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                         <div className="form-group">
-                          <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Load Capacity (kg)</label>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.capacity ? '#dc2626' : '#334155', marginBottom: 4 }}>Load Capacity (kg) <span style={{ color: '#dc2626' }}>*</span></label>
                           <input
                             type="number"
                             min="0"
                             placeholder="e.g. 15000"
                             value={form.capacity}
-                            onChange={(e) => setForm({ ...form, capacity: e.target.value })}
-                            style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                            onChange={(e) => handleFormFieldChange('capacity', e.target.value)}
+                            style={getFieldStyle('capacity')}
                           />
+                          {formErrors.capacity && (
+                            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.capacity}
+                            </span>
+                          )}
                         </div>
                         <div className="form-group">
-                          <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Mileage (km)</label>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.mileage ? '#dc2626' : '#334155', marginBottom: 4 }}>Mileage (km) <span style={{ color: '#dc2626' }}>*</span></label>
                           <input
                             type="number"
                             min="0"
                             placeholder="e.g. 45000"
                             value={form.mileage}
-                            onChange={(e) => setForm({ ...form, mileage: e.target.value })}
-                            style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                            onChange={(e) => handleFormFieldChange('mileage', e.target.value)}
+                            style={getFieldStyle('mileage')}
                           />
+                          {formErrors.mileage && (
+                            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.mileage}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                         <div className="form-group">
-                          <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Status</label>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.status ? '#dc2626' : '#334155', marginBottom: 4 }}>Status <span style={{ color: '#dc2626' }}>*</span></label>
                           <select
                             value={form.status}
-                            onChange={(e) => setForm({ ...form, status: e.target.value })}
-                            style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                            onChange={(e) => handleFormFieldChange('status', e.target.value)}
+                            style={getFieldStyle('status')}
                           >
                             <option value="available">Available</option>
                             <option value="in_use">In Use</option>
                             <option value="maintenance">Under Maintenance</option>
                             <option value="broken">Broken</option>
                           </select>
+                          {formErrors.status && (
+                            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.status}
+                            </span>
+                          )}
                         </div>
                         <div className="form-group">
-                          <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Condition</label>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.condition ? '#dc2626' : '#334155', marginBottom: 4 }}>Condition <span style={{ color: '#dc2626' }}>*</span></label>
                           <input
                             type="text"
                             placeholder="Good / Need Repair"
                             value={form.condition}
-                            onChange={(e) => setForm({ ...form, condition: e.target.value })}
-                            style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                            onChange={(e) => handleFormFieldChange('condition', e.target.value)}
+                            style={getFieldStyle('condition')}
                           />
+                          {formErrors.condition && (
+                            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.condition}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
 
                     {/* Vehicle Photo Upload */}
                     <div>
-                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>
-                        Vehicle Photo
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: formErrors.photo ? '#dc2626' : '#334155', marginBottom: 4 }}>
+                        Vehicle Photo <span style={{ color: '#dc2626' }}>*</span>
                       </label>
                       <input
                         type="file"
@@ -1983,13 +2989,14 @@ function VehiclesPage() {
                       <div
                         onClick={() => vehicleFileInputRef.current?.click()}
                         style={{
-                          border: '2px dashed #cbd5e1',
+                          border: formErrors.photo ? '2px dashed #ef4444' : '2px dashed #cbd5e1',
                           borderRadius: 8,
                           padding: 14,
                           textAlign: 'center',
                           color: '#64748b',
                           cursor: 'pointer',
-                          background: '#fff',
+                          background: formErrors.photo ? '#fff5f5' : '#fff',
+                          boxShadow: formErrors.photo ? '0 0 0 3px rgba(239, 68, 68, 0.2)' : 'none',
                           display: 'flex',
                           flexDirection: 'column',
                           alignItems: 'center',
@@ -1997,8 +3004,14 @@ function VehiclesPage() {
                           minHeight: 125,
                           transition: 'all 0.2s',
                         }}
-                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#b91c1c'; e.currentTarget.style.background = '#fef2f2'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.background = '#fff'; }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = '#b91c1c';
+                          e.currentTarget.style.background = '#fef2f2';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = formErrors.photo ? '#ef4444' : '#cbd5e1';
+                          e.currentTarget.style.background = formErrors.photo ? '#fff5f5' : '#fff';
+                        }}
                       >
                         {vehiclePhotoPreview ? (
                           <div style={{ width: '100%' }}>
@@ -2012,139 +3025,203 @@ function VehiclesPage() {
                           </div>
                         ) : (
                           <>
-                            <i className="fas fa-camera" style={{ fontSize: 26, color: '#94a3b8', marginBottom: 6 }}></i>
-                            <p style={{ margin: '0 0 2px', fontSize: 12, fontWeight: 600, color: '#334155' }}>Upload Photo</p>
+                            <i className="fas fa-camera" style={{ fontSize: 26, color: formErrors.photo ? '#dc2626' : '#94a3b8', marginBottom: 6 }}></i>
+                            <p style={{ margin: '0 0 2px', fontSize: 12, fontWeight: 600, color: formErrors.photo ? '#dc2626' : '#334155' }}>Upload Photo</p>
                             <p style={{ fontSize: 11, margin: 0, color: '#94a3b8' }}>Max 5MB (JPG, PNG)</p>
                           </>
                         )}
                       </div>
+                      {formErrors.photo && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.photo}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Section 3: Insurance Information (Screenshot 2) */}
+                {/* Section 3: Insurance Information */}
                 <div style={{ background: '#f8fafc', padding: '18px 20px', borderRadius: 10, border: '1px solid #e2e8f0' }}>
                   <h4 style={{ margin: '0 0 14px', color: '#b91c1c', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #e2e8f0', paddingBottom: 8 }}>
                     <i className="fas fa-shield-alt"></i> Insurance Information
                   </h4>
                   <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 14 }}>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Provider</label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.insurance_provider ? '#dc2626' : '#334155', marginBottom: 4 }}>Provider <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="text"
                         placeholder="e.g. Malayan Insurance / Pioneer"
                         value={form.insurance_provider}
-                        onChange={(e) => setForm({ ...form, insurance_provider: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => handleFormFieldChange('insurance_provider', e.target.value)}
+                        style={getFieldStyle('insurance_provider')}
                       />
+                      {formErrors.insurance_provider && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.insurance_provider}
+                        </span>
+                      )}
                     </div>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Policy Number</label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.insurance_policy_number ? '#dc2626' : '#334155', marginBottom: 4 }}>Policy Number <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="text"
                         placeholder="e.g. POL-8921-X"
+                        maxLength={30}
                         value={form.insurance_policy_number}
-                        onChange={(e) => setForm({ ...form, insurance_policy_number: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => handleFormFieldChange('insurance_policy_number', formatPolicyNumberInput(e.target.value))}
+                        style={getFieldStyle('insurance_policy_number', { textTransform: 'uppercase' })}
                       />
+                      {formErrors.insurance_policy_number && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.insurance_policy_number}
+                        </span>
+                      )}
                     </div>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Coverage Type</label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.insurance_coverage_type ? '#dc2626' : '#334155', marginBottom: 4 }}>Coverage Type <span style={{ color: '#dc2626' }}>*</span></label>
                       <select
                         value={form.insurance_coverage_type}
-                        onChange={(e) => setForm({ ...form, insurance_coverage_type: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => handleFormFieldChange('insurance_coverage_type', e.target.value)}
+                        style={getFieldStyle('insurance_coverage_type')}
                       >
                         <option value="Comprehensive">Comprehensive</option>
                         <option value="Third-Party Liability (TPL)">Third-Party Liability (TPL)</option>
                         <option value="Acts of Nature">Acts of Nature</option>
                         <option value="Collision & Damage">Collision &amp; Damage</option>
                       </select>
+                      {formErrors.insurance_coverage_type && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.insurance_coverage_type}
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Valid From</label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.insurance_valid_from ? '#dc2626' : '#334155', marginBottom: 4 }}>Valid From <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="date"
                         value={form.insurance_valid_from || ''}
-                        onChange={(e) => setForm({ ...form, insurance_valid_from: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => handleFormFieldChange('insurance_valid_from', e.target.value)}
+                        style={getFieldStyle('insurance_valid_from')}
                       />
+                      {formErrors.insurance_valid_from && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.insurance_valid_from}
+                        </span>
+                      )}
                     </div>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Valid Until</label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.insurance_valid_until ? '#dc2626' : '#334155', marginBottom: 4 }}>Valid Until <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="date"
                         value={form.insurance_valid_until || ''}
-                        onChange={(e) => setForm({ ...form, insurance_valid_until: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => handleFormFieldChange('insurance_valid_until', e.target.value)}
+                        style={getFieldStyle('insurance_valid_until')}
                       />
+                      {formErrors.insurance_valid_until && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.insurance_valid_until}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Section 4: Registration Info (Screenshot 2) */}
+                {/* Section 4: Registration Info */}
                 <div style={{ background: '#f8fafc', padding: '18px 20px', borderRadius: 10, border: '1px solid #e2e8f0' }}>
                   <h4 style={{ margin: '0 0 14px', color: '#b91c1c', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #e2e8f0', paddingBottom: 8 }}>
                     <i className="fas fa-id-card"></i> Registration Info
                   </h4>
                   <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>OR Number (Official Receipt)</label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.or_number ? '#dc2626' : '#334155', marginBottom: 4 }}>OR Number (Official Receipt) <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="text"
                         placeholder="e.g. OR-8912401"
+                        maxLength={20}
                         value={form.or_number}
-                        onChange={(e) => setForm({ ...form, or_number: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => handleFormFieldChange('or_number', formatOrNumberInput(e.target.value))}
+                        style={getFieldStyle('or_number', { textTransform: 'uppercase' })}
                       />
+                      {formErrors.or_number && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.or_number}
+                        </span>
+                      )}
                     </div>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>CR Number (Certificate of Registration)</label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.cr_number ? '#dc2626' : '#334155', marginBottom: 4 }}>CR Number (Certificate of Registration) <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="text"
                         placeholder="e.g. CR-1928401"
+                        maxLength={18}
                         value={form.cr_number}
-                        onChange={(e) => setForm({ ...form, cr_number: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => handleFormFieldChange('cr_number', formatCrNumberInput(e.target.value))}
+                        style={getFieldStyle('cr_number', { textTransform: 'uppercase' })}
                       />
+                      {formErrors.cr_number && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.cr_number}
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Registration Date</label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.registration_date ? '#dc2626' : '#334155', marginBottom: 4 }}>Registration Date <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="date"
                         value={form.registration_date || form.registration_valid_from || ''}
-                        onChange={(e) => setForm({ ...form, registration_date: e.target.value, registration_valid_from: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => {
+                          handleFormFieldChange('registration_date', e.target.value);
+                          setForm((prev) => ({ ...prev, registration_valid_from: e.target.value }));
+                        }}
+                        style={getFieldStyle('registration_date')}
                       />
+                      {formErrors.registration_date && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.registration_date}
+                        </span>
+                      )}
                     </div>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Expiration Date</label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.expiration_date ? '#dc2626' : '#334155', marginBottom: 4 }}>Expiration Date <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="date"
                         value={form.expiration_date || form.registration_valid_until || ''}
-                        onChange={(e) => setForm({ ...form, expiration_date: e.target.value, registration_valid_until: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => {
+                          handleFormFieldChange('expiration_date', e.target.value);
+                          setForm((prev) => ({ ...prev, registration_valid_until: e.target.value }));
+                        }}
+                        style={getFieldStyle('expiration_date')}
                       />
+                      {formErrors.expiration_date && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.expiration_date}
+                        </span>
+                      )}
                     </div>
                     <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Last Maintenance Date</label>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.last_maintenance_date ? '#dc2626' : '#334155', marginBottom: 4 }}>Last Maintenance Date <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="date"
                         value={form.last_maintenance_date || ''}
-                        onChange={(e) => setForm({ ...form, last_maintenance_date: e.target.value })}
-                        style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: '#fff' }}
+                        onChange={(e) => handleFormFieldChange('last_maintenance_date', e.target.value)}
+                        style={getFieldStyle('last_maintenance_date')}
                       />
+                      {formErrors.last_maintenance_date && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.last_maintenance_date}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {/* Section 5: Documents Requirements & File Uploads (Screenshot 2) */}
+                {/* Section 5: Documents Requirements & File Uploads */}
                 <div style={{ background: '#f8fafc', padding: '18px 20px', borderRadius: 10, border: '1px solid #e2e8f0' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, borderBottom: '1px solid #e2e8f0', paddingBottom: 8 }}>
                     <h4 style={{ margin: 0, color: '#b91c1c', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2155,10 +3232,19 @@ function VehiclesPage() {
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
                     {/* Document 1: Official Receipt (OR) */}
-                    <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: 14 }}>
+                    <div
+                      style={{
+                        background: formErrors.orFile ? '#fff5f5' : '#fff',
+                        border: formErrors.orFile ? '1.5px solid #ef4444' : '1px solid #cbd5e1',
+                        boxShadow: formErrors.orFile ? '0 0 0 3px rgba(239, 68, 68, 0.2)' : 'none',
+                        borderRadius: 8,
+                        padding: 14,
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <i className="fas fa-receipt" style={{ color: '#b91c1c' }}></i> Official Receipt (OR)
+                        <span style={{ fontSize: 13, fontWeight: 600, color: formErrors.orFile ? '#dc2626' : '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <i className="fas fa-receipt" style={{ color: '#b91c1c' }}></i> Official Receipt (OR) <span style={{ color: '#dc2626' }}>*</span>
                         </span>
                         {editingVehicle?.official_receipt_url && !orFile && (
                           <button
@@ -2196,19 +3282,47 @@ function VehiclesPage() {
                         <button
                           type="button"
                           onClick={() => orFileInputRef.current?.click()}
-                          style={{ width: '100%', padding: '10px 12px', border: '1.5px dashed #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: formErrors.orFile ? '1.5px dashed #ef4444' : '1.5px dashed #cbd5e1',
+                            borderRadius: 6,
+                            background: formErrors.orFile ? '#fef2f2' : '#f8fafc',
+                            color: formErrors.orFile ? '#dc2626' : '#475569',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                          }}
                         >
-                          <i className="fas fa-cloud-upload-alt" style={{ color: '#94a3b8' }}></i>
+                          <i className="fas fa-cloud-upload-alt" style={{ color: formErrors.orFile ? '#dc2626' : '#94a3b8' }}></i>
                           {editingVehicle?.official_receipt_url ? 'Replace OR File' : 'Upload OR File'}
                         </button>
+                      )}
+                      {formErrors.orFile && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.orFile}
+                        </span>
                       )}
                     </div>
 
                     {/* Document 2: Certificate of Registration (CR) */}
-                    <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: 14 }}>
+                    <div
+                      style={{
+                        background: formErrors.crFile ? '#fff5f5' : '#fff',
+                        border: formErrors.crFile ? '1.5px solid #ef4444' : '1px solid #cbd5e1',
+                        boxShadow: formErrors.crFile ? '0 0 0 3px rgba(239, 68, 68, 0.2)' : 'none',
+                        borderRadius: 8,
+                        padding: 14,
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <i className="fas fa-certificate" style={{ color: '#b91c1c' }}></i> Certification of Registration (CR)
+                        <span style={{ fontSize: 13, fontWeight: 600, color: formErrors.crFile ? '#dc2626' : '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <i className="fas fa-certificate" style={{ color: '#b91c1c' }}></i> Certificate of Registration (CR) <span style={{ color: '#dc2626' }}>*</span>
                         </span>
                         {editingVehicle?.certificate_of_registration_url && !crFile && (
                           <button
@@ -2246,19 +3360,47 @@ function VehiclesPage() {
                         <button
                           type="button"
                           onClick={() => crFileInputRef.current?.click()}
-                          style={{ width: '100%', padding: '10px 12px', border: '1.5px dashed #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: formErrors.crFile ? '1.5px dashed #ef4444' : '1.5px dashed #cbd5e1',
+                            borderRadius: 6,
+                            background: formErrors.crFile ? '#fef2f2' : '#f8fafc',
+                            color: formErrors.crFile ? '#dc2626' : '#475569',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                          }}
                         >
-                          <i className="fas fa-cloud-upload-alt" style={{ color: '#94a3b8' }}></i>
+                          <i className="fas fa-cloud-upload-alt" style={{ color: formErrors.crFile ? '#dc2626' : '#94a3b8' }}></i>
                           {editingVehicle?.certificate_of_registration_url ? 'Replace CR File' : 'Upload CR File'}
                         </button>
+                      )}
+                      {formErrors.crFile && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.crFile}
+                        </span>
                       )}
                     </div>
 
                     {/* Document 3: Insurance Policy */}
-                    <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: 14 }}>
+                    <div
+                      style={{
+                        background: formErrors.insuranceFile ? '#fff5f5' : '#fff',
+                        border: formErrors.insuranceFile ? '1.5px solid #ef4444' : '1px solid #cbd5e1',
+                        boxShadow: formErrors.insuranceFile ? '0 0 0 3px rgba(239, 68, 68, 0.2)' : 'none',
+                        borderRadius: 8,
+                        padding: 14,
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <i className="fas fa-shield-alt" style={{ color: '#b91c1c' }}></i> Insurance Policy
+                        <span style={{ fontSize: 13, fontWeight: 600, color: formErrors.insuranceFile ? '#dc2626' : '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <i className="fas fa-shield-alt" style={{ color: '#b91c1c' }}></i> Insurance Policy <span style={{ color: '#dc2626' }}>*</span>
                         </span>
                         {editingVehicle?.insurance_policy_url && !insuranceFile && (
                           <button
@@ -2296,19 +3438,47 @@ function VehiclesPage() {
                         <button
                           type="button"
                           onClick={() => insuranceFileInputRef.current?.click()}
-                          style={{ width: '100%', padding: '10px 12px', border: '1.5px dashed #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: formErrors.insuranceFile ? '1.5px dashed #ef4444' : '1.5px dashed #cbd5e1',
+                            borderRadius: 6,
+                            background: formErrors.insuranceFile ? '#fef2f2' : '#f8fafc',
+                            color: formErrors.insuranceFile ? '#dc2626' : '#475569',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                          }}
                         >
-                          <i className="fas fa-cloud-upload-alt" style={{ color: '#94a3b8' }}></i>
+                          <i className="fas fa-cloud-upload-alt" style={{ color: formErrors.insuranceFile ? '#dc2626' : '#94a3b8' }}></i>
                           {editingVehicle?.insurance_policy_url ? 'Replace Policy File' : 'Upload Insurance Policy'}
                         </button>
+                      )}
+                      {formErrors.insuranceFile && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.insuranceFile}
+                        </span>
                       )}
                     </div>
 
                     {/* Document 4: Emission Certificate & Date */}
-                    <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: 14 }}>
+                    <div
+                      style={{
+                        background: (formErrors.emission_date || formErrors.emissionFile) ? '#fff5f5' : '#fff',
+                        border: (formErrors.emission_date || formErrors.emissionFile) ? '1.5px solid #ef4444' : '1px solid #cbd5e1',
+                        boxShadow: (formErrors.emission_date || formErrors.emissionFile) ? '0 0 0 3px rgba(239, 68, 68, 0.2)' : 'none',
+                        borderRadius: 8,
+                        padding: 14,
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <i className="fas fa-smog" style={{ color: '#b91c1c' }}></i> Emission Certificate
+                        <span style={{ fontSize: 13, fontWeight: 600, color: (formErrors.emission_date || formErrors.emissionFile) ? '#dc2626' : '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <i className="fas fa-smog" style={{ color: '#b91c1c' }}></i> Emission Certificate <span style={{ color: '#dc2626' }}>*</span>
                         </span>
                         {editingVehicle?.emission_certificate_url && !emissionFile && (
                           <button
@@ -2321,13 +3491,21 @@ function VehiclesPage() {
                         )}
                       </div>
                       <div style={{ marginBottom: 8 }}>
+                        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: formErrors.emission_date ? '#dc2626' : '#475569', marginBottom: 4 }}>
+                          Emission Test Date <span style={{ color: '#dc2626' }}>*</span>
+                        </label>
                         <input
                           type="date"
                           value={form.emission_date || ''}
-                          onChange={(e) => setForm({ ...form, emission_date: e.target.value })}
-                          style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, background: '#fff' }}
+                          onChange={(e) => handleFormFieldChange('emission_date', e.target.value)}
+                          style={getFieldStyle('emission_date', { width: '100%', padding: '7px 10px', fontSize: 12 })}
                           title="Emission Test Date"
                         />
+                        {formErrors.emission_date && (
+                          <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.emission_date}
+                          </span>
+                        )}
                       </div>
                       <input
                         type="file"
@@ -2355,11 +3533,30 @@ function VehiclesPage() {
                         <button
                           type="button"
                           onClick={() => emissionFileInputRef.current?.click()}
-                          style={{ width: '100%', padding: '10px 12px', border: '1.5px dashed #cbd5e1', borderRadius: 6, background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            border: formErrors.emissionFile ? '1.5px dashed #ef4444' : '1.5px dashed #cbd5e1',
+                            borderRadius: 6,
+                            background: formErrors.emissionFile ? '#fef2f2' : '#f8fafc',
+                            color: formErrors.emissionFile ? '#dc2626' : '#475569',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                          }}
                         >
-                          <i className="fas fa-cloud-upload-alt" style={{ color: '#94a3b8' }}></i>
+                          <i className="fas fa-cloud-upload-alt" style={{ color: formErrors.emissionFile ? '#dc2626' : '#94a3b8' }}></i>
                           {editingVehicle?.emission_certificate_url ? 'Replace Emission File' : 'Upload Emission File'}
                         </button>
+                      )}
+                      {formErrors.emissionFile && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.emissionFile}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -2375,7 +3572,7 @@ function VehiclesPage() {
               <div style={{ display: 'flex', gap: 12 }}>
                 <button
                   type="button"
-                  onClick={() => setShowFormModal(false)}
+                  onClick={() => { setShowFormModal(false); setFormErrors({}); setFormError(''); }}
                   style={{
                     padding: '9px 22px',
                     borderRadius: 6,
@@ -2807,6 +4004,13 @@ function VehiclesPage() {
             </div>
           )}
         </div>
+      )}
+
+      {selectedIncident && (
+        <PrintableIncidentModal
+          incident={selectedIncident}
+          onClose={() => setSelectedIncident(null)}
+        />
       )}
     </>
   );

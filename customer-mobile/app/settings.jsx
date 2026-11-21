@@ -22,8 +22,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import SweetToast from "../components/SweetToast";
+import PasswordStrengthMeter from "../components/PasswordStrengthMeter";
 import { useTheme } from "../context/ThemeContext";
-import { logout, reportBug, submitReview } from "../services/api";
+import { logout, reportBug, submitReview, changeCustomerPassword } from "../services/api";
 
 const { width, height } = Dimensions.get("window");
 
@@ -49,6 +50,16 @@ export default function Settings() {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
 
+  // Change Password Modal State
+  const [pwdModalVisible, setPwdModalVisible] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrentPwd, setShowCurrentPwd] = useState(false);
+  const [showNewPwd, setShowNewPwd] = useState(false);
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false);
+  const [changingPwd, setChangingPwd] = useState(false);
+
   // SweetToast
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -56,6 +67,39 @@ export default function Settings() {
   const showToast = (msg) => {
     setToastMessage(msg);
     setToastVisible(true);
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword.trim()) {
+      Alert.alert("Required", "Please enter your current (or temporary) password.");
+      return;
+    }
+    if (!newPassword.trim()) {
+      Alert.alert("Required", "Please enter your new password.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      Alert.alert("Invalid Password", "New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert("Password Mismatch", "The confirmation password does not match.");
+      return;
+    }
+
+    try {
+      setChangingPwd(true);
+      await changeCustomerPassword(currentPassword, newPassword, confirmPassword);
+      setPwdModalVisible(false);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      showToast("Password updated successfully!");
+    } catch (err) {
+      Alert.alert("Change Failed", err?.message || "Failed to update password. Please verify your current password.");
+    } finally {
+      setChangingPwd(false);
+    }
   };
 
   useEffect(() => {
@@ -268,6 +312,21 @@ export default function Settings() {
               thumbColor="#FFFFFF"
             />
           </View>
+
+          <View style={[styles.divider, { backgroundColor: colors.divider }]} />
+
+          {/* CHANGE PASSWORD */}
+          <TouchableOpacity
+            style={styles.row}
+            onPress={() => setPwdModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.rowLeft}>
+              <Ionicons name="key-outline" size={22} color={colors.textMuted} />
+              <Text style={[styles.rowText, { color: colors.text }]}>Change Password</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textSubtle} />
+          </TouchableOpacity>
 
           <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
@@ -603,6 +662,115 @@ export default function Settings() {
           </View>
         </View>
       </Modal>
+
+      {/* ========================================================= */}
+      {/* CHANGE PASSWORD MODAL                                     */}
+      {/* ========================================================= */}
+      <Modal
+        visible={pwdModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setPwdModalVisible(false)}
+      >
+        <View style={[styles.modalBackdrop, { backgroundColor: colors.modalBackdrop }]}>
+          <View style={[styles.bugCard, { backgroundColor: colors.modalBg, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
+            <View style={[styles.bugHeader, { borderBottomColor: colors.divider }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="key-outline" size={20} color="#DC2626" />
+                <Text style={[styles.bugTitle, { color: colors.text }]}>Change Password</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setPwdModalVisible(false);
+                  setCurrentPassword("");
+                  setNewPassword("");
+                  setConfirmPassword("");
+                }}
+                hitSlop={10}
+              >
+                <Ionicons name="close" size={22} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: height * 0.6 }}>
+              <Text style={{ fontSize: 13, color: colors.textMuted, marginBottom: 16, lineHeight: 18 }}>
+                Enter the temporary password received in your email (or your current password) followed by your new password.
+              </Text>
+
+              {/* CURRENT PASSWORD */}
+              <Text style={[styles.bugLabel, { color: colors.text }]}>Current / Temporary Password</Text>
+              <View style={[styles.pwdInputWrapper, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                <TextInput
+                  style={[styles.pwdInput, { color: colors.text }]}
+                  placeholder="Enter current password"
+                  placeholderTextColor={colors.textSubtle}
+                  secureTextEntry={!showCurrentPwd}
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity onPress={() => setShowCurrentPwd((p) => !p)} style={styles.pwdEyeBtn}>
+                  <Ionicons name={showCurrentPwd ? "eye-off-outline" : "eye-outline"} size={20} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              {/* NEW PASSWORD */}
+              <Text style={[styles.bugLabel, { color: colors.text, marginTop: 12 }]}>Enter new password</Text>
+              <View style={[styles.pwdInputWrapper, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                <TextInput
+                  style={[styles.pwdInput, { color: colors.text }]}
+                  placeholder="Enter new password"
+                  placeholderTextColor={colors.textSubtle}
+                  secureTextEntry={!showNewPwd}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity onPress={() => setShowNewPwd((p) => !p)} style={styles.pwdEyeBtn}>
+                  <Ionicons name={showNewPwd ? "eye-off-outline" : "eye-outline"} size={20} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ marginTop: 8 }}>
+                <PasswordStrengthMeter password={newPassword} />
+              </View>
+
+              {/* CONFIRM NEW PASSWORD */}
+              <Text style={[styles.bugLabel, { color: colors.text, marginTop: 12 }]}>Confirm Password</Text>
+              <View style={[styles.pwdInputWrapper, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+                <TextInput
+                  style={[styles.pwdInput, { color: colors.text }]}
+                  placeholder="Confirm Password"
+                  placeholderTextColor={colors.textSubtle}
+                  secureTextEntry={!showConfirmPwd}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity onPress={() => setShowConfirmPwd((p) => !p)} style={styles.pwdEyeBtn}>
+                  <Ionicons name={showConfirmPwd ? "eye-off-outline" : "eye-outline"} size={20} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.bugSubmitBtn, { marginTop: 20 }]}
+                onPress={handleChangePassword}
+                disabled={changingPwd}
+                activeOpacity={0.85}
+              >
+                {changingPwd ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="shield-checkmark-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.bugSubmitBtnText}>Update Password</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -889,5 +1057,21 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
+  },
+  pwdInputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    marginBottom: 6,
+  },
+  pwdInput: {
+    flex: 1,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+  pwdEyeBtn: {
+    padding: 6,
   },
 });

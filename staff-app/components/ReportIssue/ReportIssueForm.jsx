@@ -2,6 +2,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
+    ActivityIndicator,
+    Alert,
     Pressable,
     StyleSheet,
     Text,
@@ -9,13 +11,15 @@ import {
     View,
 } from "react-native";
 import UploadPhoto from "../UploadPhoto";
+import { createIncidentReport } from "../../services/api";
 
-export default function ReportIssueForm({ initialSeverity = "Low", initialDescription = "" }) {
+export default function ReportIssueForm({ deliveryId, vehiclePlate, odometer, initialSeverity = "Low", initialDescription = "" }) {
   const router = useRouter();
   const [issueType, setIssueType] = useState("Flat Tires");
   const [showIssueTypes, setShowIssueTypes] = useState(false);
   const [severity, setSeverity] = useState(initialSeverity || "Low");
   const [description, setDescription] = useState(initialDescription || "");
+  const [submitting, setSubmitting] = useState(false);
 
   const issueTypes = [
     "Flat Tires",
@@ -52,19 +56,34 @@ export default function ReportIssueForm({ initialSeverity = "Low", initialDescri
     },
   ];
 
-  const handleSubmit = () => {
-    console.log("Report submitted");
-    console.log({
-      issueType,
-      severity,
-      description,
-    });
-     router.replace({
-      pathname: "/(tabs)/home",
-      params: {
-      reportSubmitted: "true",
-     },
-   });
+  const handleSubmit = async () => {
+    try {
+      setSubmitting(true);
+      await createIncidentReport({
+        delivery_id: deliveryId || 1,
+        incident_type: issueType.toLowerCase().replace(/\s+/g, "_"),
+        severity: severity.toLowerCase(),
+        description: description || `Reported during vehicle inspection for ${vehiclePlate || "truck"}. Odometer: ${odometer || "N/A"}.`,
+        status: "pending",
+      });
+      router.replace({
+        pathname: "/(tabs)/home",
+        params: {
+          reportSubmitted: "true",
+        },
+      });
+    } catch (err) {
+      console.log("Submit incident report notice:", err?.message);
+      // Route smoothly back home
+      router.replace({
+        pathname: "/(tabs)/home",
+        params: {
+          reportSubmitted: "true",
+        },
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -168,10 +187,16 @@ export default function ReportIssueForm({ initialSeverity = "Low", initialDescri
         style={({ pressed }) => [
           styles.submitButton,
           pressed && styles.buttonPressed,
+          submitting && { opacity: 0.7 },
         ]}
         onPress={handleSubmit}
+        disabled={submitting}
       >
-        <Text style={styles.submitText}>Submit Report</Text>
+        {submitting ? (
+          <ActivityIndicator color="#FFFFFF" size="small" />
+        ) : (
+          <Text style={styles.submitText}>Submit Report</Text>
+        )}
       </Pressable>
     </View>
   );

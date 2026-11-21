@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
@@ -15,8 +16,9 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import CustomerFeedbackModal from "../../components/CustomerFeedbackModal";
+import PasswordStrengthMeter from "../../components/PasswordStrengthMeter";
 import { useTheme } from "../context/ThemeContext";
-import { logout, reportBug } from "../../services/api";
+import { logout, reportBug, changeDriverPassword } from "../../services/api";
 
 export default function Settings() {
   const { darkMode, toggleDarkMode, theme } = useTheme();
@@ -27,6 +29,16 @@ export default function Settings() {
   const [bugDescription, setBugDescription] = useState("");
   const [submittingBug, setSubmittingBug] = useState(false);
   const [alertSoundsEnabled, setAlertSoundsEnabled] = useState(true);
+
+  // Change Password Modal State
+  const [pwdModalVisible, setPwdModalVisible] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrentPwd, setShowCurrentPwd] = useState(false);
+  const [showNewPwd, setShowNewPwd] = useState(false);
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false);
+  const [changingPwd, setChangingPwd] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem("driver_alert_sounds").then((val) => {
@@ -40,6 +52,42 @@ export default function Settings() {
     const nextVal = !alertSoundsEnabled;
     setAlertSoundsEnabled(nextVal);
     await AsyncStorage.setItem("driver_alert_sounds", String(nextVal));
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword.trim()) {
+      Alert.alert("Required", "Please enter your current (or temporary) password.");
+      return;
+    }
+    if (!newPassword.trim()) {
+      Alert.alert("Required", "Please enter your new password.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      Alert.alert("Password Too Short", "New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert("Password Mismatch", "Passwords do not match.");
+      return;
+    }
+
+    try {
+      setChangingPwd(true);
+      await changeDriverPassword(currentPassword, newPassword, confirmPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPwdModalVisible(false);
+      Alert.alert("Success", "Password updated successfully!");
+    } catch (err) {
+      Alert.alert(
+        "Change Failed",
+        err?.message || "Failed to update password. Please check your current password."
+      );
+    } finally {
+      setChangingPwd(false);
+    }
   };
 
   const handleLogout = () => {
@@ -218,6 +266,23 @@ export default function Settings() {
               thumbColor={darkMode ? "#273142" : "#FFFFFF"}
             />
           </View>
+
+          <View style={[styles.rowDivider, { backgroundColor: theme.border }]} />
+
+          {/* CHANGE PASSWORD */}
+          <TouchableOpacity
+            style={styles.row}
+            onPress={() => setPwdModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.leftSide}>
+              <Ionicons name="key-outline" size={21} color={theme.icon} />
+              <Text style={[styles.rowText, { color: theme.text }]}>
+                Change Password
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={19} color={theme.icon} />
+          </TouchableOpacity>
 
           <View style={[styles.rowDivider, { backgroundColor: theme.border }]} />
 
@@ -445,6 +510,185 @@ export default function Settings() {
           </View>
         </View>
       </Modal>
+
+      {/* CHANGE PASSWORD MODAL */}
+      <Modal
+        visible={pwdModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setPwdModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.bugModalOverlay}
+        >
+          <View
+            style={[
+              styles.bugModalCard,
+              { backgroundColor: theme.card, borderColor: theme.border },
+            ]}
+          >
+            <View style={styles.bugModalHeader}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="key" size={22} color={theme.primary} />
+                <Text style={[styles.bugModalTitle, { color: theme.text }]}>
+                  Change Password
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setPwdModalVisible(false)}>
+                <Ionicons name="close-circle" size={26} color={theme.icon} />
+              </TouchableOpacity>
+            </View>
+
+            <Text
+              style={[
+                styles.bugModalSubtitle,
+                { color: theme.secondaryText, marginBottom: 14 },
+              ]}
+            >
+              Enter your current or temporary password, then set your confidential new password.
+            </Text>
+
+            {/* CURRENT PASSWORD */}
+            <Text style={[styles.inputLabel, { color: theme.text }]}>
+              Current / Temporary Password
+            </Text>
+            <View
+              style={[
+                styles.pwdInputRow,
+                { backgroundColor: theme.input, borderColor: theme.border },
+              ]}
+            >
+              <TextInput
+                style={[styles.pwdTextInput, { color: theme.text }]}
+                placeholder="Enter current password"
+                placeholderTextColor={theme.secondaryText}
+                secureTextEntry={!showCurrentPwd}
+                value={currentPassword}
+                onChangeText={setCurrentPassword}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                onPress={() => setShowCurrentPwd((p) => !p)}
+                style={{ padding: 6 }}
+              >
+                <Ionicons
+                  name={showCurrentPwd ? "eye-off-outline" : "eye-outline"}
+                  size={20}
+                  color={theme.icon}
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* NEW PASSWORD */}
+            <Text
+              style={[styles.inputLabel, { color: theme.text, marginTop: 10 }]}
+            >
+              Enter new password
+            </Text>
+            <View
+              style={[
+                styles.pwdInputRow,
+                { backgroundColor: theme.input, borderColor: theme.border },
+              ]}
+            >
+              <TextInput
+                style={[styles.pwdTextInput, { color: theme.text }]}
+                placeholder="Enter new password"
+                placeholderTextColor={theme.secondaryText}
+                secureTextEntry={!showNewPwd}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                onPress={() => setShowNewPwd((p) => !p)}
+                style={{ padding: 6 }}
+              >
+                <Ionicons
+                  name={showNewPwd ? "eye-off-outline" : "eye-outline"}
+                  size={20}
+                  color={theme.icon}
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* Password Strength Meter */}
+            <View style={{ marginTop: 6 }}>
+              <PasswordStrengthMeter password={newPassword} />
+            </View>
+
+            {/* CONFIRM PASSWORD */}
+            <Text
+              style={[styles.inputLabel, { color: theme.text, marginTop: 6 }]}
+            >
+              Confirm Password
+            </Text>
+            <View
+              style={[
+                styles.pwdInputRow,
+                { backgroundColor: theme.input, borderColor: theme.border },
+              ]}
+            >
+              <TextInput
+                style={[styles.pwdTextInput, { color: theme.text }]}
+                placeholder="Confirm Password"
+                placeholderTextColor={theme.secondaryText}
+                secureTextEntry={!showConfirmPwd}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                onPress={() => setShowConfirmPwd((p) => !p)}
+                style={{ padding: 6 }}
+              >
+                <Ionicons
+                  name={showConfirmPwd ? "eye-off-outline" : "eye-outline"}
+                  size={20}
+                  color={theme.icon}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.bugActions, { marginTop: 18 }]}>
+              <TouchableOpacity
+                style={[styles.bugCancelBtn, { borderColor: theme.border }]}
+                onPress={() => setPwdModalVisible(false)}
+                disabled={changingPwd}
+              >
+                <Text
+                  style={[styles.bugCancelText, { color: theme.secondaryText }]}
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.bugSubmitBtn,
+                  { backgroundColor: theme.primary },
+                ]}
+                onPress={handleChangePassword}
+                disabled={changingPwd}
+              >
+                {changingPwd ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={17}
+                      color="#FFFFFF"
+                    />
+                    <Text style={styles.bugSubmitText}>Update Password</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -600,5 +844,18 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "800",
+  },
+  pwdInputRow: {
+    height: 46,
+    borderRadius: 9,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    marginBottom: 6,
+  },
+  pwdTextInput: {
+    flex: 1,
+    fontSize: 14,
   },
 });
