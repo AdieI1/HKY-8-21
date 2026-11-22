@@ -1,0 +1,283 @@
+import React from 'react';
+
+/**
+ * Formats duration between two timestamps into a readable string (e.g. "2h 45m" or "45 mins").
+ */
+export function formatTripDuration(startTime, endTime) {
+  if (!startTime) return '—';
+  const start = new Date(startTime).getTime();
+  const end = endTime ? new Date(endTime).getTime() : Date.now();
+  if (isNaN(start) || isNaN(end) || end <= start) return '—';
+
+  const totalMinutes = Math.floor((end - start) / 60000);
+  if (totalMinutes < 1) return '< 1 min';
+  if (totalMinutes < 60) return `${totalMinutes} min${totalMinutes > 1 ? 's' : ''}`;
+
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  if (hours < 24) {
+    return mins > 0 ? `${hours}h ${mins}m` : `${hours} hr${hours > 1 ? 's' : ''}`;
+  }
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return `${days}d ${remainingHours}h`;
+}
+
+/**
+ * Calculates fuel consumption and fuel efficiency (km/L).
+ */
+export function getFuelMetrics(delivery) {
+  const preTrip = delivery?.checklists?.find?.((c) => c.type === 'pre_trip');
+  const rawStartFuel = delivery?.starting_fuel ?? preTrip?.starting_fuel ?? delivery?.fuel_issued ?? delivery?.vehicle?.fuel_level;
+  const startFuel = rawStartFuel != null && rawStartFuel !== '' ? Number(rawStartFuel) : null;
+  let endFuel = delivery?.ending_fuel != null ? Number(delivery.ending_fuel) : null;
+  if (endFuel !== null && endFuel < 0) endFuel = Math.max(0, endFuel);
+
+  const distance = Number(delivery?.distance_travelled || delivery?.request?.distance_km || 0);
+
+  let consumed = delivery?.fuel_consumed != null ? Number(delivery.fuel_consumed) : null;
+  if (consumed === null && startFuel !== null && endFuel !== null) {
+    consumed = Math.max(0, Number((startFuel - endFuel).toFixed(1)));
+  }
+
+  let efficiency = null;
+  if (distance > 0 && consumed !== null && consumed > 0) {
+    efficiency = (distance / consumed).toFixed(1);
+  }
+
+  const unit = delivery?.fuel_unit || 'Liters';
+
+  return {
+    startFuel: startFuel !== null ? `${startFuel.toFixed(1)} ${unit}` : '—',
+    endFuel: endFuel !== null ? `${endFuel.toFixed(1)} ${unit}` : '—',
+    consumed: consumed !== null ? `${consumed.toFixed(1)} ${unit}` : '—',
+    distance: distance > 0 ? `${distance.toFixed(1)} km` : '—',
+    efficiency: efficiency ? `${efficiency} km/L` : '—',
+    unit,
+  };
+}
+
+function PostDeliveryMetricsPanel({ delivery, speedMetrics, onViewRouteMap, hideBanner = false }) {
+  if (!delivery) return null;
+
+  const duration = formatTripDuration(delivery.start_time || delivery.created_at, delivery.end_time || delivery.updated_at);
+  const fuel = getFuelMetrics(delivery);
+  const distance = fuel.distance !== '—' ? `${fuel.distance} km` : (delivery.request?.distance_km ? `${delivery.request.distance_km} km` : '—');
+
+  const preTrip = delivery.checklists?.find?.((c) => c.type === 'pre_trip');
+  const resolvedStartOdo = delivery.starting_odometer 
+    ?? preTrip?.starting_odometer 
+    ?? delivery.vehicle?.odometer_reading;
+  const startOdo = resolvedStartOdo != null && resolvedStartOdo !== '' ? `${Number(resolvedStartOdo).toLocaleString()} km` : '—';
+  const endOdo = delivery.ending_odometer != null ? `${Number(delivery.ending_odometer).toLocaleString()} km` : '—';
+
+  const completedTime = delivery.end_time || delivery.updated_at;
+  const formattedCompletedDate = completedTime
+    ? new Date(completedTime).toLocaleDateString('en-PH', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : 'Completed';
+
+  return (
+    <div className="post-delivery-container">
+      {/* Success Completion Header */}
+      {!hideBanner && (
+        <div className="post-delivery-banner">
+          <div className="banner-icon">
+            <i className="fas fa-check-circle"></i>
+          </div>
+          <div className="banner-info">
+            <div className="banner-title">Delivery Completed &amp; Verified</div>
+            <div className="banner-subtitle">
+              Delivered on <strong>{formattedCompletedDate}</strong>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="post-delivery-section-title">
+        <i className="fas fa-chart-line"></i> POST-DELIVERY PERFORMANCE METRICS
+      </div>
+
+      {/* 4 High-Impact KPI Tiles */}
+      <div className="post-metrics-grid">
+        <div className="post-metric-card duration">
+          <div className="metric-icon"><i className="far fa-clock"></i></div>
+          <div className="metric-value">{duration}</div>
+          <div className="metric-label">Total Trip Duration</div>
+        </div>
+
+        <div className="post-metric-card distance">
+          <div className="metric-icon"><i className="fas fa-route"></i></div>
+          <div className="metric-value">{distance}</div>
+          <div className="metric-label">Distance Traveled</div>
+        </div>
+
+        <div className="post-metric-card fuel">
+          <div className="metric-icon"><i className="fas fa-gas-pump"></i></div>
+          <div className="metric-value">{fuel.consumed}</div>
+          <div className="metric-label">Fuel Consumed ({fuel.efficiency})</div>
+        </div>
+
+        <div className="post-metric-card speed">
+          <div className="metric-icon"><i className="fas fa-tachometer-alt"></i></div>
+          <div className="metric-value">{speedMetrics?.avgSpeed || 0} km/h</div>
+          <div className="metric-label">Avg Speed (Peak: {speedMetrics?.peakSpeed || 0} km/h)</div>
+        </div>
+      </div>
+
+      <div className="panel-divider"></div>
+
+      {/* Logistics & Audit Breakdown */}
+      <div className="panel-timeline-title">LOGISTICS &amp; TELEMETRY AUDIT</div>
+      
+      <div className="panel-detail">
+        <span className="panel-detail-label">Starting Odometer:</span>
+        <span className="panel-detail-value">{startOdo}</span>
+      </div>
+      <div className="panel-detail">
+        <span className="panel-detail-label">Ending Odometer:</span>
+        <span className="panel-detail-value">{endOdo}</span>
+      </div>
+      <div className="panel-detail">
+        <span className="panel-detail-label">Starting Fuel:</span>
+        <span className="panel-detail-value">{fuel.startFuel}</span>
+      </div>
+      <div className="panel-detail">
+        <span className="panel-detail-label">Ending Fuel:</span>
+        <span className="panel-detail-value">{fuel.endFuel}</span>
+      </div>
+      <div className="panel-detail">
+        <span className="panel-detail-label">Fuel Economy:</span>
+        <span className="panel-detail-value" style={{ color: fuel.efficiency !== '—' ? '#16a34a' : '#64748b', fontWeight: 700 }}>
+          {fuel.efficiency}
+        </span>
+      </div>
+
+      {delivery.trip_cost && (
+        <div className="panel-detail">
+          <span className="panel-detail-label">Trip Cost:</span>
+          <span className="panel-detail-value font-mono">
+            ₱{Number(delivery.trip_cost).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+          </span>
+        </div>
+      )}
+
+      {delivery.remarks && (
+        <div className="panel-detail">
+          <span className="panel-detail-label">Driver Remarks:</span>
+          <span className="panel-detail-value">{delivery.remarks}</span>
+        </div>
+      )}
+
+      {/* PROOF OF DELIVERY (POD) AUDIT SECTION */}
+      <div className="panel-divider"></div>
+      <div className="panel-timeline-title">
+        <i className="fas fa-camera" style={{ marginRight: '6px' }}></i> PROOF OF DELIVERY (POD)
+      </div>
+
+      {delivery.proof_of_delivery_url || delivery.receipt_photo ? (
+        <div style={{
+          background: '#F0FDF4',
+          border: '1px solid #BBF7D0',
+          borderRadius: '8px',
+          padding: '12px',
+          marginTop: '8px',
+          marginBottom: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ fontSize: '12px', fontWeight: '700', color: '#166534', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <i className="fas fa-check-circle" style={{ color: '#16a34a' }}></i> Verified Delivery Photo
+            </span>
+            {delivery.delivered_at && (
+              <span style={{ fontSize: '11px', color: '#64748B' }}>
+                {new Date(delivery.delivered_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+            <a
+              href={delivery.proof_of_delivery_url || delivery.receipt_photo}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: 'block', flexShrink: 0 }}
+            >
+              <img
+                src={delivery.proof_of_delivery_url || delivery.receipt_photo}
+                alt="Proof of Delivery"
+                style={{
+                  width: '90px',
+                  height: '90px',
+                  objectFit: 'cover',
+                  borderRadius: '6px',
+                  border: '1px solid #86EFAC',
+                  cursor: 'pointer'
+                }}
+              />
+            </a>
+
+            <div style={{ flex: 1, fontSize: '12px' }}>
+              {delivery.received_by && (
+                <div style={{ marginBottom: '4px' }}>
+                  <span style={{ color: '#64748B', fontWeight: '600' }}>Received By: </span>
+                  <span style={{ color: '#0F172A', fontWeight: '700' }}>{delivery.received_by}</span>
+                </div>
+              )}
+              {delivery.delivery_notes && (
+                <div style={{ marginBottom: '4px' }}>
+                  <span style={{ color: '#64748B', fontWeight: '600' }}>Notes: </span>
+                  <span style={{ color: '#334155' }}>{delivery.delivery_notes}</span>
+                </div>
+              )}
+              <div style={{ marginTop: '6px' }}>
+                <a
+                  href={delivery.proof_of_delivery_url || delivery.receipt_photo}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    fontSize: '11px',
+                    color: '#2563EB',
+                    textDecoration: 'none',
+                    fontWeight: '600',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <i className="fas fa-external-link-alt"></i> View Full-Size Image
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          padding: '10px 12px',
+          background: '#F8FAFC',
+          borderRadius: '6px',
+          border: '1px dashed #CBD5E1',
+          fontSize: '12px',
+          color: '#64748B',
+          marginTop: '8px',
+          marginBottom: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <i className="fas fa-info-circle"></i> No proof of delivery photo was attached for this trip.
+        </div>
+      )}
+
+      <button className="btn-view-location post-delivery-btn" onClick={onViewRouteMap}>
+        <i className="fas fa-map-marked-alt"></i> View Completed Route &amp; GPS Breadcrumbs
+      </button>
+    </div>
+  );
+}
+
+export default PostDeliveryMetricsPanel;

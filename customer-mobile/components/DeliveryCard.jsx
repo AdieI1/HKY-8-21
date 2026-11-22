@@ -1,0 +1,842 @@
+import { Ionicons } from "@expo/vector-icons";
+import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useTheme } from "../context/ThemeContext";
+
+const pfpplaceholder = require("../assets/images/profilepic.png");
+
+const STATUS_CONFIG = {
+  pending: { label: "Pending", color: "#F2A900" },
+  approved: { label: "Approved", color: "#D9A51E" },
+  dispatched: { label: "Dispatched", color: "#A64DE8" },
+  assigned: { label: "Dispatched", color: "#A64DE8" },
+  accepted: { label: "In Transit", color: "#4B88E8" },
+  arrived_pickup: { label: "Arrived at Pickup", color: "#4B88E8" },
+  loading_cargo: { label: "Loading Cargo", color: "#34B352" },
+  out_for_delivery: { label: "On Delivery", color: "#4B88E8" },
+  arrived_dropoff: { label: "Arrived at Drop-off", color: "#4B88E8" },
+  unloading_cargo: { label: "Unloading Cargo", color: "#34B352" },
+  returning_to_hq: { label: "Returning to HQ", color: "#4B88E8" },
+  delivered: { label: "Delivered", color: "#45B84A" },
+  completed: { label: "Complete", color: "#45B84A" },
+  rejected: { label: "Rejected", color: "#C62828" },
+};
+
+const MAJOR_STEPS = [
+  { key: "dispatched", label: "Dispatched" },
+  { key: "in_transit", label: "In Transit" },
+  { key: "arrived_pickup", label: "Arrived at Pick-up" },
+  { key: "on_delivery", label: "On Delivery" },
+  { key: "arrived_dropoff", label: "Arrived at Drop-off" },
+  { key: "returning_to_hq", label: "Returning to HQ" },
+  { key: "complete", label: "Complete" },
+];
+
+function getProgressInfo(statusKey) {
+  switch (statusKey) {
+    case "dispatched":
+    case "assigned":
+      return { stepIndex: 0, minorStatus: null };
+    case "accepted":
+    case "in_transit":
+      return { stepIndex: 1, minorStatus: null };
+    case "arrived_pickup":
+      return { stepIndex: 2, minorStatus: null };
+    case "loading_cargo":
+    case "loading":
+      return { stepIndex: 2, minorStatus: "loading cargo" };
+    case "out_for_delivery":
+    case "on_delivery":
+      return { stepIndex: 3, minorStatus: null };
+    case "arrived_dropoff":
+      return { stepIndex: 4, minorStatus: null };
+    case "unloading_cargo":
+    case "unloading":
+      return { stepIndex: 4, minorStatus: "unloading cargo" };
+    case "returning_to_hq":
+    case "returning":
+      return { stepIndex: 5, minorStatus: null };
+    case "delivered":
+    case "completed":
+      return { stepIndex: 6, minorStatus: null };
+    default:
+      return { stepIndex: -1, minorStatus: null };
+  }
+}
+
+export default function DeliveryCard({ delivery, onReview, onAcceptReschedule, onCancelAccident, onViewReceipt }) {
+  const status = STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending;
+  const isCancelled = delivery.isCancelled || delivery.status === "cancelled" || delivery.backendStatus === "cancelled";
+  const assigned = !["pending", "approved", "rejected", "cancelled"].includes(delivery.status);
+  const progressInfo = getProgressInfo(delivery.backendStatus || delivery.status);
+
+  const isAwaiting = delivery.isAwaitingDriver;
+  const isRescheduleProposed = delivery.rescheduleStatus === "proposed";
+
+  let statusBadgeColor = status.color;
+  let statusBadgeLabel = status.label;
+
+  const isRelief = Boolean(delivery.is_relief);
+  const cargoLoaded = Boolean(delivery.cargo_loaded);
+
+  if (isCancelled) {
+    statusBadgeColor = "#DC2626";
+    statusBadgeLabel = "Cancelled";
+  } else if (delivery.hasAccidentIncident) {
+    statusBadgeColor = "#DC2626";
+    statusBadgeLabel = "Incident Reported";
+  } else if (isRelief) {
+    statusBadgeColor = "#D97706";
+    statusBadgeLabel = cargoLoaded ? "Relief Dispatched" : "Replacement Dispatched";
+  } else if (isAwaiting) {
+    if (isRescheduleProposed) {
+      statusBadgeColor = "#7C3AED";
+      statusBadgeLabel = "Reschedule Offered";
+    } else {
+      statusBadgeColor = "#D97706";
+      statusBadgeLabel = "Awaiting Driver";
+    }
+  }
+
+  const { isDark, colors } = useTheme();
+
+  return (
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
+      <View style={styles.topRow}>
+        <View style={styles.cargoRow}>
+          <View style={styles.cargoIcon}>
+            <Ionicons name="cube" size={16} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.cargoName, { color: colors.text }]}>
+              {delivery.cargoName || delivery.cargo || "Cargo"}
+            </Text>
+            {delivery.serviceType && delivery.serviceType !== "standard" && (
+              <Text style={{ fontSize: 11, fontWeight: "700", color: "#0284C7", marginTop: 1 }}>
+                {delivery.serviceType === "stuffing" ? "Container Stuffing" : "Container Pull-Out"}
+                {delivery.containerNumber ? ` • ${delivery.containerNumber}` : ""}
+              </Text>
+            )}
+          </View>
+        </View>
+        <View style={[styles.statusBadge, { backgroundColor: statusBadgeColor }]}>
+          <Text style={styles.statusText}>{statusBadgeLabel}</Text>
+        </View>
+      </View>
+
+      <View style={styles.routeSection}>
+        <View style={styles.routeRow}>
+          <Ionicons name="location" size={13} color="#E53935" />
+          <Text style={[styles.routeText, { color: colors.text }]}>
+            {delivery.route || "Route unavailable"}
+          </Text>
+        </View>
+        <View style={styles.dateRow}>
+          <Ionicons name="calendar-outline" size={13} color="#E53935" />
+          <Text style={[styles.dateText, { color: colors.textMuted }]}>
+            Date Requested: {delivery.date || "N/A"}
+          </Text>
+        </View>
+        {delivery.isScheduled && (
+          <View style={styles.dateRow}>
+            <Ionicons name="time-outline" size={13} color="#D97706" />
+            <Text style={[styles.dateText, { color: "#D97706", fontWeight: "600" }]}>
+              Scheduled: {delivery.scheduledDate || "Upcoming"} ({delivery.scheduledTimeSlot || "Standard"})
+            </Text>
+          </View>
+        )}
+
+        {delivery.hasAccidentIncident && !isCancelled && (
+          <View style={[styles.queueBanner, { backgroundColor: "#FEF2F2", borderColor: "#FCA5A5", marginTop: 8 }]}>
+            <Ionicons name="warning" size={16} color="#DC2626" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 12, fontWeight: "700", color: "#991B1B" }}>
+                Accident / Route Incident Reported
+              </Text>
+              <Text style={[styles.queueText, { color: "#7F1D1D", marginTop: 1 }]}>
+                {delivery.activeIncident?.description || delivery.delay_reason || "An accident or delay incident was reported for this shipment."}
+              </Text>
+              <TouchableOpacity
+                style={{
+                  marginTop: 8,
+                  backgroundColor: "#DC2626",
+                  paddingVertical: 7,
+                  paddingHorizontal: 12,
+                  borderRadius: 6,
+                  alignSelf: "flex-start",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 5,
+                }}
+                onPress={() => onCancelAccident?.(delivery)}
+              >
+                <Ionicons name="close-circle-outline" size={14} color="#FFFFFF" />
+                <Text style={{ color: "#FFFFFF", fontSize: 11.5, fontWeight: "700" }}>
+                  Cancel Delivery (Accident)
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {isCancelled && (
+          <View style={[styles.queueBanner, { backgroundColor: "#FEF2F2", borderColor: "#FCA5A5", marginTop: 8 }]}>
+            <Ionicons name="close-circle" size={16} color="#DC2626" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 12, fontWeight: "700", color: "#991B1B" }}>
+                Delivery Cancelled
+              </Text>
+              <Text style={[styles.queueText, { color: "#7F1D1D", marginTop: 1 }]}>
+                {delivery.cancellationReason || "Cancelled due to delivery accident/incident."}
+              </Text>
+              <Text style={{ fontSize: 10.5, fontWeight: "600", color: "#B91C1C", marginTop: 2 }}>
+                Refund: Under Review by Operations
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {Boolean(delivery.delay_reason) && !isRelief && !delivery.hasAccidentIncident && (
+          <View style={[styles.queueBanner, { backgroundColor: "#FEF2F2", borderColor: "#FCA5A5", marginTop: 8 }]}>
+            <Ionicons name="alert-circle" size={15} color="#DC2626" />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 11.5, fontWeight: "700", color: "#991B1B" }}>
+                Delivery Delay Notice
+              </Text>
+              <Text style={[styles.queueText, { color: "#7F1D1D", marginTop: 1 }]}>
+                {delivery.delay_reason}
+              </Text>
+              {Boolean(delivery.estimated_delivery_date) && (
+                <Text style={{ fontSize: 10.5, fontWeight: "600", color: "#B91C1C", marginTop: 2 }}>
+                  Revised ETA: {new Date(delivery.estimated_delivery_date).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+
+        {isRelief && (
+          <View style={[styles.queueBanner, { backgroundColor: "#FFFBEB", borderColor: "#FCD34D", marginTop: 8 }]}>
+            <Ionicons name="shield-checkmark-outline" size={14} color="#B45309" />
+            <Text style={[styles.queueText, { color: "#78350F" }]}>
+              {cargoLoaded
+                ? "Relief Truck Dispatched: A replacement truck is en route to secure your cargo and complete delivery."
+                : "Replacement Dispatched: A replacement truck has been assigned and is heading to the pickup location."}
+            </Text>
+          </View>
+        )}
+
+        {isRescheduleProposed && (
+          <View style={styles.rescheduleBanner}>
+            <View style={styles.rescheduleHeader}>
+              <Ionicons name="calendar" size={15} color="#B45309" />
+              <Text style={styles.rescheduleTitle}>Recommended Dispatch Date</Text>
+            </View>
+            <Text style={styles.rescheduleText}>
+              Vehicle breakdown or fleet route delay. Proposed slot:{" "}
+              <Text style={{ fontWeight: "700", color: "#92400E" }}>{delivery.rescheduleProposedDate}</Text> at{" "}
+              <Text style={{ fontWeight: "700", color: "#92400E" }}>{delivery.rescheduleProposedTimeSlot || "09:00 AM"}</Text>.
+            </Text>
+            <TouchableOpacity
+              style={styles.acceptBtn}
+              onPress={() => onAcceptReschedule?.(delivery)}
+            >
+              <Ionicons name="checkmark-circle" size={15} color="#fff" />
+              <Text style={styles.acceptBtnText}>Confirm &amp; Lock In Slot</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {isAwaiting && !isRescheduleProposed && (
+          <View style={styles.queueBanner}>
+            <Ionicons name="hourglass-outline" size={13} color="#B45309" />
+            <Text style={styles.queueText}>
+              In Queue: All fleet drivers currently dispatched on long-haul routes. Next driver expected soon.
+            </Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.driverSection}>
+        <View style={styles.driverInfo}>
+          <Image source={pfpplaceholder} style={styles.driverImage} />
+          <View>
+            <Text style={styles.driverName}>
+              {assigned ? delivery.driver || "Assigned Driver" : "To be Assigned"}
+            </Text>
+            <Text style={styles.driverLabel}>Driver</Text>
+          </View>
+        </View>
+
+        <View style={styles.vehicleInfo}>
+          <Text style={styles.vehicle}>
+            {assigned ? delivery.vehicle || "Assigned Vehicle" : "To be Assigned"}
+          </Text>
+          <Text style={styles.plate}>
+            Plate Number: {delivery.plate || "N/A"}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.progressSection}>
+        <View style={styles.progressLabels}>
+          {MAJOR_STEPS.map((step, idx) => (
+            <Text
+              key={step.key}
+              style={[
+                styles.progressLabel,
+                idx <= progressInfo.stepIndex && styles.progressLabelActive,
+              ]}
+              numberOfLines={2}
+            >
+              {step.label}
+            </Text>
+          ))}
+        </View>
+
+        <View style={styles.progressLineContainer}>
+          <View style={styles.progressLine} />
+          {progressInfo.stepIndex > 0 && (
+            <View
+              style={[
+                styles.progressLineActive,
+                { width: `${(Math.min(progressInfo.stepIndex, 6) / 6) * 100}%` },
+              ]}
+            />
+          )}
+
+          {MAJOR_STEPS.map((step, idx) => (
+            <ProgressDot
+              key={step.key}
+              active={progressInfo.stepIndex >= idx}
+              completed={progressInfo.stepIndex > idx || (progressInfo.stepIndex === 6 && idx === 6)}
+              isCurrent={progressInfo.stepIndex === idx && progressInfo.stepIndex !== 6}
+            />
+          ))}
+        </View>
+
+        <View style={styles.progressBottom}>
+          {progressInfo.minorStatus ? (
+            <View style={styles.glowingContainer}>
+              <View style={styles.glowingDot} />
+              <Text style={styles.glowingText}>{progressInfo.minorStatus}</Text>
+            </View>
+          ) : (
+            <View style={styles.emptyBottom} />
+          )}
+        </View>
+      </View>
+
+      {delivery.status === "delivered" && (
+        <View style={styles.reviewSection}>
+          <View style={styles.reviewTitleRow}>
+            <Ionicons name="star" size={18} color="#F2B632" />
+            <Text style={styles.reviewTitle}>How was your delivery?</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.reviewBtn}
+            onPress={() => onReview && onReview(delivery)}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.reviewBtnText}>
+              {delivery.hasReviewed ? "Update review" : "Leave a review"}
+            </Text>
+            <Ionicons name="chevron-forward" size={13} color="#DE2226" />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {delivery.status === "delivered" && delivery.proof_of_delivery_url && (
+        <View style={styles.podSection}>
+          <View style={styles.podHeader}>
+            <Ionicons name="shield-checkmark" size={15} color="#059669" />
+            <Text style={styles.podTitle}>Proof of Delivery (Verified)</Text>
+          </View>
+          <Image
+            source={{ uri: delivery.proof_of_delivery_url }}
+            style={styles.podImage}
+            resizeMode="cover"
+          />
+          {delivery.received_by ? (
+            <Text style={styles.podReceivedBy}>
+              Received by: <Text style={{ fontWeight: "700", color: "#1E293B" }}>{delivery.received_by}</Text>
+            </Text>
+          ) : null}
+        </View>
+      )}
+
+      {(delivery.item_permit_url || delivery.area_permit_url) && (
+        <View style={styles.permitsSection}>
+          <View style={styles.permitHeader}>
+            <Ionicons name="shield-checkmark" size={13} color="#0284C7" />
+            <Text style={styles.permitHeaderTitle}>Official Delivery Clearances</Text>
+          </View>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+            {delivery.item_permit_url ? (
+              <View style={styles.permitTag}>
+                <Ionicons name="cube-outline" size={11} color="#0369A1" />
+                <Text style={styles.permitTagText}>
+                  {delivery.item_permit_type || "Item Quarantine Pass"}
+                </Text>
+              </View>
+            ) : null}
+            {delivery.area_permit_url ? (
+              <View style={[styles.permitTag, { backgroundColor: "#ECFDF5", borderColor: "#A7F3D0" }]}>
+                <Ionicons name="map-outline" size={11} color="#047857" />
+                <Text style={[styles.permitTagText, { color: "#065F46" }]}>
+                  {delivery.area_permit_type || "Route Transit Pass"}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      )}
+
+      {(delivery.collectionReceiptNo || delivery.collectionReceiptUrl) && (
+        <View style={[styles.podSection, { marginTop: 10, borderColor: "#BFDBFE", backgroundColor: "#EFF6FF" }]}>
+          <View style={styles.podHeader}>
+            <Ionicons name="receipt-outline" size={15} color="#2563EB" />
+            <Text style={[styles.podTitle, { color: "#1E40AF" }]}>Official Collection Receipt</Text>
+          </View>
+          <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+            <Text style={{ fontSize: 12.5, color: "#1E3A8A", fontWeight: "700" }}>
+              Receipt #: {delivery.collectionReceiptNo || "N/A"}
+            </Text>
+            {delivery.collectionReceiptAmount ? (
+              <Text style={{ fontSize: 12, color: "#1E3A8A", fontWeight: "600", marginTop: 2 }}>
+                Amount Collected: ₱{Number(delivery.collectionReceiptAmount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}
+              </Text>
+            ) : null}
+            {delivery.collectionReceiptPaymentMode ? (
+              <Text style={{ fontSize: 11.5, color: "#2563EB", marginTop: 2 }}>
+                Mode of Payment: {delivery.collectionReceiptPaymentMode}
+              </Text>
+            ) : null}
+            {delivery.collectionReceiptIssuedAt ? (
+              <Text style={{ fontSize: 10.5, color: "#64748B", marginTop: 2 }}>
+                Issued: {new Date(delivery.collectionReceiptIssuedAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}
+              </Text>
+            ) : null}
+            <TouchableOpacity
+              style={{
+                marginTop: 8,
+                backgroundColor: "#2563EB",
+                paddingVertical: 7,
+                paddingHorizontal: 12,
+                borderRadius: 6,
+                alignSelf: "flex-start",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
+              }}
+              onPress={() => onViewReceipt?.(delivery)}
+            >
+              <Ionicons name="document-text-outline" size={14} color="#FFFFFF" />
+              <Text style={{ color: "#FFFFFF", fontSize: 11.5, fontWeight: "700" }}>
+                View Collection Receipt
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function ProgressDot({ active, completed, isCurrent }) {
+  return (
+    <View
+      style={[
+        styles.dot,
+        active && styles.dotActive,
+        isCurrent && styles.dotCurrent,
+      ]}
+    >
+      {completed && <Ionicons name="checkmark" size={9} color="#FFFFFF" />}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  card: {
+    backgroundColor: "#F7F8FC",
+    borderRadius: 12,
+    marginBottom: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#E1E3EB",
+  },
+  topRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 6,
+  },
+  cargoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  cargoIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 7,
+    backgroundColor: "#4D8BEA",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 9,
+  },
+  cargoName: {
+    color: "#E53935",
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  statusBadge: {
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  statusText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  routeSection: {
+    paddingHorizontal: 16,
+    paddingTop: 9,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E2E9",
+  },
+  routeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 7,
+  },
+  routeText: {
+    marginLeft: 7,
+    color: "#30313A",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  dateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  dateText: {
+    marginLeft: 7,
+    color: "#555761",
+    fontSize: 11,
+  },
+  driverSection: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  driverInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  driverImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 10,
+  },
+  driverName: {
+    color: "#30313A",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  driverLabel: {
+    color: "#777987",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  vehicleInfo: {
+    alignItems: "flex-end",
+  },
+  vehicle: {
+    color: "#E53935",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  plate: {
+    color: "#777987",
+    fontSize: 10,
+    marginTop: 3,
+  },
+  progressSection: {
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+  },
+  progressLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  progressLabel: {
+    color: "#777987",
+    fontSize: 7.5,
+    fontWeight: "500",
+    width: `${100 / 7}%`,
+    textAlign: "center",
+    lineHeight: 10,
+  },
+  progressLabelActive: {
+    color: "#273342",
+    fontWeight: "700",
+  },
+  progressLineContainer: {
+    height: 24,
+    marginTop: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    position: "relative",
+    paddingHorizontal: 4,
+  },
+  progressLine: {
+    position: "absolute",
+    left: 8,
+    right: 8,
+    height: 3,
+    backgroundColor: "#C9CBD5",
+    zIndex: 1,
+  },
+  progressLineActive: {
+    position: "absolute",
+    left: 8,
+    height: 3,
+    backgroundColor: "#34B352",
+    zIndex: 2,
+  },
+  dot: {
+    width: 15,
+    height: 15,
+    borderRadius: 8,
+    backgroundColor: "#A9ACBA",
+    borderWidth: 1.5,
+    borderColor: "#A9ACBA",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 3,
+  },
+  dotActive: {
+    backgroundColor: "#34B352",
+    borderColor: "#34B352",
+  },
+  dotCurrent: {
+    backgroundColor: "#34B352",
+    borderColor: "#34B352",
+    shadowColor: "#34B352",
+    shadowOpacity: 0.6,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  progressBottom: {
+    minHeight: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 2,
+  },
+  glowingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(52, 179, 82, 0.12)",
+    paddingHorizontal: 12,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(52, 179, 82, 0.35)",
+  },
+  glowingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#34B352",
+    marginRight: 6,
+    shadowColor: "#34B352",
+    shadowOpacity: 0.9,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  glowingText: {
+    color: "#2E7D32",
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "lowercase",
+    textShadowColor: "rgba(52, 179, 82, 0.7)",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
+  },
+  emptyBottom: {
+    height: 6,
+  },
+  reviewSection: {
+    borderTopWidth: 1,
+    borderTopColor: "#E0E2E9",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  reviewTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  reviewTitle: {
+    color: "#E53935",
+    fontSize: 13.5,
+    fontWeight: "800",
+    marginLeft: 6,
+  },
+  reviewBtn: {
+    backgroundColor: "#FEECEB",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  reviewBtnText: {
+    color: "#DE2226",
+    fontSize: 12,
+    fontWeight: "700",
+    marginRight: 4,
+  },
+  rescheduleBanner: {
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+  },
+  rescheduleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 4,
+  },
+  rescheduleTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#92400E",
+  },
+  rescheduleText: {
+    fontSize: 11.5,
+    color: "#78350F",
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  acceptBtn: {
+    backgroundColor: "#EA580C",
+    borderRadius: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  acceptBtnText: {
+    color: "#fff",
+    fontSize: 11.5,
+    fontWeight: "700",
+  },
+  queueBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FEF3C7",
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginTop: 6,
+  },
+  queueText: {
+    fontSize: 11,
+    color: "#92400E",
+    flex: 1,
+    lineHeight: 15,
+  },
+  podSection: {
+    marginTop: 10,
+    marginHorizontal: 16,
+    marginBottom: 14,
+    padding: 10,
+    backgroundColor: "#F0FDF4",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    borderRadius: 8,
+  },
+  podHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  podTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#166534",
+  },
+  podImage: {
+    width: "100%",
+    height: 140,
+    borderRadius: 6,
+    backgroundColor: "#1E293B",
+  },
+  podReceivedBy: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 6,
+  },
+  permitsSection: {
+    marginTop: 6,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 8,
+    backgroundColor: "#F0F9FF",
+    borderWidth: 1,
+    borderColor: "#BAE6FD",
+    borderRadius: 8,
+  },
+  permitHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  permitHeaderTitle: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#0369A1",
+  },
+  permitTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#E0F2FE",
+    borderWidth: 1,
+    borderColor: "#7DD3FC",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  permitTagText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#0369A1",
+  },
+});

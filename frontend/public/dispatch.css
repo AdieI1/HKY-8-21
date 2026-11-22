@@ -1,0 +1,759 @@
+
+/* Dispatch Stats KPI Cards - Figma Design */
+.dispatch-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.dispatch-stat-card {
+    background: #FFFFFF;
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+    border: 1.5px solid #F3F4F6;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.dispatch-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+    border-color: #E5E7EB;
+}
+
+.dispatch-stat-number {
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
+.dispatch-stat-number.pending {
+    color: #EA580C;
+}
+
+.dispatch-stat-number.overdue {
+    color: #DC2626;
+}
+
+.dispatch-stat-number.awaiting {
+    color: #D97706;
+}
+
+.dispatch-stat-number.dispatched {
+    color: #2563EB;
+}
+
+.dispatch-stat-label {
+    font-size: 15px;
+    color: #4B5563;
+    font-weight: 600;
+}
+
+/* Active Filter Highlight States */
+.dispatch-stat-card.active {
+    background: #F8FAFC;
+}
+
+.dispatch-stat-card.active.active-pending {
+    border-color: #EA580C;
+    box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.15);
+}
+
+.dispatch-stat-card.active.active-overdue {
+    border-color: #DC2626;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
+}
+
+.dispatch-stat-card.active.active-awaiting {
+    border-color: #D97706;
+    box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.15);
+}
+
+.dispatch-stat-card.active.active-dispatched {
+    border-color: #2563EB;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+/* Sort dropdown in card header */
+.sort-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sort-label {
+    color: #B91C1C;
+    font-size: 14px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.sort-select {
+    border: 1px solid #D1D5DB;
+    background: #FFFFFF;
+    color: #374151;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.sort-select:focus {
+    border-color: #B91C1C;
+    box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.15);
+}
+
+/* Table Specific Styles */
+.content-section .data-table thead th {
+    color: #6B7280 !important;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.request-id {
+    color: #1F2937;
+    font-weight: 600;
+}
+
+.route {
+    color: #4B5563;
+}
+
+.dispatch-status-val {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.dispatch-status-val.pending {
+    color: #EA580C;
+}
+
+.dispatch-status-val.overdue {
+    color: #DC2626;
+}
+
+.dispatch-status-val.awaiting {
+    color: #D97706;
+}
+
+.dispatch-status-val.dispatched {
+    color: #2563EB;
+}
+
+/* Assign Button (Figma Blue Style) */
+.btn-assign {
+    background: #3B82F6;
+    color: white;
+    border: none;
+    padding: 6px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.15s ease;
+}
+
+.btn-assign:hover {
+    background: #2563EB;
+    transform: translateY(-1px);
+}
+
+/* Dispatch Footer */
+.dispatch-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid #F3F4F6;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.dispatch-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #DC2626;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.dispatch-info i {
+    color: #DC2626;
+    font-size: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.dispatch-pagination {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    color: #6B7280;
+}
+
+.dispatch-pagination .page-label {
+    color: #6B7280;
+    font-size: 13.5px;
+    font-weight: 500;
+    margin-right: 4px;
+}
+
+.dispatch-pagination .btn-page {
+    width: 28px;
+    height: 28px;
+    border: 1px solid #E5E7EB;
+    background: #FFFFFF;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #4B5563;
+    font-size: 11px;
+    transition: all 0.15s ease;
+}
+
+.dispatch-pagination .btn-page:hover:not(:disabled) {
+    background: #F3F4F6;
+    border-color: #D1D5DB;
+}
+
+.dispatch-pagination .btn-page:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.dispatch-pagination .page-number.active {
+    color: #DC2626;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 0 4px;
+}
+
+/* ── Trip Ticket / Dispatch Side Panel Overlay ─────────── */
+.trip-ticket-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 150;
+}
+
+.trip-ticket-overlay.active {
+    display: block;
+}
+
+/* ── Trip Ticket Side Panel ────────────────────────────── */
+.trip-ticket-modal {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 400px;
+    max-width: 95vw;
+    height: 100vh;
+    background: #fff;
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.18);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    opacity: 1;
+    pointer-events: none;
+    transition: transform 0.3s ease;
+    overflow: hidden;
+}
+
+.trip-ticket-modal.active {
+    transform: translateX(0);
+    pointer-events: all;
+}
+
+/* Header */
+.tt-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #C53030;
+    color: #fff;
+    padding: 14px 18px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    flex-shrink: 0;
+}
+
+.tt-header span {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tt-close-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.tt-close-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* Scrollable Body */
+.tt-body {
+    padding: 16px 18px 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* Request / Customer info */
+.tt-request-id {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 2px;
+    font-weight: 500;
+}
+
+.tt-customer-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1a1a1a;
+    margin-bottom: 3px;
+}
+
+.tt-contact {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 14px;
+}
+
+/* Section Headers */
+.tt-section-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #C53030;
+    letter-spacing: 0.5px;
+    margin: 14px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1.5px solid #f0f0f0;
+}
+
+.tt-section-icon {
+    font-size: 14px;
+}
+
+/* Layout helpers */
+.tt-two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.tt-three-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+}
+
+.tt-full {
+    grid-column: 1 / -1;
+}
+
+/* Field */
+.tt-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.tt-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #555;
+}
+
+.tt-input,
+.tt-select {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #333;
+    background: #fff;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+}
+
+.tt-input:focus,
+.tt-select:focus {
+    border-color: #C53030;
+    box-shadow: 0 0 0 2px rgba(197, 48, 48, 0.12);
+}
+
+.tt-input[readonly] {
+    background: #f8f8f8;
+    color: #555;
+}
+
+/* Input with inline unit */
+.tt-input-unit {
+    display: flex;
+    align-items: center;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+}
+
+.tt-input-unit:focus-within {
+    border-color: #C53030;
+    box-shadow: 0 0 0 2px rgba(197, 48, 48, 0.12);
+}
+
+.tt-input-unit .tt-input {
+    border: none;
+    border-radius: 0;
+    flex: 1;
+    box-shadow: none;
+}
+
+.tt-input-unit .tt-input:focus {
+    border: none;
+    box-shadow: none;
+}
+
+.tt-unit {
+    padding: 0 8px;
+    font-size: 12px;
+    color: #888;
+    background: #f4f4f4;
+    border-left: 1px solid #ddd;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+/* Distance label */
+.tt-distance {
+    font-size: 11px;
+    color: #888;
+    margin-top: 5px;
+}
+
+/* Send Button */
+.tt-send-btn {
+    width: 100%;
+    background: #C53030;
+    color: #fff;
+    border: none;
+    padding: 13px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: background 0.2s ease;
+}
+
+.tt-send-btn:hover {
+    background: #a82828;
+}
+
+/* Note below button */
+.tt-note {
+    text-align: center;
+    font-size: 11px;
+    color: #999;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
+/* Dispatch Success Toast */
+.dispatch-success-modal {
+    display: none;
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 300;
+}
+
+.dispatch-success-modal.active {
+    display: block;
+}
+
+.dispatch-success-content {
+    background: white;
+    border-radius: 16px;
+    padding: 22px 28px;
+    text-align: center;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+    min-width: 320px;
+    max-width: 420px;
+    animation: toastSlideUp 0.35s ease;
+}
+
+@keyframes toastSlideUp {
+    from {
+        transform: translateY(40px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.dispatch-success-icon {
+    font-size: 40px;
+    color: #EF4444;
+    margin-bottom: 10px;
+}
+
+.dispatch-success-title {
+    color: #DC2626;
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 6px 0;
+}
+
+.dispatch-success-text {
+    color: #777;
+    font-size: 12px;
+    line-height: 1.5;
+    margin: 0 0 16px 0;
+}
+
+.dispatch-success-btn {
+    background: #EF4444;
+    color: white;
+    border: none;
+    padding: 8px 28px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.dispatch-success-btn:hover {
+    background: #DC2626;
+}
+
+/* ── Profile Dropdown Menu ─────────────────────────────── */
+.user-profile {
+    position: relative;
+    cursor: pointer;
+}
+
+.profile-dropdown {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    margin-bottom: 8px;
+    overflow: hidden;
+    z-index: 1000;
+    animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    text-decoration: none;
+    color: #1f2937;
+    font-size: 14px;
+    font-weight: 600;
+    background: #8b1e1e;
+    transition: background 0.15s;
+    border-bottom: 1px solid #f3f4f6;
+    position: relative;
+}
+
+.dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.dropdown-item:hover {
+    background: #731a1a;
+}
+
+.dropdown-item i:first-child {
+    color: #fff;
+    font-size: 16px;
+    width: 20px;
+    text-align: center;
+}
+
+.dropdown-item span {
+    flex: 1;
+    color: #fff;
+}
+
+.dropdown-arrow {
+    color: #fff !important;
+    font-size: 12px !important;
+    margin-left: auto;
+}
+
+/* ══════════════════════════════════════════════════════════
+   DISPATCH VIEW TOGGLE & HISTORY STYLES
+   ══════════════════════════════════════════════════════════ */
+.dispatch-view-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dispatch-tab-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #2563EB;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);
+}
+
+.dispatch-tab-toggle:hover {
+    background: #1D4ED8;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.4);
+}
+
+.dispatch-tab-toggle.viewing-history {
+    background: #059669;
+    box-shadow: 0 2px 6px rgba(5, 150, 105, 0.3);
+}
+
+.dispatch-tab-toggle.viewing-history:hover {
+    background: #047857;
+}
+
+.btn-dossier-view {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: #2563EB;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.btn-dossier-view:hover {
+    background: #1D4ED8;
+    transform: translateY(-1px);
+}
+
+.role-tag-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: inline-block;
+}
+
+.role-tag-admin {
+    background: #FEE2E2;
+    color: #991B1B;
+    border: 1px solid #FECACA;
+}
+
+.role-tag-staff {
+    background: #EFF6FF;
+    color: #1E40AF;
+    border: 1px solid #BFDBFE;
+}
+
+.history-search-input {
+    border: 1px solid #D1D5DB;
+    background: #FFFFFF;
+    border-radius: 6px;
+    padding: 6px 12px 6px 32px;
+    font-size: 13px;
+    color: #1F2937;
+    width: 220px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.history-search-input:focus {
+    border-color: #2563EB;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+/* Suppress Leaflet Routing Machine itinerary container */
+.leaflet-routing-container,
+.leaflet-routing-container-hide,
+.leaflet-bar.leaflet-routing-container,
+.leaflet-control-container .leaflet-routing-container {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    max-height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+}

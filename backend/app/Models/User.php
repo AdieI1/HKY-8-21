@@ -1,0 +1,100 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
+
+class User extends Authenticatable
+{
+    use HasApiTokens, HasFactory, Notifiable;
+
+    protected $primaryKey = 'user_id';
+
+    protected $fillable = [
+        'role_id',
+        'full_name',
+        'email',
+        'username',
+        'phone',
+        'sss_number',
+        'philhealth_number',
+        'pagibig_number',
+        'deductible_taxes',
+        'gender',
+        'date_of_birth',
+        'profile_photo_path',
+        'password',
+        'status',
+        'must_change_password',
+        'verification_code',
+        'verification_code_expires_at',
+    ];
+
+    protected $appends = [
+        'profile_photo_url',
+        'profile_completed',
+    ];
+
+    public function getProfileCompletedAttribute(): bool
+    {
+        return !empty(trim((string)$this->full_name)) &&
+               !empty(trim((string)$this->phone)) &&
+               !empty(trim((string)$this->gender)) &&
+               !empty(trim((string)$this->date_of_birth));
+    }
+
+    public function getProfilePhotoUrlAttribute()
+    {
+        if (!$this->profile_photo_path) {
+            if (request()) {
+                return request()->getSchemeAndHttpHost() . '/images/defaultavatar.png';
+            }
+            return url('images/defaultavatar.png');
+        }
+        if (request()) {
+            return request()->getSchemeAndHttpHost() . '/storage/' . ltrim($this->profile_photo_path, '/');
+        }
+        return url('storage/' . $this->profile_photo_path);
+    }
+
+    protected $hidden = [
+        'password',
+        'remember_token',
+        'verification_code',
+    ];
+
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'verification_code_expires_at' => 'datetime',
+        'password' => 'hashed',
+        'must_change_password' => 'boolean',
+    ];
+
+    public function role()
+    {
+        return $this->belongsTo(Role::class, 'role_id');
+    }
+
+    public function driver()
+    {
+        return $this->hasOne(Driver::class, 'user_id');
+    }
+
+    public function deliveryRequests()
+    {
+        return $this->hasMany(DeliveryRequest::class, 'customer_id');
+    }
+
+    public function assignedDeliveries()
+    {
+        return $this->hasMany(Delivery::class, 'assigned_by');
+    }
+
+    public function permitsIssued()
+    {
+        return $this->hasMany(Permit::class, 'issued_by');
+    }
+}

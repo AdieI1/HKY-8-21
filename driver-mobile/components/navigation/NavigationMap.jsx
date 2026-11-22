@@ -1,0 +1,847 @@
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import MapView, { Marker, Polyline, Callout } from "react-native-maps";
+import {
+  StyleSheet,
+  View,
+  Text,
+  TouchableOpacity,
+  Platform,
+} from "react-native";
+import * as Location from "expo-location";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
+
+import {
+  DEFAULT_HQ_COORDINATES,
+  fetchRoadRoute,
+  getRouteWaypoints,
+  precomputeCumulativeDistances,
+  calculateRemainingRouteProgress,
+  formatRemainingDistance,
+  formatRemainingETA,
+} from "../../src/utils/routeService";
+import {
+  DEFAULT_DANGER_ZONES,
+  HAZARD_CATEGORIES,
+  isZoneNearRoute,
+  findNearestUpcomingHazard,
+} from "../../src/utils/dangerZones";
+import {
+  STEEPNESS_CONFIG,
+  fetchRouteSteepnessMobile,
+} from "../../src/utils/routeElevation";
+
+// Calculate bearing between two coordinates when device sensor heading is not available
+function getBearing(startLat, startLng, destLat, destLng) {
+  const startLatRad = (startLat * Math.PI) / 180;
+  const startLngRad = (startLng * Math.PI) / 180;
+  const destLatRad = (destLat * Math.PI) / 180;
+  const destLngRad = (destLng * Math.PI) / 180;
+
+  const y = Math.sin(destLngRad - startLngRad) * Math.cos(destLatRad);
+  const x =
+    Math.cos(startLatRad) * Math.sin(destLatRad) -
+    Math.sin(startLatRad) * Math.cos(destLatRad) * Math.cos(destLngRad - startLngRad);
+  const brng = (Math.atan2(y, x) * 180) / Math.PI;
+  return (brng + 360) % 360;
+}
+
+export default function NavigationMap({
+  delivery,
+  navigationState,
+  onLocationChange,
+  onHazardAlert,
+  onRouteMetrics,
+}) {
+  const mapRef = useRef(null);
+
+  const [currentLocation, setCurrentLocation] = useState(null);
+  const [heading, setHeading] = useState(0);
+  const [isLocked, setIsLocked] = useState(navigationState !== "preview");
+  const [roadCoordinates, setRoadCoordinates] = useState([]);
+  const [deliveryCoordinates, setDeliveryCoordinates] = useState([]);
+  const [steepnessSegments, setSteepnessSegments] = useState([]);
+  const [routeInfo, setRouteInfo] = useState({ distanceKm: 0, durationMins: 0 });
+  const [initialZoomDone, setInitialZoomDone] = useState(false);
+
+  const prevLocationRef = useRef(null);
+
+  // Synchronized callback refs
+  const onLocationChangeRef = useRef(onLocationChange);
+  const onHazardAlertRef = useRef(onHazardAlert);
+  const onRouteMetricsRef = useRef(onRouteMetrics);
+  useEffect(() => {
+    onLocationChangeRef.current = onLocationChange;
+    onHazardAlertRef.current = onHazardAlert;
+    onRouteMetricsRef.current = onRouteMetrics;
+  });
+
+  // Tracking refs for zero-latency local calculations (O(1) in memory)
+  const roadCoordinatesRef = useRef([]);
+  const cumulativeDistancesRef = useRef([]);
+  const totalRouteDistanceRef = useRef(0);
+  const totalRouteDurationRef = useRef(0);
+  const destinationRef = useRef(null);
+  const lastProgressIndexRef = useRef(0);
+  const lastSmoothedKmRef = useRef(null);
+  const lastEmittedMetricsRef = useRef(null);
+  const offRouteCountRef = useRef(0);
+  const lastRerouteTimeRef = useRef(0);
+
+  // Extract Pickup & Dropoff coordinates
+  const pickup = useMemo(() => {
+    const isRelief = Boolean(delivery?.is_relief);
+    const cargoLoaded = Boolean(delivery?.cargo_loaded);
+    const isTransshipment = isRelief && cargoLoaded;
+    const lat = isTransshipment && Number.isFinite(Number(delivery?.relief_origin_lat))
+      ? Number(delivery.relief_origin_lat)
+      : Number(delivery?.request?.pickup_lat);
+    const lng = isTransshipment && Number.isFinite(Number(delivery?.relief_origin_lng))
+      ? Number(delivery.relief_origin_lng)
+      : Number(delivery?.request?.pickup_lng);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { latitude: lat, longitude: lng } : null;
+  }, [delivery]);
+
+  const dropoff = useMemo(() => {
+    const lat = Number(delivery?.request?.dropoff_lat);
+    const lng = Number(delivery?.request?.dropoff_lng);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { latitude: lat, longitude: lng } : null;
+  }, [delivery]);
+
+  // Determine current active navigation leg
+  const routeWaypoints = useMemo(() => {
+    return getRouteWaypoints(delivery, navigationState, currentLocation);
+  }, [delivery, navigationState, currentLocation]);
+
+  useEffect(() => {
+    destinationRef.current = routeWaypoints.destination;
+  }, [routeWaypoints.destination]);
+
+  // Re-route handler (triggered cleanly in background only if driver deviates >90m for 3+ consecutive GPS ticks)
+  const handleReroute = useCallback(async (currLoc, dest) => {
+    if (!dest) return;
+    try {
+      const newRoute = await fetchRoadRoute([currLoc, dest]);
+      if (newRoute?.coordinates?.length >= 2) {
+        const cumDist = precomputeCumulativeDistances(newRoute.coordinates);
+        roadCoordinatesRef.current = newRoute.coordinates;
+        cumulativeDistancesRef.current = cumDist;
+        totalRouteDistanceRef.current = newRoute.distanceKm;
+        totalRouteDurationRef.current = newRoute.durationMins;
+        lastProgressIndexRef.current = 0;
+        lastSmoothedKmRef.current = newRoute.distanceKm;
+
+        setRoadCoordinates(newRoute.coordinates);
+        setRouteInfo({ distanceKm: newRoute.distanceKm, durationMins: newRoute.durationMins });
+
+        const distFormatted = formatRemainingDistance(newRoute.distanceKm);
+        const etaFormatted = formatRemainingETA(newRoute.durationMins, newRoute.distanceKm);
+        const metrics = {
+          ...newRoute,
+          distanceFormatted: distFormatted,
+          etaFormatted: etaFormatted,
+        };
+        lastEmittedMetricsRef.current = metrics;
+        onRouteMetricsRef.current?.(metrics);
+
+        // Update elevation profile in background
+        fetchRouteSteepnessMobile(newRoute.coordinates)
+          .then((steepnessData) => {
+            if (steepnessData?.segments?.length > 0) {
+              setSteepnessSegments(steepnessData.segments);
+            }
+          })
+          .catch(() => {});
+      }
+    } catch (err) {
+      console.warn("Background re-route error:", err?.message);
+    }
+  }, []);
+
+  const handleRerouteRef = useRef(handleReroute);
+  useEffect(() => {
+    handleRerouteRef.current = handleReroute;
+  }, [handleReroute]);
+
+  // 1. High-Frequency, Low-Latency Real-Time GPS Tracker (1.5s / 3m)
+  useEffect(() => {
+    let subscription;
+    let mounted = true;
+
+    const startTracking = async () => {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!mounted || permission.status !== "granted") return;
+
+      // Get fast initial position
+      try {
+        const initialLoc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        if (mounted && initialLoc?.coords) {
+          const coord = {
+            latitude: initialLoc.coords.latitude,
+            longitude: initialLoc.coords.longitude,
+          };
+          setCurrentLocation(coord);
+          onLocationChangeRef.current?.(coord);
+        }
+      } catch (_) {}
+
+      // Watch position with high frequency
+      subscription = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 1500, // 1.5 seconds
+          distanceInterval: 3, // 3 meters
+        },
+        (location) => {
+          if (!mounted) return;
+          const { latitude, longitude } = location.coords;
+          const newCoord = { latitude, longitude };
+
+          // Calculate device or velocity heading
+          let calculatedHeading = location.coords.heading;
+          if (calculatedHeading == null || calculatedHeading < 0) {
+            if (prevLocationRef.current) {
+              calculatedHeading = getBearing(
+                prevLocationRef.current.latitude,
+                prevLocationRef.current.longitude,
+                latitude,
+                longitude
+              );
+            } else {
+              calculatedHeading = 0;
+            }
+          }
+
+          prevLocationRef.current = newCoord;
+          setHeading(calculatedHeading);
+          setCurrentLocation(newCoord);
+          onLocationChangeRef.current?.(newCoord);
+
+          // Check proximity to upcoming danger zones
+          const nearbyHazard = findNearestUpcomingHazard(newCoord, DEFAULT_DANGER_ZONES, 1.8);
+          onHazardAlertRef.current?.(nearbyHazard);
+
+          // -------------------------------------------------------------
+          // Real-time local route distance & ETA countdown (< 0.1ms execution)
+          // Zero network requests to prevent OSRM rate limits or UI lag
+          // -------------------------------------------------------------
+          if (
+            roadCoordinatesRef.current &&
+            roadCoordinatesRef.current.length >= 2 &&
+            cumulativeDistancesRef.current &&
+            cumulativeDistancesRef.current.length > 0
+          ) {
+            const progress = calculateRemainingRouteProgress(
+              newCoord,
+              roadCoordinatesRef.current,
+              cumulativeDistancesRef.current,
+              lastProgressIndexRef.current
+            );
+
+            if (progress.isOffRoute) {
+              offRouteCountRef.current += 1;
+              if (
+                offRouteCountRef.current >= 3 &&
+                Date.now() - lastRerouteTimeRef.current > 12000
+              ) {
+                lastRerouteTimeRef.current = Date.now();
+                offRouteCountRef.current = 0;
+                handleRerouteRef.current(newCoord, destinationRef.current);
+              }
+            } else {
+              offRouteCountRef.current = 0;
+              lastProgressIndexRef.current = progress.closestIndex;
+
+              let smoothedKm = progress.remainingKm;
+              if (lastSmoothedKmRef.current != null) {
+                // Monotonic dampening: suppress micro GPS jitter backwards (< 40m)
+                if (
+                  smoothedKm > lastSmoothedKmRef.current &&
+                  smoothedKm - lastSmoothedKmRef.current < 0.04
+                ) {
+                  smoothedKm = lastSmoothedKmRef.current;
+                } else {
+                  lastSmoothedKmRef.current = smoothedKm;
+                }
+              } else {
+                lastSmoothedKmRef.current = smoothedKm;
+              }
+
+              // Dynamic ETA calculation proportional to remaining road distance
+              const totalDist = totalRouteDistanceRef.current || 1;
+              const totalDur = totalRouteDurationRef.current || 1;
+              const avgSpeedKmPerMin = totalDist / Math.max(totalDur, 1);
+              const remainingMins =
+                smoothedKm <= 0.035
+                  ? 0
+                  : Math.max(1, Math.round(smoothedKm / Math.max(avgSpeedKmPerMin, 0.2)));
+
+              const distFormatted = formatRemainingDistance(smoothedKm);
+              const etaFormatted = formatRemainingETA(remainingMins, smoothedKm);
+
+              const prev = lastEmittedMetricsRef.current;
+              if (
+                !prev ||
+                prev.distanceFormatted !== distFormatted ||
+                prev.etaFormatted !== etaFormatted
+              ) {
+                const nextMetrics = {
+                  distanceKm: smoothedKm,
+                  durationMins: remainingMins,
+                  distanceFormatted: distFormatted,
+                  etaFormatted: etaFormatted,
+                };
+                lastEmittedMetricsRef.current = nextMetrics;
+                onRouteMetricsRef.current?.(nextMetrics);
+              }
+            }
+          }
+        }
+      );
+    };
+
+    startTracking().catch((error) => {
+      console.log("GPS NAVIGATION TRACKING ERROR:", error);
+    });
+
+    return () => {
+      mounted = false;
+      subscription?.remove();
+    };
+  }, []);
+
+  // Background fetch of the delivery leg (Pick-up -> Drop-off) for preview and upcoming trip visibility
+  useEffect(() => {
+    if (!pickup || !dropoff) return;
+    let active = true;
+    fetchRoadRoute([pickup, dropoff])
+      .then((res) => {
+        if (active && res?.coordinates?.length > 1) {
+          setDeliveryCoordinates(res.coordinates);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [pickup?.latitude, pickup?.longitude, dropoff?.latitude, dropoff?.longitude]);
+
+  // Handle active navigation mode transitions
+  useEffect(() => {
+    if (navigationState === "preview") {
+      setIsLocked(false);
+    } else {
+      setIsLocked(true);
+      if (currentLocation && mapRef.current) {
+        mapRef.current.animateCamera(
+          {
+            center: currentLocation,
+            pitch: 45,
+            heading: heading || 0,
+            zoom: 17,
+          },
+          { duration: 800 }
+        );
+      }
+    }
+  }, [navigationState]);
+
+  // 2. Fetch OSRM Road Route & Elevation Profile (cached per leg with dynamic origin from GPS)
+  const prevLegKeyRef = useRef(null);
+
+  useEffect(() => {
+    let active = true;
+    const waypoints = routeWaypoints.waypoints;
+
+    if (!waypoints || waypoints.length < 2) return;
+
+    const originLat = routeWaypoints.origin?.latitude ? Number(routeWaypoints.origin.latitude).toFixed(3) : "hq";
+    const originLng = routeWaypoints.origin?.longitude ? Number(routeWaypoints.origin.longitude).toFixed(3) : "hq";
+    const destLat = routeWaypoints.destination?.latitude ? Number(routeWaypoints.destination.latitude).toFixed(4) : "0";
+    const destLng = routeWaypoints.destination?.longitude ? Number(routeWaypoints.destination.longitude).toFixed(4) : "0";
+    const currentLegKey = `${navigationState}_${routeWaypoints.leg}_${originLat},${originLng}_${destLat},${destLng}`;
+
+    if (prevLegKeyRef.current === currentLegKey && roadCoordinates.length > 0) {
+      return;
+    }
+    prevLegKeyRef.current = currentLegKey;
+
+    fetchRoadRoute(waypoints)
+      .then(async (route) => {
+        if (!active) return;
+        const cumDist = precomputeCumulativeDistances(route.coordinates);
+        roadCoordinatesRef.current = route.coordinates;
+        cumulativeDistancesRef.current = cumDist;
+        totalRouteDistanceRef.current = route.distanceKm;
+        totalRouteDurationRef.current = route.durationMins;
+        lastProgressIndexRef.current = 0;
+        lastSmoothedKmRef.current = route.distanceKm;
+        offRouteCountRef.current = 0;
+
+        setRoadCoordinates(route.coordinates);
+        setRouteInfo({ distanceKm: route.distanceKm, durationMins: route.durationMins });
+
+        const distFormatted = formatRemainingDistance(route.distanceKm);
+        const etaFormatted = formatRemainingETA(route.durationMins, route.distanceKm);
+        const initialMetrics = {
+          ...route,
+          distanceFormatted: distFormatted,
+          etaFormatted: etaFormatted,
+        };
+        lastEmittedMetricsRef.current = initialMetrics;
+        onRouteMetricsRef.current?.(initialMetrics);
+
+        // Fetch elevation steepness segments if road coordinates are valid
+        if (route.coordinates.length >= 2) {
+          fetchRouteSteepnessMobile(route.coordinates)
+            .then((steepnessData) => {
+              if (active && steepnessData?.segments?.length > 0) {
+                setSteepnessSegments(steepnessData.segments);
+              }
+            })
+            .catch(() => {});
+        }
+
+        // Fit coordinates in preview mode so driver sees the route overview
+        if (navigationState === "preview" && mapRef.current) {
+          const fitPoints = [
+            ...(currentLocation ? [currentLocation] : []),
+            ...(pickup ? [pickup] : []),
+            ...(dropoff ? [dropoff] : []),
+            ...(route.coordinates || []),
+          ].filter(Boolean);
+
+          if (fitPoints.length >= 2) {
+            setTimeout(() => {
+              mapRef.current?.fitToCoordinates(fitPoints, {
+                edgePadding: { top: 120, right: 50, bottom: 280, left: 50 },
+                animated: true,
+              });
+            }, 300);
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn("Error fetching road route:", err);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    navigationState,
+    routeWaypoints.leg,
+    routeWaypoints.origin?.latitude,
+    routeWaypoints.origin?.longitude,
+    routeWaypoints.destination?.latitude,
+    routeWaypoints.destination?.longitude,
+    pickup,
+    dropoff,
+  ]);
+
+  // 3. GTA / FoodPanda Camera Lock Mode (Damped updates to eliminate frame skips)
+  const lastCameraUpdateRef = useRef({ lat: 0, lng: 0, heading: 0, time: 0 });
+
+  useEffect(() => {
+    if (!currentLocation || !mapRef.current) return;
+
+    if (isLocked) {
+      const now = Date.now();
+      const last = lastCameraUpdateRef.current;
+      const latDiff = Math.abs(currentLocation.latitude - last.lat);
+      const lngDiff = Math.abs(currentLocation.longitude - last.lng);
+      const headDiff = Math.abs((heading || 0) - last.heading);
+      const timeDiff = now - last.time;
+
+      const movedSignificantly = latDiff > 0.00003 || lngDiff > 0.00003;
+      const turnedSignificantly = headDiff > 4;
+      const timePassed = timeDiff >= 1500;
+
+      if (movedSignificantly || turnedSignificantly || timePassed || last.time === 0) {
+        lastCameraUpdateRef.current = {
+          lat: currentLocation.latitude,
+          lng: currentLocation.longitude,
+          heading: heading || 0,
+          time: now,
+        };
+
+        mapRef.current.animateCamera(
+          {
+            center: currentLocation,
+            pitch: 45, // 3D tilted GTA / FoodPanda angle
+            heading: heading || 0, // Auto-rotate camera to vehicle heading
+            zoom: 17, // Navigation zoom level
+          },
+          { duration: 900 }
+        );
+      }
+    } else if (!initialZoomDone && roadCoordinates.length > 1) {
+      mapRef.current.fitToCoordinates(roadCoordinates, {
+        edgePadding: { top: 90, right: 40, bottom: 250, left: 40 },
+        animated: true,
+      });
+      setInitialZoomDone(true);
+    }
+  }, [currentLocation, heading, isLocked]);
+
+  // Handler to re-lock camera to driver
+  const handleRecenter = useCallback(() => {
+    setIsLocked(true);
+    if (currentLocation && mapRef.current) {
+      mapRef.current.animateCamera(
+        {
+          center: currentLocation,
+          pitch: 45,
+          heading: heading || 0,
+          zoom: 17,
+        },
+        { duration: 800 }
+      );
+    }
+  }, [currentLocation, heading]);
+
+  // Danger zones to show (zones near the route or nearby)
+  const visibleDangerZones = useMemo(() => {
+    if (roadCoordinates.length === 0) return DEFAULT_DANGER_ZONES.slice(0, 4);
+    return DEFAULT_DANGER_ZONES.filter((zone) => isZoneNearRoute(zone, roadCoordinates, 4.0));
+  }, [roadCoordinates]);
+
+  const initialRegion = {
+    latitude: currentLocation?.latitude || pickup?.latitude || DEFAULT_HQ_COORDINATES.latitude,
+    longitude: currentLocation?.longitude || pickup?.longitude || DEFAULT_HQ_COORDINATES.longitude,
+    latitudeDelta: 0.05,
+    longitudeDelta: 0.05,
+  };
+
+  return (
+    <View style={styles.container}>
+      <MapView
+        ref={mapRef}
+        style={styles.map}
+        initialRegion={initialRegion}
+        showsUserLocation={false} // Custom directional navigation arrow used instead
+        showsCompass={false}
+        showsScale={false}
+        rotateEnabled={true}
+        pitchEnabled={true}
+        onPanDrag={() => {
+          if (isLocked) setIsLocked(false);
+        }}
+      >
+        {/* HQ Depot Marker */}
+        <Marker
+          coordinate={DEFAULT_HQ_COORDINATES}
+          title="HJY Trucking HQ"
+          description="Puntod, Cagayan de Oro City"
+        >
+          <View style={styles.depotMarker}>
+            <Ionicons name="business" size={16} color="#FFFFFF" />
+          </View>
+        </Marker>
+
+        {/* Pickup Marker */}
+        {pickup && (
+          <Marker
+            coordinate={pickup}
+            title="Pick-up Location"
+            description={routeWaypoints.leg === "pickup" ? "Active Navigation Target" : "Pick-up Location"}
+          >
+            <View
+              style={[
+                styles.waypointMarker,
+                {
+                  backgroundColor: routeWaypoints.leg === "pickup" ? "#10B981" : "#6B7280",
+                  borderColor: routeWaypoints.leg === "pickup" ? "#FFFFFF" : "#E5E7EB",
+                  transform: [{ scale: routeWaypoints.leg === "pickup" ? 1.15 : 0.9 }],
+                },
+              ]}
+            >
+              <Ionicons name="cube" size={16} color="#FFFFFF" />
+            </View>
+          </Marker>
+        )}
+
+        {/* Dropoff Marker */}
+        {dropoff && (
+          <Marker
+            coordinate={dropoff}
+            title="Drop-off Destination"
+            description={routeWaypoints.leg === "dropoff" ? "Active Navigation Target" : "Drop-off Destination"}
+          >
+            <View
+              style={[
+                styles.waypointMarker,
+                {
+                  backgroundColor: routeWaypoints.leg === "dropoff" ? "#B91F27" : "#6B7280",
+                  borderColor: routeWaypoints.leg === "dropoff" ? "#FFFFFF" : "#E5E7EB",
+                  transform: [{ scale: routeWaypoints.leg === "dropoff" ? 1.15 : 0.9 }],
+                },
+              ]}
+            >
+              <Ionicons name="flag" size={16} color="#FFFFFF" />
+            </View>
+          </Marker>
+        )}
+
+        {/* Danger Zone Markers */}
+        {visibleDangerZones.map((zone) => {
+          const category = HAZARD_CATEGORIES[zone.category] || HAZARD_CATEGORIES.reported_incident;
+          return (
+            <Marker
+              key={zone.id}
+              coordinate={{ latitude: zone.lat, longitude: zone.lng }}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View style={[styles.hazardBadge, { backgroundColor: category.fillColor }]}>
+                <Ionicons name={category.icon || "warning"} size={14} color="#FFFFFF" />
+              </View>
+              <Callout tooltip>
+                <View style={styles.hazardCallout}>
+                  <Text style={styles.hazardCalloutTitle}>{zone.name}</Text>
+                  <Text style={styles.hazardCalloutType}>{category.label}</Text>
+                  <Text style={styles.hazardCalloutDesc}>{zone.advisory}</Text>
+                </View>
+              </Callout>
+            </Marker>
+          );
+        })}
+
+        {/* Upcoming Drop-off Leg Preview (Pick-up -> Drop-off) */}
+        {(routeWaypoints.leg === "pickup" || navigationState === "preview") && deliveryCoordinates.length > 1 && (
+          <Polyline
+            coordinates={deliveryCoordinates}
+            strokeColor="#60A5FA"
+            strokeWidth={4}
+            lineDashPattern={[8, 6]}
+            lineCap="round"
+            lineJoin="round"
+          />
+        )}
+
+        {/* Active Navigation Road Polyline (Emerald for Pick-up, Blue for Drop-off) */}
+        {roadCoordinates.length > 1 && (
+          <Polyline
+            coordinates={roadCoordinates}
+            strokeColor={routeWaypoints.leg === "pickup" ? "#10B981" : "#1D4ED8"}
+            strokeWidth={6}
+            lineCap="round"
+            lineJoin="round"
+          />
+        )}
+
+        {/* Color-Coded Steepness Overlay Polylines */}
+        {steepnessSegments.map((segment, idx) => {
+          if (segment.category === "normal" || !segment.coordinates?.length) {
+            return null;
+          }
+          const color =
+            segment.category === "very_steep"
+              ? STEEPNESS_CONFIG.very_steep.color
+              : STEEPNESS_CONFIG.steep.color;
+          return (
+            <Polyline
+              key={`steep-${idx}`}
+              coordinates={segment.coordinates}
+              strokeColor={color}
+              strokeWidth={7}
+              lineCap="round"
+              lineJoin="round"
+            />
+          );
+        })}
+
+        {/* FoodPanda / GTA 3D Navigation Vehicle Arrow Marker */}
+        {currentLocation && (
+          <Marker
+            coordinate={currentLocation}
+            anchor={{ x: 0.5, y: 0.5 }}
+            flat={true}
+            rotation={heading}
+          >
+            <View style={styles.navArrowContainer}>
+              <View style={styles.pulseRing} />
+              <View style={styles.navArrowCore}>
+                <Ionicons name="navigate" size={24} color="#2563EB" />
+              </View>
+            </View>
+          </Marker>
+        )}
+      </MapView>
+
+      {/* Floating Re-Center / Camera Lock Button */}
+      {!isLocked && (
+        <TouchableOpacity
+          style={styles.recenterButton}
+          activeOpacity={0.8}
+          onPress={handleRecenter}
+        >
+          <Ionicons name="locate" size={20} color="#FFFFFF" />
+          <Text style={styles.recenterText}>Re-center</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Floating 3D Navigation Status Pill */}
+      {isLocked && (
+        <View style={styles.lockedPill}>
+          <View
+            style={[
+              styles.lockedPillDot,
+              {
+                backgroundColor: routeWaypoints.leg === "pickup" ? "#10B981" : "#EF4444",
+              },
+            ]}
+          />
+          <Text style={styles.lockedPillText}>
+            {routeWaypoints.legTitle || "3D GPS Navigation Active"}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  map: {
+    width: "100%",
+    height: "100%",
+  },
+
+  // 3D Directional Navigation Arrow Marker
+  navArrowContainer: {
+    width: 50,
+    height: 50,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pulseRing: {
+    position: "absolute",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(37, 99, 235, 0.22)",
+    borderWidth: 1.5,
+    borderColor: "rgba(37, 99, 235, 0.45)",
+  },
+  navArrowCore: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 5,
+    elevation: 6,
+  },
+
+  // Markers
+  depotMarker: {
+    backgroundColor: "#4B5563",
+    padding: 7,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    elevation: 4,
+  },
+  waypointMarker: {
+    padding: 7,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    elevation: 5,
+  },
+  hazardBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  hazardCallout: {
+    backgroundColor: "#1F2937",
+    padding: 10,
+    borderRadius: 8,
+    maxWidth: 240,
+  },
+  hazardCalloutTitle: {
+    color: "#FFFFFF",
+    fontWeight: "bold",
+    fontSize: 13,
+  },
+  hazardCalloutType: {
+    color: "#FBBF24",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  hazardCalloutDesc: {
+    color: "#D1D5DB",
+    fontSize: 11,
+    marginTop: 4,
+  },
+
+  // Floating Controls
+  recenterButton: {
+    position: "absolute",
+    bottom: 24,
+    right: 18,
+    backgroundColor: "#1E293B",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.15)",
+    zIndex: 10,
+  },
+  recenterText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+    marginLeft: 6,
+  },
+
+  lockedPill: {
+    position: "absolute",
+    top: 14,
+    alignSelf: "center",
+    backgroundColor: "rgba(15, 23, 42, 0.85)",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    zIndex: 10,
+  },
+  lockedPillDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#10B981",
+    marginRight: 6,
+  },
+  lockedPillText: {
+    color: "#F1F5F9",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+});

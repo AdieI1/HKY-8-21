@@ -1,0 +1,683 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CustomerAuthController;
+use App\Http\Controllers\RoleController;
+use App\Http\Controllers\UserController;
+use App\Http\Controllers\DriverController;
+use App\Http\Controllers\VehicleController;
+use App\Http\Controllers\DeliveryRequestController;
+use App\Http\Controllers\DeliveryController;
+use App\Http\Controllers\DeliveryTrackingController;
+use App\Http\Controllers\IncidentReportController;
+use App\Http\Controllers\ReviewController;
+use App\Http\Controllers\SparePartController;
+use App\Http\Controllers\VehicleMaintenanceController;
+use App\Http\Controllers\DriverLogController;
+use App\Http\Controllers\SystemLogController;
+use App\Http\Controllers\PermitController;
+use App\Http\Controllers\SparePartsUsageController;
+use App\Http\Controllers\FuelInventoryController;
+use App\Http\Controllers\FuelIssuanceController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\SystemSettingController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DangerZoneController;
+use App\Http\Controllers\RouteElevationController;
+use App\Http\Controllers\FleetAvailabilityController;
+use App\Http\Controllers\WeatherController;
+use App\Http\Controllers\BugReportController;
+
+
+/*
+|--------------------------------------------------------------------------
+| PUBLIC ROUTES
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/storage/{path}', function ($path) {
+    $fullPath = storage_path('app/public/' . $path);
+    if (!file_exists($fullPath)) {
+        abort(404);
+    }
+    return response()->file($fullPath);
+})->where('path', '.*');
+
+Route::get('/weather', [
+    WeatherController::class,
+    'getWeather'
+]);
+
+Route::get('/weather/route', [
+    WeatherController::class,
+    'getRouteWeather'
+]);
+
+Route::get('/danger-zones', [
+    DangerZoneController::class,
+    'index'
+]);
+
+Route::post('/route/elevation', [
+    RouteElevationController::class,
+    'getElevation'
+]);
+
+Route::post('/route/steepness', [
+    RouteElevationController::class,
+    'getSteepness'
+]);
+
+Route::get('/fleet/availability-forecast', [
+    FleetAvailabilityController::class,
+    'forecast'
+]);
+
+Route::post('/login', [
+    AuthController::class,
+    'login'
+]);
+
+Route::post('/customer/register', [
+    CustomerAuthController::class,
+    'register'
+]);
+
+Route::get('/customer/email/verify/{user}', [
+    CustomerAuthController::class,
+    'verify'
+])->middleware('signed')->name('customer.email.verify');
+
+
+/*
+|--------------------------------------------------------------------------
+| PROTECTED ROUTES
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware('auth:sanctum')->group(function () {
+
+    Route::get('/dashboard/overview', [
+        DashboardController::class,
+        'overview'
+    ]);
+
+    Route::get('/dispatch/overview', [
+        DashboardController::class,
+        'dispatchOverview'
+    ]);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Authentication
+    |--------------------------------------------------------------------------
+    */
+
+    Route::post('/logout', [
+        AuthController::class,
+        'logout'
+    ]);
+
+    Route::get('/me', [
+        AuthController::class,
+        'me'
+    ]);
+
+    Route::post('/user/change-password', [
+        AuthController::class,
+        'changePassword'
+    ]);
+
+    Route::post('/driver/change-password', [
+        AuthController::class,
+        'changePassword'
+    ]);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Users / Drivers / Vehicles
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'roles',
+        RoleController::class
+    );
+
+    Route::apiResource(
+        'users',
+        UserController::class
+    );
+    Route::post(
+        'users/{user}',
+        [UserController::class, 'update']
+    );
+    Route::post(
+        'users/{user}/resend-credentials',
+        [UserController::class, 'resendCredentials']
+    );
+
+    Route::apiResource(
+        'drivers',
+        DriverController::class
+    );
+    Route::post(
+        'drivers/{driver}/resend-credentials',
+        [DriverController::class, 'resendCredentials']
+    );
+
+    Route::apiResource(
+        'vehicles',
+        VehicleController::class
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Delivery Requests
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('customer/delivery-requests', [
+        DeliveryRequestController::class,
+        'myRequests'
+    ]);
+
+    Route::post('customer/delivery-requests', [
+        DeliveryRequestController::class,
+        'storeForCustomer'
+    ]);
+
+    Route::post('customer/email/resend', [
+        CustomerAuthController::class,
+        'resend'
+    ]);
+
+    Route::post('customer/email/verify-code', [
+        CustomerAuthController::class,
+        'verifyCode'
+    ]);
+
+    Route::get('customer/email/status', [
+        CustomerAuthController::class,
+        'status'
+    ]);
+
+    Route::match(['patch', 'post'], 'customer/profile', [
+        CustomerAuthController::class,
+        'updateProfile'
+    ]);
+
+    Route::post('customer/change-password', [
+        CustomerAuthController::class,
+        'changePassword'
+    ]);
+
+    Route::apiResource(
+        'delivery-requests',
+        DeliveryRequestController::class
+    );
+
+    Route::post(
+        'delivery-requests/create-with-customer',
+        [
+            DeliveryRequestController::class,
+            'storeWithCustomer'
+        ]
+    );
+
+    Route::post(
+        'delivery-requests/{deliveryRequest}/approve',
+        [
+            DeliveryRequestController::class,
+            'approve'
+        ]
+    );
+
+    Route::post(
+        'delivery-requests/{deliveryRequest}/item-permit',
+        [
+            DeliveryRequestController::class,
+            'uploadItemPermit'
+        ]
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | DRIVER APP - MY DELIVERIES
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get(
+        'my-deliveries',
+        [
+            DeliveryController::class,
+            'myDeliveries'
+        ]
+    );
+
+    Route::get(
+        'my-notifications',
+        [
+            DeliveryController::class,
+            'myNotifications'
+        ]
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Deliveries
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'deliveries',
+        DeliveryController::class
+    );
+
+    Route::apiResource(
+        'reviews',
+        ReviewController::class
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Dispatch Delivery
+    |--------------------------------------------------------------------------
+    */
+
+    Route::post(
+        'deliveries/{delivery}/dispatch',
+        [
+            DeliveryController::class,
+            'dispatch'
+        ]
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Advance Delivery Status
+    |--------------------------------------------------------------------------
+    */
+
+    Route::post(
+        'deliveries/{delivery}/advance-status',
+        [
+            DeliveryController::class,
+            'advanceStatus'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/driver-status',
+        [
+            DeliveryController::class,
+            'updateDriverStatus'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/proof-of-delivery',
+        [
+            DeliveryController::class,
+            'submitProofOfDelivery'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/collection-receipt',
+        [
+            DeliveryController::class,
+            'issueCollectionReceipt'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/cancel-accident',
+        [
+            DeliveryController::class,
+            'cancelOnAccident'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/area-permit',
+        [
+            DeliveryController::class,
+            'uploadAreaPermit'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/item-permit',
+        [
+            DeliveryController::class,
+            'uploadItemPermit'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/checklist',
+        [
+            DeliveryController::class,
+            'saveChecklist'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/location',
+        [
+            DeliveryController::class,
+            'updateLocation'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/propose-reschedule',
+        [
+            DeliveryController::class,
+            'proposeReschedule'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/accept-reschedule',
+        [
+            DeliveryController::class,
+            'acceptReschedule'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/notify-delay',
+        [
+            DeliveryController::class,
+            'notifyDelay'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/ping-driver',
+        [
+            DeliveryController::class,
+            'pingDriver'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/delay-reason',
+        [
+            DeliveryController::class,
+            'recordDelayReason'
+        ]
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Delivery Tracking
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'delivery-tracking',
+        DeliveryTrackingController::class
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Incident Reports
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'incident-reports',
+        IncidentReportController::class
+    );
+
+    Route::post(
+        'incident-reports/{incident}/resolve',
+        [IncidentReportController::class, 'resolve']
+    );
+
+
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Spare Parts
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'spare-parts',
+        SparePartController::class
+    );
+
+    Route::post(
+        'spare-parts/{sparePart}/stock-in',
+        [
+            SparePartController::class,
+            'stockIn'
+        ]
+    );
+
+    Route::post(
+        'spare-parts/{sparePart}/stock-out',
+        [
+            SparePartController::class,
+            'stockOut'
+        ]
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Notifications
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('notifications', [
+        NotificationController::class,
+        'index'
+    ]);
+
+    Route::post('notifications/{id}/read', [
+        NotificationController::class,
+        'markAsRead'
+    ]);
+
+    Route::post('notifications/mark-all-read', [
+        NotificationController::class,
+        'markAllAsRead'
+    ]);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Vehicle Maintenance
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'vehicle-maintenance',
+        VehicleMaintenanceController::class
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Driver Logs
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'driver-logs',
+        DriverLogController::class
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | System Logs
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'system-logs',
+        SystemLogController::class
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Permits
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'permits',
+        PermitController::class
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Spare Parts Usage
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'spare-parts-usage',
+        SparePartsUsageController::class
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Fuel Inventory
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'fuel-inventory',
+        FuelInventoryController::class
+    );
+
+    Route::post(
+        'fuel-inventory/{fuelInventory}/receive',
+        [
+            FuelInventoryController::class,
+            'receive'
+        ]
+    );
+
+    Route::post(
+        'fuel-inventory/{fuelInventory}/issue',
+        [
+            FuelInventoryController::class,
+            'issue'
+        ]
+    );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Fuel Issuances
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get(
+        'fuel-issuances',
+        [
+            FuelIssuanceController::class,
+            'index'
+        ]
+    );
+
+    Route::get(
+        'fuel-issuances/{fuelIssuance}',
+        [
+            FuelIssuanceController::class,
+            'show'
+        ]
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | System Settings / Pricing Configuration
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get(
+        'system-settings',
+        [
+            SystemSettingController::class,
+            'index'
+        ]
+    );
+
+    Route::put(
+        'system-settings',
+        [
+            SystemSettingController::class,
+            'update'
+        ]
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Notifications
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get(
+        'notifications',
+        [
+            NotificationController::class,
+            'index'
+        ]
+    );
+
+    Route::post(
+        'notifications/{id}/read',
+        [
+            NotificationController::class,
+            'markAsRead'
+        ]
+    );
+
+    Route::post(
+        'notifications/mark-all-read',
+        [
+            NotificationController::class,
+            'markAllAsRead'
+        ]
+    );
+
+    /*
+    |--------------------------------------------------------------------------
+    | Bug Reports
+    |--------------------------------------------------------------------------
+    */
+
+    Route::apiResource(
+        'bug-reports',
+        BugReportController::class
+    );
+});
+
+Route::post(
+    '/bug-reports/public',
+    [
+        BugReportController::class,
+        'store'
+    ]
+);
