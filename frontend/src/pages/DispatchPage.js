@@ -11,6 +11,28 @@ function requestCode(id) {
   return `REQ${String(id).padStart(4, '0')}`;
 }
 
+function isPdfPermit(url, fileName = '') {
+  const u = String(url || '').toLowerCase();
+  const n = String(fileName || '').toLowerCase();
+  return u.startsWith('data:application/pdf') || u.split('?')[0].endsWith('.pdf') || n.endsWith('.pdf');
+}
+
+function isImagePermit(url, fileName = '') {
+  const u = String(url || '').toLowerCase();
+  const n = String(fileName || '').toLowerCase();
+  if (u.startsWith('data:image/')) return true;
+  const cleanUrl = u.split('?')[0];
+  return /\.(png|jpe?g|webp|gif|bmp|svg)$/.test(cleanUrl) || /\.(png|jpe?g|webp|gif|bmp|svg)$/.test(n);
+}
+
+function getFileNameFromUrl(url, fallback = 'Permit Document') {
+  if (!url) return fallback;
+  const s = String(url);
+  if (s.startsWith('data:')) return fallback;
+  const part = s.split('?')[0].split('/').pop();
+  return part || fallback;
+}
+
 const DISPATCHED_IN_TRANSIT_STATUSES = [
   'accepted',
   'arrived_pickup',
@@ -148,9 +170,11 @@ function DispatchPage() {
   const [areaPermitType, setAreaPermitType] = useState('Mindanao Regional Route Clearance');
   const [areaPermitPreview, setAreaPermitPreview] = useState(null);
   const [areaPermitBase64, setAreaPermitBase64] = useState(null);
+  const [areaPermitFileName, setAreaPermitFileName] = useState('');
   const [itemPermitType, setItemPermitType] = useState('DA-BAI Quarantine Clearance');
   const [itemPermitPreview, setItemPermitPreview] = useState(null);
   const [itemPermitBase64, setItemPermitBase64] = useState(null);
+  const [itemPermitFileName, setItemPermitFileName] = useState('');
   const [permitNotes, setPermitNotes] = useState('');
   const [viewingPermitImage, setViewingPermitImage] = useState(null);
 
@@ -201,12 +225,14 @@ function DispatchPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setLoadError('');
+  const loadData = useCallback(async (isSilent = false) => {
+    if (!isSilent) {
+      setLoading(true);
+      setLoadError('');
+    }
     try {
       try {
-        const overviewRes = await api.get('/dispatch/overview');
+        const overviewRes = await api.get('/dispatch/overview', { skipCache: true });
         if (overviewRes.data) {
           setDeliveries(overviewRes.data.deliveries || []);
           setDrivers(overviewRes.data.drivers || []);
@@ -220,11 +246,11 @@ function DispatchPage() {
       }
 
       const [deliveriesRes, driversRes, vehiclesRes, incidentsRes, fuelRes] = await Promise.all([
-        api.get('/deliveries'),
-        api.get('/drivers'),
-        api.get('/vehicles'),
-        api.get('/incident-reports'),
-        api.get('/fuel-inventory'),
+        api.get('/deliveries', { skipCache: true }),
+        api.get('/drivers', { skipCache: true }),
+        api.get('/vehicles', { skipCache: true }),
+        api.get('/incident-reports', { skipCache: true }),
+        api.get('/fuel-inventory', { skipCache: true }),
       ]);
       setDeliveries(deliveriesRes.data || []);
       setDrivers(driversRes.data || []);
@@ -232,22 +258,47 @@ function DispatchPage() {
       setIncidents(incidentsRes.data || []);
       setFuelInventory(fuelRes.data || []);
     } catch (err) {
-      setLoadError('Could not load dispatch data. Is the backend running and are you logged in?');
+      if (!isSilent) {
+        setLoadError('Could not load dispatch data. Is the backend running and are you logged in?');
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    loadData();
+    loadData(false);
 
-    // Instant real-time update when dispatch status changes
-    const unsubscribe = reverb.subscribe('deliveries', 'delivery.updated', () => {
-      loadData();
+    // Instant real-time update when dispatch or fuel confirmation status changes
+    const unsubscribeDelivery = reverb.subscribe('deliveries', 'delivery.updated', () => {
+      loadData(true);
+    });
+    const unsubscribeNotif = reverb.subscribe('system-notifications', 'notification.created', () => {
+      loadData(true);
     });
 
+    const handleVisibilityOrFocus = () => {
+      if (!document.hidden) {
+        loadData(true);
+      }
+    };
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    const pollInterval = setInterval(() => {
+      if (!document.hidden) {
+        loadData(true);
+      }
+    }, 8000);
+
     return () => {
-      unsubscribe();
+      unsubscribeDelivery();
+      unsubscribeNotif();
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      clearInterval(pollInterval);
     };
   }, [loadData]);
 
@@ -268,6 +319,10 @@ function DispatchPage() {
 
     if (s === 'completed') {
       return { label: 'Completed', key: 'completed', isOverdue: false };
+    }
+    // Assigned in dispatch, waiting for Fuel Inventory confirmation before Pre-Trip Inspection
+    if (d.fuel_issuance_status === 'pending' && s === 'pending') {
+      return { label: 'Pending Fuel Issuance', key: 'awaiting', isOverdue: overdue, isAwaitingFuel: true };
     }
     // No driver assigned or explicitly pending dispatch
     if (!d.driver_id || s === 'pending') {
@@ -393,8 +448,8 @@ function DispatchPage() {
     }
 
     list.sort((a, b) => {
-      const timeA = new Date(a.trip_date || a.start_time || a.updated_at || a.created_at).getTime() || 0;
-      const timeB = new Date(b.trip_date || b.start_time || b.updated_at || b.created_at).getTime() || 0;
+      const timeA = new Date(a.end_time || a.updated_at || a.trip_date || a.start_time || a.created_at).getTime() || 0;
+      const timeB = new Date(b.end_time || b.updated_at || b.trip_date || b.start_time || b.created_at).getTime() || 0;
       return timeB - timeA;
     });
 
@@ -467,9 +522,11 @@ function DispatchPage() {
     setAreaPermitType(delivery.area_permit_type || 'Mindanao Regional Route Clearance');
     setAreaPermitPreview(delivery.area_permit_url || null);
     setAreaPermitBase64(null);
+    setAreaPermitFileName(getFileNameFromUrl(delivery.area_permit_url || delivery.area_permit_path, ''));
     setItemPermitType(delivery.request?.item_permit_type || 'DA-BAI Quarantine Clearance');
-    setItemPermitPreview(delivery.request?.item_permit_url || null);
+    setItemPermitPreview(delivery.request?.item_permit_url || delivery.item_permit_url || null);
     setItemPermitBase64(null);
+    setItemPermitFileName(getFileNameFromUrl(delivery.request?.item_permit_url || delivery.request?.item_permit_path, ''));
     setPermitNotes(delivery.permit_notes || '');
     setViewingPermitImage(null);
     setDispatchError('');
@@ -479,8 +536,10 @@ function DispatchPage() {
     setSelectedDelivery(null);
     setAreaPermitPreview(null);
     setAreaPermitBase64(null);
+    setAreaPermitFileName('');
     setItemPermitPreview(null);
     setItemPermitBase64(null);
+    setItemPermitFileName('');
     setPermitNotes('');
     setViewingPermitImage(null);
   };
@@ -509,10 +568,18 @@ function DispatchPage() {
     }
   }, [location.search, deliveries]);
 
+  const isAwaitingFuel = Boolean(
+    selectedDelivery &&
+    selectedDelivery.fuel_issuance_status === 'pending' &&
+    (selectedDelivery.status || '').toLowerCase() === 'pending'
+  );
+
   const isDispatched = Boolean(
     selectedDelivery &&
     (DISPATCHED_IN_TRANSIT_STATUSES.includes((selectedDelivery.status || '').toLowerCase()) || selectedDelivery.status === 'completed')
   );
+
+  const isTicketLocked = isDispatched || isAwaitingFuel;
 
   const assignedDriver = useMemo(() => {
     if (!selectedDelivery) return null;
@@ -550,7 +617,6 @@ function DispatchPage() {
         trip_date: tripDate,
         estimated_duration_days: parseInt(estimatedDurationDays, 10) || 2,
         fuel_issued: fuelLiters || null,
-        fuel_receipt_no: fuelReceiptNo || null,
         remarks: remarks.trim() || null,
         area_permit: areaPermitBase64 || null,
         area_permit_type: areaPermitType || null,
@@ -567,6 +633,33 @@ function DispatchPage() {
       return;
     }
 
+    const warnings = [];
+
+    if (odometerReading !== '') {
+      try {
+        await api.patch(`/vehicles/${chosenVehicleId}`, {
+          odometer_reading: odometerReading,
+        });
+      } catch (err) {
+        console.error('Odometer update failed:', err.response?.data || err);
+        warnings.push('Dispatched, but the odometer reading could not be saved.');
+      }
+    }
+
+    if (fuelLiters !== '' && Number(fuelLiters) > 0) {
+      warnings.push(
+        `Fuel request (${fuelLiters} L) sent to Fuel Inventory Management. Confirm fuel issuance there to auto-generate the Fuel Receipt No. and release the trip for Pre-Trip Inspection.`
+      );
+    }
+
+    setSelectedDelivery(null);
+    setDispatchWarning(warnings.join(' '));
+    setShowSuccessModal(true);
+    await loadData(true);
+    setTimeout(() => setShowSuccessModal(false), warnings.length ? 8000 : 5000);
+    setDispatching(false);
+  };
+
   const handleUploadAreaPermitForDispatched = async () => {
     if (!selectedDelivery || !areaPermitBase64) return;
     setDispatching(true);
@@ -577,7 +670,7 @@ function DispatchPage() {
         area_permit_type: areaPermitType,
         permit_notes: permitNotes.trim() || null,
       });
-      await loadData();
+      await loadData(true);
       setDispatchWarning('Area Delivery Permit updated successfully.');
       setTimeout(() => setDispatchWarning(''), 4000);
     } catch (err) {
@@ -596,7 +689,7 @@ function DispatchPage() {
         item_permit: itemPermitBase64,
         item_permit_type: itemPermitType,
       });
-      await loadData();
+      await loadData(true);
       setDispatchWarning('Item Delivery Permit updated successfully.');
       setTimeout(() => setDispatchWarning(''), 4000);
     } catch (err) {
@@ -604,59 +697,6 @@ function DispatchPage() {
     } finally {
       setDispatching(false);
     }
-  };
-
-
-    const warnings = [];
-
-    if (odometerReading !== '') {
-      try {
-        await api.patch(`/vehicles/${chosenVehicleId}`, {
-          odometer_reading: odometerReading,
-        });
-      } catch (err) {
-        console.error('Odometer update failed:', err.response?.data || err);
-        warnings.push('Dispatched, but the odometer reading could not be saved.');
-      }
-    }
-
-    if (fuelLiters !== '' && Number(fuelLiters) > 0) {
-      const matchedFuel = fuelInventory.find(
-        (f) => selectedVehicle && f.fuel_type?.toLowerCase() === selectedVehicle.fuel_type?.toLowerCase()
-      );
-
-      if (!matchedFuel) {
-        warnings.push(
-          `Dispatched, but no fuel inventory record matches this vehicle's fuel type ("${selectedVehicle?.fuel_type || 'unknown'}") — fuel was not deducted.`
-        );
-      } else {
-        try {
-          const purposeParts = [];
-          if (remarks) purposeParts.push(remarks);
-          if (fuelReceiptNo) purposeParts.push(`Receipt: ${fuelReceiptNo}`);
-          purposeParts.push(`Trip dispatch for ${requestCode(selectedDelivery.request?.request_id)}`);
-
-          await api.post(`/fuel-inventory/${matchedFuel.fuel_id}/issue`, {
-            liters: fuelLiters,
-            vehicle_id: chosenVehicleId,
-            driver_id: chosenDriverId,
-            purpose: purposeParts.join(' | '),
-            issue_date: tripDate,
-          });
-        } catch (err) {
-          const message = err.response?.data?.message;
-          console.error('Fuel issuance failed:', err.response?.data || err);
-          warnings.push(message || 'Dispatched, but fuel could not be issued (insufficient stock or a server error).');
-        }
-      }
-    }
-
-    setSelectedDelivery(null);
-    setDispatchWarning(warnings.join(' '));
-    setShowSuccessModal(true);
-    await loadData();
-    setTimeout(() => setShowSuccessModal(false), warnings.length ? 8000 : 5000);
-    setDispatching(false);
   };
 
 
@@ -999,7 +1039,9 @@ function DispatchPage() {
                               <button
                                 className="btn-assign"
                                 style={
-                                  d.status === 'assigned'
+                                  st.isAwaitingFuel
+                                    ? { background: '#D97706' }
+                                    : d.status === 'assigned'
                                     ? { background: '#2563EB' }
                                     : (DISPATCHED_IN_TRANSIT_STATUSES.includes((d.status || '').toLowerCase())
                                         ? { background: '#475569' }
@@ -1007,7 +1049,11 @@ function DispatchPage() {
                                 }
                                 onClick={() => openAssignPanel(d)}
                               >
-                                {!d.driver_id || d.status === 'pending' ? 'Assign' : (d.status === 'assigned' ? 'Reassign' : 'View Ticket')}
+                                {st.isAwaitingFuel
+                                  ? 'Pending Fuel Issuance'
+                                  : (!d.driver_id || d.status === 'pending'
+                                      ? 'Assign'
+                                      : (d.status === 'assigned' ? 'Reassign' : 'View Ticket'))}
                               </button>
                             </td>
                           </tr>
@@ -1443,25 +1489,78 @@ function DispatchPage() {
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button
                           type="button"
-                          onClick={() => setViewingPermitImage({ url: itemPermitPreview, title: itemPermitType || 'Item Delivery Permit' })}
+                          onClick={() =>
+                            setViewingPermitImage({
+                              url: itemPermitPreview,
+                              title: itemPermitType || 'Item Delivery Permit',
+                              fileName: itemPermitFileName || getFileNameFromUrl(itemPermitPreview, 'item-permit'),
+                            })
+                          }
                           style={{ background: '#0284C7', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
                         >
                           <i className="fas fa-expand"></i> View
                         </button>
                         <button
                           type="button"
-                          onClick={() => { setItemPermitPreview(null); setItemPermitBase64(null); }}
+                          onClick={() => { setItemPermitPreview(null); setItemPermitBase64(null); setItemPermitFileName(''); }}
                           style={{ background: '#EF4444', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
                         >
                           Replace
                         </button>
                       </div>
                     </div>
-                    <img
-                      src={itemPermitPreview}
-                      alt="Item Permit Preview"
-                      style={{ width: '100%', maxHeight: 120, objectFit: 'contain', borderRadius: 6, background: '#fff', border: '1px solid #E2E8F0' }}
-                    />
+                    {isImagePermit(itemPermitPreview, itemPermitFileName) ? (
+                      <img
+                        src={itemPermitPreview}
+                        alt="Item Permit Preview"
+                        onClick={() =>
+                          setViewingPermitImage({
+                            url: itemPermitPreview,
+                            title: itemPermitType || 'Item Delivery Permit',
+                            fileName: itemPermitFileName || getFileNameFromUrl(itemPermitPreview, 'item-permit'),
+                          })
+                        }
+                        style={{ width: '100%', maxHeight: 130, objectFit: 'contain', borderRadius: 6, background: '#fff', border: '1px solid #E2E8F0', cursor: 'pointer' }}
+                      />
+                    ) : isPdfPermit(itemPermitPreview, itemPermitFileName) ? (
+                      <div
+                        onClick={() =>
+                          setViewingPermitImage({
+                            url: itemPermitPreview,
+                            title: itemPermitType || 'Item Delivery Permit',
+                            fileName: itemPermitFileName || getFileNameFromUrl(itemPermitPreview, 'item-permit.pdf'),
+                          })
+                        }
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 6, background: '#fff', border: '1px solid #E2E8F0', cursor: 'pointer' }}
+                      >
+                        <i className="fas fa-file-pdf" style={{ fontSize: 26, color: '#DC2626' }}></i>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {itemPermitFileName || getFileNameFromUrl(itemPermitPreview, 'Item Permit.pdf')}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748B' }}>PDF Document • Click View to preview</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={() =>
+                          setViewingPermitImage({
+                            url: itemPermitPreview,
+                            title: itemPermitType || 'Item Delivery Permit',
+                            fileName: itemPermitFileName || getFileNameFromUrl(itemPermitPreview, 'item-permit'),
+                          })
+                        }
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 6, background: '#fff', border: '1px solid #E2E8F0', cursor: 'pointer' }}
+                      >
+                        <i className="fas fa-file-alt" style={{ fontSize: 24, color: '#0284C7' }}></i>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {itemPermitFileName || getFileNameFromUrl(itemPermitPreview, 'Permit File')}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748B' }}>Document Attached • Click View to open or download</div>
+                        </div>
+                      </div>
+                    )}
                     {isDispatched && itemPermitBase64 && (
                       <button
                         type="button"
@@ -1477,12 +1576,13 @@ function DispatchPage() {
                   <div style={{ border: '1px dashed #CBD5E1', borderRadius: 8, padding: 12, background: '#F8FAFC', textAlign: 'center' }}>
                     <input
                       type="file"
-                      accept="image/*,.pdf"
+                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
                       id="item-permit-file-input"
                       style={{ display: 'none' }}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
+                          setItemPermitFileName(file.name);
                           const reader = new FileReader();
                           reader.onload = () => {
                             setItemPermitBase64(reader.result);
@@ -1497,7 +1597,7 @@ function DispatchPage() {
                       style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: '#0284C7', fontWeight: 600, fontSize: 12 }}
                     >
                       <i className="fas fa-cloud-arrow-up" style={{ fontSize: 24 }}></i>
-                      <span>Click to upload Item Permit Soft Copy (Quarantine / Clearance)</span>
+                      <span>Click to upload Item Permit (JPG, PNG, PDF, DOC, DOCX)</span>
                       <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 400 }}>Driver can display this at DA / PNP highway inspection checkpoints</span>
                     </label>
                   </div>
@@ -1566,25 +1666,78 @@ function DispatchPage() {
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button
                           type="button"
-                          onClick={() => setViewingPermitImage({ url: areaPermitPreview, title: areaPermitType })}
+                          onClick={() =>
+                            setViewingPermitImage({
+                              url: areaPermitPreview,
+                              title: areaPermitType,
+                              fileName: areaPermitFileName || getFileNameFromUrl(areaPermitPreview, 'area-permit'),
+                            })
+                          }
                           style={{ background: '#0284C7', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
                         >
                           <i className="fas fa-expand"></i> View
                         </button>
                         <button
                           type="button"
-                          onClick={() => { setAreaPermitPreview(null); setAreaPermitBase64(null); }}
+                          onClick={() => { setAreaPermitPreview(null); setAreaPermitBase64(null); setAreaPermitFileName(''); }}
                           style={{ background: '#EF4444', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
                         >
                           Replace
                         </button>
                       </div>
                     </div>
-                    <img
-                      src={areaPermitPreview}
-                      alt="Area Permit Preview"
-                      style={{ width: '100%', maxHeight: 130, objectFit: 'contain', borderRadius: 6, background: '#fff', border: '1px solid #E2E8F0' }}
-                    />
+                    {isImagePermit(areaPermitPreview, areaPermitFileName) ? (
+                      <img
+                        src={areaPermitPreview}
+                        alt="Area Permit Preview"
+                        onClick={() =>
+                          setViewingPermitImage({
+                            url: areaPermitPreview,
+                            title: areaPermitType,
+                            fileName: areaPermitFileName || getFileNameFromUrl(areaPermitPreview, 'area-permit'),
+                          })
+                        }
+                        style={{ width: '100%', maxHeight: 130, objectFit: 'contain', borderRadius: 6, background: '#fff', border: '1px solid #E2E8F0', cursor: 'pointer' }}
+                      />
+                    ) : isPdfPermit(areaPermitPreview, areaPermitFileName) ? (
+                      <div
+                        onClick={() =>
+                          setViewingPermitImage({
+                            url: areaPermitPreview,
+                            title: areaPermitType,
+                            fileName: areaPermitFileName || getFileNameFromUrl(areaPermitPreview, 'area-permit.pdf'),
+                          })
+                        }
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 6, background: '#fff', border: '1px solid #E2E8F0', cursor: 'pointer' }}
+                      >
+                        <i className="fas fa-file-pdf" style={{ fontSize: 26, color: '#DC2626' }}></i>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {areaPermitFileName || getFileNameFromUrl(areaPermitPreview, 'Route Clearance.pdf')}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748B' }}>PDF Document • Click View to preview</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={() =>
+                          setViewingPermitImage({
+                            url: areaPermitPreview,
+                            title: areaPermitType,
+                            fileName: areaPermitFileName || getFileNameFromUrl(areaPermitPreview, 'area-permit'),
+                          })
+                        }
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 6, background: '#fff', border: '1px solid #E2E8F0', cursor: 'pointer' }}
+                      >
+                        <i className="fas fa-file-alt" style={{ fontSize: 24, color: '#0284C7' }}></i>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {areaPermitFileName || getFileNameFromUrl(areaPermitPreview, 'Route Clearance File')}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#64748B' }}>Document Attached • Click View to open or download</div>
+                        </div>
+                      </div>
+                    )}
                     {isDispatched && areaPermitBase64 && (
                       <button
                         type="button"
@@ -1600,12 +1753,13 @@ function DispatchPage() {
                   <div style={{ border: '1px dashed #CBD5E1', borderRadius: 8, padding: 12, background: '#F8FAFC', textAlign: 'center' }}>
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
                       id="area-permit-file-input"
                       style={{ display: 'none' }}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
+                          setAreaPermitFileName(file.name);
                           const reader = new FileReader();
                           reader.onload = () => {
                             setAreaPermitBase64(reader.result);
@@ -1620,7 +1774,7 @@ function DispatchPage() {
                       style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: '#0284C7', fontWeight: 600, fontSize: 12 }}
                     >
                       <i className="fas fa-cloud-arrow-up" style={{ fontSize: 24 }}></i>
-                      <span>Click to upload Permit Soft Copy (JPG, PNG)</span>
+                      <span>Click to upload Route Clearance (JPG, PNG, PDF, DOC, DOCX)</span>
                       <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 400 }}>Driver can display this at PNP / LGU checkpoints</span>
                     </label>
                   </div>
@@ -1647,7 +1801,7 @@ function DispatchPage() {
                 <div className="tt-field">
                   <label className="tt-label">Date</label>
                   <div className="tt-input-unit">
-                    <input className="tt-input" type="date" value={tripDate} onChange={(e) => setTripDate(e.target.value)} readOnly={isDispatched} />
+                    <input className="tt-input" type="date" value={tripDate} onChange={(e) => setTripDate(e.target.value)} readOnly={isTicketLocked} />
                   </div>
                 </div>
                 <div className="tt-field">
@@ -1656,10 +1810,11 @@ function DispatchPage() {
                     <input
                       className="tt-input"
                       type="number"
+                      min="0"
                       placeholder="100"
                       value={fuelLiters}
                       onChange={(e) => setFuelLiters(e.target.value)}
-                      readOnly={isDispatched}
+                      readOnly={isTicketLocked}
                     />
                     <span className="tt-unit">L</span>
                   </div>
@@ -1677,32 +1832,33 @@ function DispatchPage() {
                       value={estimatedDurationDays}
                       onChange={(e) => setEstimatedDurationDays(e.target.value)}
                       placeholder="2"
-                      readOnly={isDispatched}
+                      readOnly={isTicketLocked}
                     />
                     <span className="tt-unit">Days</span>
                   </div>
                 </div>
-                <div className="tt-field">
-                  <label className="tt-label">Fuel Receipt No.</label>
-                  <input
-                    className="tt-input"
-                    type="text"
-                    placeholder="FR-2026-00045"
-                    value={fuelReceiptNo}
-                    onChange={(e) => setFuelReceiptNo(e.target.value)}
-                    readOnly={isDispatched}
-                  />
-                </div>
+                {fuelReceiptNo ? (
+                  <div className="tt-field">
+                    <label className="tt-label">Fuel Receipt No.</label>
+                    <input
+                      className="tt-input"
+                      type="text"
+                      value={fuelReceiptNo}
+                      readOnly
+                      style={{ background: '#f0fdf4', color: '#15803d', fontWeight: 700, fontFamily: 'monospace' }}
+                    />
+                  </div>
+                ) : null}
               </div>
               <div className="tt-field tt-full" style={{ marginTop: '10px' }}>
                 <label className="tt-label">Remarks</label>
                 <input
                   className="tt-input"
                   type="text"
-                  placeholder={isDispatched ? 'No remarks recorded' : 'Enter remarks...'}
+                  placeholder={isTicketLocked ? 'No remarks recorded' : 'Enter remarks...'}
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
-                  readOnly={isDispatched}
+                  readOnly={isTicketLocked}
                 />
               </div>
 
@@ -1714,7 +1870,55 @@ function DispatchPage() {
               )}
 
               {/* Actions */}
-              {isDispatched ? (
+              {isAwaitingFuel ? (
+                <>
+                  <div
+                    style={{
+                      marginTop: 18,
+                      padding: '12px 14px',
+                      borderRadius: 8,
+                      background: '#FFFBEB',
+                      border: '1px solid #FDE68A',
+                      color: '#92400E',
+                      fontSize: 12.5,
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    <i className="fas fa-gas-pump" style={{ marginRight: 6, color: '#D97706' }}></i>
+                    <strong>Pending Fuel Issuance:</strong> Confirm the requested{' '}
+                    <strong>{selectedDelivery.fuel_issued} L</strong> issuance in Fuel Inventory Management to generate the Fuel Receipt No. and release this trip for Pre-Trip Inspection.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+                    <button
+                      type="button"
+                      className="tt-send-btn"
+                      style={{ background: '#D97706', margin: 0 }}
+                      onClick={() => {
+                        window.location.href = '/fuel-inventory';
+                      }}
+                    >
+                      <i className="fas fa-gas-pump"></i> Open Fuel Inventory to Confirm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeAssignPanel}
+                      style={{
+                        width: '100%',
+                        padding: '11px',
+                        borderRadius: 8,
+                        border: '1px solid #D1D5DB',
+                        background: '#F3F4F6',
+                        color: '#374151',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Close Details
+                    </button>
+                  </div>
+                </>
+              ) : isDispatched ? (
                 <>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 20 }}>
                     <button
@@ -1818,14 +2022,50 @@ function DispatchPage() {
                 <i className="fas fa-times"></i>
               </button>
             </div>
-            <div style={{ padding: 16, textAlign: 'center', background: '#0F172A', display: 'flex', justifyContent: 'center' }}>
-              <img
-                src={viewingPermitImage.url}
-                alt="Delivery Permit"
-                style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 4 }}
-              />
+            <div style={{ padding: 16, textAlign: 'center', background: '#0F172A', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 260 }}>
+              {isPdfPermit(viewingPermitImage.url, viewingPermitImage.fileName) ? (
+                <iframe
+                  src={viewingPermitImage.url}
+                  title={viewingPermitImage.title || 'Delivery Permit PDF'}
+                  style={{ width: '100%', height: '70vh', border: 'none', borderRadius: 4, background: '#fff' }}
+                />
+              ) : isImagePermit(viewingPermitImage.url, viewingPermitImage.fileName) ? (
+                <img
+                  src={viewingPermitImage.url}
+                  alt="Delivery Permit"
+                  style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 4 }}
+                />
+              ) : (
+                <div style={{ padding: '28px 20px', color: '#E2E8F0', textAlign: 'center' }}>
+                  <i className="fas fa-file-alt" style={{ fontSize: 48, color: '#38BDF8', marginBottom: 12 }}></i>
+                  <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>
+                    {viewingPermitImage.fileName || 'Permit Document'}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: '#94A3B8', marginBottom: 16 }}>
+                    This document format cannot be previewed inline in the browser. Download or open it to view.
+                  </div>
+                  <a
+                    href={viewingPermitImage.url}
+                    download={viewingPermitImage.fileName || 'permit-document'}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', background: '#0284C7', color: '#fff', borderRadius: 6, fontWeight: 700, fontSize: 13, textDecoration: 'none' }}
+                  >
+                    <i className="fas fa-download"></i> Download / Open Document
+                  </a>
+                </div>
+              )}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 16px', background: '#F8FAFC' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#F8FAFC' }}>
+              <a
+                href={viewingPermitImage.url}
+                download={viewingPermitImage.fileName || undefined}
+                target="_blank"
+                rel="noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: '#0284C7', textDecoration: 'none' }}
+              >
+                <i className="fas fa-arrow-up-right-from-square"></i> Open / Download File
+              </a>
               <button
                 type="button"
                 onClick={() => setViewingPermitImage(null)}

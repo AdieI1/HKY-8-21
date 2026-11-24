@@ -66,6 +66,7 @@ export const login = async (email, password) => {
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
+      "ngrok-skip-browser-warning": "true",
     },
     body: JSON.stringify({ email: email.trim(), password }),
   });
@@ -123,6 +124,7 @@ export const getCurrentUser = async () => {
     headers: {
       Accept: "application/json",
       Authorization: `Bearer ${token}`,
+      "ngrok-skip-browser-warning": "true",
     },
   });
 
@@ -211,6 +213,7 @@ export const fetchWithAuth = async (path, options = {}) => {
       Accept: "application/json",
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      "ngrok-skip-browser-warning": "true",
       ...options.headers,
     },
   });

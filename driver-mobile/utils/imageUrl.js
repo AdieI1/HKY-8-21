@@ -21,8 +21,8 @@ export const resolveStorageUrl = (urlOrPath) => {
 
   if (str.startsWith("http://") || str.startsWith("https://")) {
     str = str.replace("/api/storage/", "/storage/");
-    if (str.includes("localhost:8000") || str.includes("127.0.0.1:8000")) {
-      str = str.replace(/https?:\/\/(localhost|127\.0\.0\.1):8000/, baseServer);
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(str)) {
+      str = str.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i, baseServer);
     }
     return str;
   }

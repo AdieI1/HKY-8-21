@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ProtectedRoute, PublicRoute } from './components/ProtectedRoute';
+import WebNotificationManager from './components/WebNotificationManager';
 
 // Route-based code splitting for maximum initial load performance
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -63,6 +64,7 @@ function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
+        <WebNotificationManager />
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<PublicRoute><LoginPage /></PublicRoute>} />

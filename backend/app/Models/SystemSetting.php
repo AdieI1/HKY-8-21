@@ -32,10 +32,9 @@ class SystemSetting extends Model
     public static function defaultSystemConfig(): array
     {
         return [
-            'break_monitoring' => ['value' => 8, 'unit' => 'hours'],
+            'idle_duration_threshold' => ['value' => 30, 'unit' => 'mins'],
             'gps_disconnect_alert' => ['value' => 20, 'unit' => 'mins'],
-            'overdue_request_threshold' => ['value' => 3, 'unit' => 'days'],
-            'delivery_decline_threshold' => ['value' => 3],
+            'overdue_request_threshold' => ['value' => 2, 'unit' => 'days'],
             'archived_retention_duration' => ['value' => 2, 'unit' => 'months'],
             'critical_alert' => ['value' => 24, 'unit' => 'hours'],
         ];
@@ -46,7 +45,6 @@ class SystemSetting extends Model
         return [
             'gps_disconnected' => ['enabled' => true, 'severity' => 'high'],
             'idle_duration' => ['enabled' => true, 'severity' => 'medium'],
-            'declined_delivery' => ['enabled' => true, 'severity' => 'high'],
             'overdue_reminder' => ['enabled' => true, 'severity' => 'high'],
             'critical_alert' => ['enabled' => true, 'severity' => 'high'],
         ];

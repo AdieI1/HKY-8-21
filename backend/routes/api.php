@@ -603,6 +603,30 @@ Route::middleware('auth:sanctum')->group(function () {
     );
 
     Route::get(
+        'fuel-issuances/pending',
+        [
+            FuelIssuanceController::class,
+            'pending'
+        ]
+    );
+
+    Route::post(
+        'fuel-issuances/{fuelIssuance}/confirm',
+        [
+            FuelIssuanceController::class,
+            'confirm'
+        ]
+    );
+
+    Route::post(
+        'fuel-issuances/{fuelIssuance}/reject',
+        [
+            FuelIssuanceController::class,
+            'reject'
+        ]
+    );
+
+    Route::get(
         'fuel-issuances/{fuelIssuance}',
         [
             FuelIssuanceController::class,

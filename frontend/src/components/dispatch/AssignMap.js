@@ -152,9 +152,20 @@ export default function AssignMap({
     combinedZones.current = list;
   }, [allZones, dangerPoints]);
 
+  const onDistanceResolvedRef = useRef(onDistanceResolved);
+  useEffect(() => {
+    onDistanceResolvedRef.current = onDistanceResolved;
+  }, [onDistanceResolved]);
+
+  const showSteepnessRef = useRef(showSteepness);
+  useEffect(() => {
+    showSteepnessRef.current = showSteepness;
+  }, [showSteepness]);
+
   useEffect(() => {
     let cancelled = false;
     let map = null;
+    let routingControl = null;
     let resizeTimer = null;
 
     setStatus('loading');
@@ -164,7 +175,7 @@ export default function AssignMap({
     const resolveDistance = (value) => {
       const distance = toDistance(value);
       setDistanceKm(distance);
-      onDistanceResolved?.(distance);
+      onDistanceResolvedRef.current?.(distance);
       return distance;
     };
 
@@ -188,13 +199,22 @@ export default function AssignMap({
 
       mapEl.innerHTML = '';
       map = L.map(mapEl, {
+        center: [pickup.lat, pickup.lng],
+        zoom: 10,
         maxBounds: [
           [5.30, 121.50],
           [10.25, 126.75],
         ],
         maxBoundsViscosity: 1.0,
         minZoom: 7,
+        zoomAnimation: false,
+        fadeAnimation: false,
+        markerZoomAnimation: false,
       });
+      map.fitBounds(
+        L.latLngBounds([pickup.lat, pickup.lng], [dropoff.lat, dropoff.lng]),
+        { padding: [30, 30], animate: false }
+      );
       mapInstanceRef.current = map;
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -207,7 +227,7 @@ export default function AssignMap({
         L.latLng(dropoff.lat, dropoff.lng),
       ];
 
-      const routingControl = L.Routing.control({
+      routingControl = L.Routing.control({
         waypoints: routeWaypoints,
         routeWhileDragging: false,
         addWaypoints: false,
@@ -253,7 +273,7 @@ export default function AssignMap({
               steepnessDataRef.current = steepnessData;
               setSteepnessSummary(steepnessData.summary);
 
-              if (showSteepness && steepnessData.segments && steepnessData.segments.length > 0) {
+              if (showSteepnessRef.current && steepnessData.segments && steepnessData.segments.length > 0) {
                 if (steepnessLayerGroupRef.current) {
                   try { map.removeLayer(steepnessLayerGroupRef.current); } catch (_) {}
                 }
@@ -328,28 +348,46 @@ export default function AssignMap({
         dangerLayerGroupRef.current = group;
       };
 
-      resizeTimer = setTimeout(() => map?.invalidateSize(), 150);
+      resizeTimer = setTimeout(() => {
+        if (!cancelled && map && map._mapPane) {
+          try { map.invalidateSize(); } catch (_) {}
+        }
+      }, 150);
     })();
 
     return () => {
       cancelled = true;
       clearTimeout(resizeTimer);
-      if (dangerLayerGroupRef.current && map) {
-        try {
-          map.removeLayer(dangerLayerGroupRef.current);
-        } catch (_) {}
+      if (map) {
+        try { map.stop(); } catch (_) {}
+        if (routingControl) {
+          try {
+            routingControl.off();
+            map.removeControl(routingControl);
+          } catch (_) {}
+          routingControl = null;
+        }
+        if (dangerLayerGroupRef.current) {
+          try {
+            map.removeLayer(dangerLayerGroupRef.current);
+          } catch (_) {}
+          dangerLayerGroupRef.current = null;
+        }
+        if (steepnessLayerGroupRef.current) {
+          try {
+            map.removeLayer(steepnessLayerGroupRef.current);
+          } catch (_) {}
+          steepnessLayerGroupRef.current = null;
+        }
+        if (steepnessLegendControlRef.current) {
+          try {
+            map.removeControl(steepnessLegendControlRef.current);
+          } catch (_) {}
+          steepnessLegendControlRef.current = null;
+        }
+        try { map.off(); } catch (_) {}
+        try { map.remove(); } catch (_) {}
       }
-      if (steepnessLayerGroupRef.current && map) {
-        try {
-          map.removeLayer(steepnessLayerGroupRef.current);
-        } catch (_) {}
-      }
-      if (steepnessLegendControlRef.current && map) {
-        try {
-          map.removeControl(steepnessLegendControlRef.current);
-        } catch (_) {}
-      }
-      map?.remove();
       mapInstanceRef.current = null;
     };
   }, [
@@ -360,12 +398,9 @@ export default function AssignMap({
     dropoffLat,
     dropoffLng,
     fallbackDistanceKm,
-    dangerPoints,
     mapEl,
     showDangerZones,
     filterRouteOnly,
-    showSteepness,
-    onDistanceResolved,
   ]);
 
   return (

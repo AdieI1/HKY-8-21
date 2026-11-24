@@ -26,19 +26,30 @@ class DeliveryRequestController extends Controller
         }
 
         if ($fileInput instanceof \Illuminate\Http\UploadedFile) {
-            $filename = 'item_permit_' . time() . '_' . Str::random(8) . '.' . $fileInput->getClientOriginalExtension();
+            $ext = strtolower($fileInput->getClientOriginalExtension() ?: 'bin');
+            $filename = 'item_permit_' . time() . '_' . Str::random(8) . '.' . $ext;
             return $fileInput->storeAs($folder, $filename, 'public');
         }
 
-        if (is_string($fileInput) && str_starts_with($fileInput, 'data:image/')) {
+        if (is_string($fileInput) && str_starts_with($fileInput, 'data:')) {
             try {
-                if (preg_match('/^data:image\/(\w+);base64,/', $fileInput, $matches)) {
-                    $ext = strtolower($matches[1]);
-                    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp'])) {
-                        $ext = 'jpg';
-                    }
-                    $base64Data = substr($fileInput, strpos($fileInput, ',') + 1);
-                    $decoded = base64_decode($base64Data);
+                if (preg_match('/^data:([^;]+);base64,(.+)$/s', $fileInput, $matches)) {
+                    $mime = strtolower(trim($matches[1]));
+                    $mimeToExt = [
+                        'image/jpeg' => 'jpg',
+                        'image/jpg' => 'jpg',
+                        'image/png' => 'png',
+                        'image/webp' => 'webp',
+                        'image/gif' => 'gif',
+                        'application/pdf' => 'pdf',
+                        'application/msword' => 'doc',
+                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+                        'application/vnd.ms-excel' => 'xls',
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+                        'text/plain' => 'txt',
+                    ];
+                    $ext = $mimeToExt[$mime] ?? 'bin';
+                    $decoded = base64_decode($matches[2]);
                     if ($decoded !== false) {
                         $filename = 'item_permit_' . time() . '_' . Str::random(8) . '.' . $ext;
                         Storage::disk('public')->put($folder . '/' . $filename, $decoded);
@@ -46,11 +57,11 @@ class DeliveryRequestController extends Controller
                     }
                 }
             } catch (\Throwable $e) {
-                Log::warning('Failed to decode item permit image: ' . $e->getMessage());
+                Log::warning('Failed to decode item permit file: ' . $e->getMessage());
             }
         }
 
-        if (is_string($fileInput) && !str_starts_with($fileInput, 'data:image/')) {
+        if (is_string($fileInput) && !str_starts_with($fileInput, 'data:')) {
             return $fileInput;
         }
 
@@ -82,7 +93,7 @@ class DeliveryRequestController extends Controller
             'pickup_address' => 'nullable|string',
             'dropoff_address' => 'nullable|string',
             'receiver_name' => 'nullable|string|max:100',
-            'receiver_phone' => 'nullable|string|max:30',
+            'receiver_phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'distance_km' => 'nullable|numeric',
             'total_price' => 'nullable|numeric',
             'payment_term' => 'nullable|in:downpayment,full',
@@ -96,6 +107,7 @@ class DeliveryRequestController extends Controller
             'container_number' => 'nullable|string|max:50',
             'seal_number' => 'nullable|string|max:50',
         ], [
+            'receiver_phone.regex' => 'Receiver contact number must start with 09 and be exactly 11 digits.',
             'scheduled_date.after_or_equal' => 'The scheduled delivery date cannot be in the past.',
         ]);
 
@@ -143,7 +155,7 @@ class DeliveryRequestController extends Controller
             'dropoff_lat' => 'nullable|numeric',
             'dropoff_lng' => 'nullable|numeric',
             'receiver_name' => 'nullable|string|max:100',
-            'receiver_phone' => 'nullable|string|max:30',
+            'receiver_phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'distance_km' => 'nullable|numeric',
             'total_price' => 'nullable|numeric',
             'payment_term' => 'nullable|in:downpayment,full',
@@ -159,6 +171,7 @@ class DeliveryRequestController extends Controller
             'scheduled_time_slot' => 'nullable|string|max:100',
             'is_draft' => 'nullable|boolean',
         ], [
+            'receiver_phone.regex' => 'Receiver contact number must start with 09 and be exactly 11 digits.',
             'scheduled_date.after_or_equal' => 'The scheduled delivery date cannot be in the past.',
         ]);
 
@@ -345,7 +358,7 @@ class DeliveryRequestController extends Controller
             'dropoff_lat' => "$fieldRule|numeric|between:-90,90",
             'dropoff_lng' => "$fieldRule|numeric|between:-180,180",
             'receiver_name' => 'nullable|string|max:100',
-            'receiver_phone' => 'nullable|string|max:30',
+            'receiver_phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'distance_km' => 'nullable|numeric|min:0',
             'total_price' => 'nullable|numeric|min:0',
             'payment_term' => "$fieldRule|in:downpayment,full",
@@ -361,6 +374,7 @@ class DeliveryRequestController extends Controller
             'scheduled_time_slot' => 'nullable|string|max:100',
             'is_draft' => 'nullable|boolean',
         ], [
+            'receiver_phone.regex' => 'Receiver contact number must start with 09 and be exactly 11 digits.',
             'scheduled_date.after_or_equal' => 'The scheduled delivery date cannot be in the past.',
         ]);
 
@@ -435,6 +449,14 @@ class DeliveryRequestController extends Controller
 
     public function update(Request $request, DeliveryRequest $deliveryRequest)
     {
+        if ($request->filled('receiver_phone')) {
+            $request->validate([
+                'receiver_phone' => ['string', 'regex:/^09\d{9}$/'],
+            ], [
+                'receiver_phone.regex' => 'Receiver contact number must start with 09 and be exactly 11 digits.',
+            ]);
+        }
+
         $data = $request->all();
 
         if ($request->hasFile('item_permit')) {

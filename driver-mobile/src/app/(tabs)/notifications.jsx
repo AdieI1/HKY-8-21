@@ -12,15 +12,25 @@ import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import { useRouter } from "expo-router";
 import HomeHeader from "../../../components/HomeHeader";
 import NotificationCard from "../../../components/NotificationCard";
-import { getMyNotifications } from "../../../services/api";
+import { getMyNotifications, getSavedUser } from "../../../services/api";
 import { useTheme } from "../../context/ThemeContext";
 
-const READ_STORAGE_KEY = "@driver_read_notifications";
+const getReadStorageKey = async () => {
+  try {
+    const user = await getSavedUser();
+    const uid = user?.user_id || user?.id || "default";
+    return `@driver_read_notifications_${uid}`;
+  } catch {
+    return "@driver_read_notifications_default";
+  }
+};
 
 export default function Notifications() {
-  const { theme, darkMode } = useTheme();
+  const router = useRouter();
+  const { theme } = useTheme();
   const [filter, setFilter] = useState("All");
   const [rawNotifications, setRawNotifications] = useState([]);
   const [readIds, setReadIds] = useState(new Set());
@@ -36,20 +46,16 @@ export default function Notifications() {
         setLoading(true);
       }
 
+      const readKey = await getReadStorageKey();
       const [data, savedRead] = await Promise.all([
         getMyNotifications().catch(() => []),
-        AsyncStorage.getItem(READ_STORAGE_KEY),
+        AsyncStorage.getItem(readKey),
       ]);
 
       const parsedRead = savedRead ? JSON.parse(savedRead) : [];
       const notifs = Array.isArray(data) ? data : [];
       setRawNotifications(notifs);
-
-      // Once the driver views the notifications, mark all as read/viewed
-      const allIds = notifs.map((n) => n.id);
-      const merged = new Set([...parsedRead, ...allIds]);
-      setReadIds(merged);
-      await AsyncStorage.setItem(READ_STORAGE_KEY, JSON.stringify([...merged]));
+      setReadIds(new Set((Array.isArray(parsedRead) ? parsedRead : []).map(String)));
     } catch (err) {
       console.log("LOAD NOTIFICATIONS ERROR:", err);
     } finally {
@@ -57,6 +63,46 @@ export default function Notifications() {
       setRefreshing(false);
     }
   }, []);
+
+  const markAsRead = useCallback(async (id) => {
+    if (!id) return;
+    const key = String(id);
+    setReadIds((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      getReadStorageKey().then((storageKey) => {
+        AsyncStorage.setItem(storageKey, JSON.stringify(Array.from(next).slice(-300))).catch(() => {});
+      });
+      return next;
+    });
+  }, []);
+
+  const markAllAsRead = useCallback(async () => {
+    const allIds = rawNotifications.map((n) => String(n.id)).filter(Boolean);
+    const merged = new Set([...readIds, ...allIds]);
+    setReadIds(merged);
+    const storageKey = await getReadStorageKey();
+    await AsyncStorage.setItem(storageKey, JSON.stringify(Array.from(merged).slice(-300))).catch(() => {});
+  }, [rawNotifications, readIds]);
+
+  const handleOpenNotification = useCallback(
+    (notif) => {
+      markAsRead(notif.id);
+      if (notif.isInspectionCleared && notif.deliveryId) {
+        router.push({
+          pathname: "/pretripcheck",
+          params: { deliveryId: String(notif.deliveryId) },
+        });
+      } else if (!notif.isRating && notif.deliveryId) {
+        router.push({
+          pathname: "/deliverydetails",
+          params: { deliveryId: String(notif.deliveryId) },
+        });
+      }
+    },
+    [markAsRead, router]
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -117,14 +163,19 @@ export default function Notifications() {
     return days === 1 ? "Yesterday" : `${days} days ago`;
   };
 
+  const unreadCount = useMemo(
+    () => rawNotifications.filter((n) => n?.id && !readIds.has(String(n.id))).length,
+    [rawNotifications, readIds]
+  );
+
   const groupedNotifications = useMemo(() => {
     const list = rawNotifications.map((n) => ({
       ...n,
-      read: true,
+      read: readIds.has(String(n.id)),
       time: getNotificationTime(n.createdAt),
     }));
 
-    const filtered = filter === "Unread" ? [] : list;
+    const filtered = filter === "Unread" ? list.filter((n) => !n.read) : list;
     const groups = { Today: [], Earlier: [], Yesterday: [] };
 
     filtered.forEach((n) => {
@@ -137,7 +188,7 @@ export default function Notifications() {
     });
 
     return groups;
-  }, [rawNotifications, filter]);
+  }, [rawNotifications, readIds, filter]);
 
   const hasAnyNotification =
     groupedNotifications.Today.length > 0 ||
@@ -150,6 +201,13 @@ export default function Notifications() {
 
       <View style={[styles.titleRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <Text style={[styles.title, { color: theme.primary }]}>Notifications</Text>
+        {unreadCount > 0 && (
+          <TouchableOpacity onPress={markAllAsRead} activeOpacity={0.7}>
+            <Text style={{ fontSize: 12, fontWeight: "700", color: theme.primary }}>
+              Mark all read
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <View style={[styles.filterRow, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
@@ -167,7 +225,7 @@ export default function Notifications() {
           onPress={() => setFilter("Unread")}
         >
           <Text style={filter === "Unread" ? styles.activeFilterText : [styles.filterText, { color: theme.secondaryText }]}>
-            Unread
+            {unreadCount > 0 ? `Unread (${unreadCount})` : "Unread"}
           </Text>
         </TouchableOpacity>
       </View>
@@ -194,7 +252,7 @@ export default function Notifications() {
             <>
               <Text style={[styles.dateTitle, { color: theme.primary }]}>Today</Text>
               {groupedNotifications.Today.map((n) => (
-                <NotificationCard key={n.id} notification={n} />
+                <NotificationCard key={n.id} notification={n} onPress={() => handleOpenNotification(n)} />
               ))}
             </>
           )}
@@ -203,7 +261,7 @@ export default function Notifications() {
             <>
               <Text style={[styles.dateTitle, { color: theme.primary }]}>Earlier</Text>
               {groupedNotifications.Earlier.map((n) => (
-                <NotificationCard key={n.id} notification={n} />
+                <NotificationCard key={n.id} notification={n} onPress={() => handleOpenNotification(n)} />
               ))}
             </>
           )}
@@ -212,7 +270,7 @@ export default function Notifications() {
             <>
               <Text style={[styles.dateTitle, { color: theme.primary }]}>Yesterday</Text>
               {groupedNotifications.Yesterday.map((n) => (
-                <NotificationCard key={n.id} notification={n} />
+                <NotificationCard key={n.id} notification={n} onPress={() => handleOpenNotification(n)} />
               ))}
             </>
           )}

@@ -8,6 +8,7 @@ use App\Models\DeliveryRequest;
 use App\Models\FuelInventory;
 use App\Models\SparePart;
 use App\Models\VehicleMaintenance;
+use App\Services\SystemRuleEvaluator;
 use Illuminate\Http\Request;
 
 class NotificationController extends Controller
@@ -19,6 +20,11 @@ class NotificationController extends Controller
     {
         $user = $request->user();
         $isCustomer = strtolower($user?->role?->role_name ?? '') === 'customer';
+
+        if (!$isCustomer) {
+            // Fail-safe throttled enforcement (at most once every 5 mins)
+            SystemRuleEvaluator::runIfDue();
+        }
 
         if ($isCustomer) {
             $query = AppNotification::where('user_id', $user->user_id)->orderByDesc('created_at');

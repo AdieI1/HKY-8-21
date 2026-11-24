@@ -6,6 +6,7 @@ import NotificationBell from '../components/NotificationBell';
 import TableSkeleton from '../components/TableSkeleton';
 import StaffWeatherCard from '../components/dashboard/StaffWeatherCard';
 import reverb from '../utils/reverb';
+import { getOverdueRequestConfig } from '../utils/systemRules';
 
 const DELIVERY_STAGE_LABELS = {
   assigned: 'Dispatched',
@@ -627,6 +628,7 @@ function StaffDashboardPage() {
       let maintenances = [];
       let incidents = [];
       let systemLogs = [];
+      let settingsData = null;
 
       try {
         // Fast single endpoint
@@ -639,10 +641,11 @@ function StaffDashboardPage() {
           maintenances = res.data.maintenances || [];
           incidents = res.data.incidents || [];
           systemLogs = res.data.system_logs || [];
+          settingsData = res.data.system_settings || null;
         }
       } catch (_) {
         // Fallback to individual endpoints if needed
-        const [delRes, reqRes, drvRes, vehRes, mntRes, incRes, logRes] = await Promise.all([
+        const [delRes, reqRes, drvRes, vehRes, mntRes, incRes, logRes, settingsRes] = await Promise.all([
           api.get('/deliveries', { skipCache: true }).catch(() => ({ data: [] })),
           api.get('/delivery-requests', { skipCache: true }).catch(() => ({ data: [] })),
           api.get('/drivers', { skipCache: true }).catch(() => ({ data: [] })),
@@ -650,6 +653,7 @@ function StaffDashboardPage() {
           api.get('/vehicle-maintenances', { skipCache: true }).catch(() => ({ data: [] })),
           api.get('/incident-reports', { skipCache: true }).catch(() => ({ data: [] })),
           api.get('/system-logs', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/system-settings', { skipCache: true }).catch(() => ({ data: null })),
         ]);
         deliveries = Array.isArray(delRes.data) ? delRes.data : [];
         requests = Array.isArray(reqRes.data) ? reqRes.data : [];
@@ -658,7 +662,10 @@ function StaffDashboardPage() {
         maintenances = Array.isArray(mntRes.data) ? mntRes.data : [];
         incidents = Array.isArray(incRes.data) ? incRes.data : [];
         systemLogs = Array.isArray(logRes.data) ? logRes.data : [];
+        settingsData = settingsRes?.data || null;
       }
+
+      const overdueCfg = getOverdueRequestConfig(settingsData);
 
       const activeDel = deliveries.filter((d) => ['assigned', 'accepted', 'arrived_pickup', 'loading_cargo', 'out_for_delivery', 'in_transit', 'arrived_dropoff', 'unloading_cargo', 'returning_to_hq'].includes(d.status)).length;
       const scheduledDelCount = deliveries.filter(
@@ -751,8 +758,9 @@ function StaffDashboardPage() {
       requests.forEach((r) => {
         if (r.status !== 'pending') return;
         const created = new Date(r.created_at);
-        const daysOld = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
-        const isOver = daysOld >= 2 || (r.scheduled_date && String(r.scheduled_date).slice(0, 10) < todayIso);
+        const ageMs = Date.now() - created.getTime();
+        const daysOld = ageMs / (1000 * 60 * 60 * 24);
+        const isOver = ageMs >= overdueCfg.thresholdMs || (r.scheduled_date && String(r.scheduled_date).slice(0, 10) < todayIso);
 
         actionItemsList.push({
           id: `REQ${String(r.request_id).padStart(4, '0')}`,
@@ -881,15 +889,15 @@ function StaffDashboardPage() {
       requests.forEach((r) => {
         const rawTime = r.created_at;
         const timeMs = rawTime ? new Date(rawTime).getTime() : 0;
-        const daysOld = (Date.now() - timeMs) / (1000 * 60 * 60 * 24);
-        if (r.status === 'pending' && daysOld >= 2) {
+        const ageMs = Date.now() - timeMs;
+        if (r.status === 'pending' && overdueCfg.reminderEnabled && ageMs >= overdueCfg.thresholdMs) {
           dynamicActivities.push({
             id: `req-ovd-${r.request_id}`,
             category: 'request',
             icon: 'fas fa-exclamation-triangle',
             color: '#E8B400',
             title: `REQ${String(r.request_id).padStart(4, '0')} Overdue!`,
-            sub: 'Exceeded expected processing time (2+ days).',
+            sub: `Exceeded expected processing time (${overdueCfg.label}).`,
             time: timeAgo(rawTime),
             timeMs,
           });
@@ -2473,12 +2481,10 @@ function StaffDashboardPage() {
                             </div>
                           </div>
                           {del.driver?.user?.phone && (
-                            <a
-                              href={`tel:${del.driver.user.phone}`}
+                            <span
                               style={{
                                 fontSize: '11.5px',
                                 color: '#2563eb',
-                                textDecoration: 'none',
                                 fontWeight: 600,
                                 display: 'inline-flex',
                                 alignItems: 'center',
@@ -2490,7 +2496,7 @@ function StaffDashboardPage() {
                               }}
                             >
                               <i className="fas fa-phone-alt" style={{ fontSize: '10px' }}></i> {del.driver.user.phone}
-                            </a>
+                            </span>
                           )}
                         </div>
 

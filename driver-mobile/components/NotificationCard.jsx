@@ -2,35 +2,57 @@ import {
   StyleSheet,
   View,
   Text,
+  TouchableOpacity,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTheme } from "../src/context/ThemeContext";
 
 export default function NotificationCard({
   notification,
+  onPress,
 }) {
   const { theme, darkMode } = useTheme();
+  const isUnread = notification.read === false;
+  const iconName = notification.isRating
+    ? "star"
+    : notification.isInspectionCleared
+    ? "checkmark-circle"
+    : "bus-outline";
+  const accentColor = notification.isInspectionCleared ? "#16A34A" : theme.primary;
 
   return (
-    <View style={[
-      styles.card,
-      {
-        backgroundColor: theme.card,
-        borderColor: theme.border,
-        borderWidth: darkMode ? 1 : 0,
-      }
-    ]}>
+    <TouchableOpacity
+      activeOpacity={onPress ? 0.8 : 1}
+      onPress={onPress}
+      disabled={!onPress}
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.card,
+          borderColor: isUnread ? accentColor : theme.border,
+          borderWidth: isUnread ? 1.5 : (darkMode ? 1 : 0),
+          borderLeftWidth: isUnread ? 4 : (darkMode ? 1 : 0),
+          borderLeftColor: isUnread ? accentColor : theme.border,
+        },
+      ]}
+    >
       <View style={styles.topRow}>
         <View style={styles.assignmentRow}>
           <Ionicons
-            name={notification.isRating ? "star" : "bus-outline"}
+            name={iconName}
             size={17}
-            color={theme.primary}
+            color={accentColor}
           />
 
-          <Text style={[styles.assignmentText, { color: theme.primary }]}>
+          <Text style={[styles.assignmentText, { color: accentColor }]}>
             {notification.type}
           </Text>
+
+          {isUnread && (
+            <View style={{ backgroundColor: accentColor, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, marginLeft: 6 }}>
+              <Text style={{ color: "#FFFFFF", fontSize: 9, fontWeight: "800" }}>NEW</Text>
+            </View>
+          )}
         </View>
 
         <Text style={[styles.time, { color: theme.secondaryText }]}>
@@ -38,12 +60,12 @@ export default function NotificationCard({
         </Text>
       </View>
 
-      <Text style={[styles.driverName, { color: theme.primary }]}>
+      <Text style={[styles.driverName, { color: accentColor }]}>
         {notification.driver}
       </Text>
 
       <Text style={[styles.details, { color: theme.secondaryText }]}>
-        {notification.isRating
+        {notification.isRating || notification.isInspectionCleared
           ? notification.cargo
           : `Cargo type: ${notification.cargo}`}
       </Text>
@@ -51,6 +73,8 @@ export default function NotificationCard({
       <Text style={[styles.details, { color: theme.secondaryText }]}>
         {notification.isRating
           ? `Comments: ${notification.weight}`
+          : notification.isInspectionCleared
+          ? `Cargo: ${notification.weight}`
           : `Weight: ${notification.weight}`}
       </Text>
 
@@ -60,7 +84,7 @@ export default function NotificationCard({
         <Ionicons
           name="location"
           size={17}
-          color={theme.primary}
+          color={accentColor}
         />
 
         <Text style={[styles.location, { color: theme.text }]}>
@@ -69,7 +93,7 @@ export default function NotificationCard({
             : `Pick-up location: ${notification.location}`}
         </Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 

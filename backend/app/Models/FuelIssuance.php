@@ -17,6 +17,7 @@ class FuelIssuance extends Model
         'transaction_type',
         'vehicle_id',
         'driver_id',
+        'delivery_id',
         'supplier_name',
         'issued_by',
         'received_by',
@@ -24,8 +25,15 @@ class FuelIssuance extends Model
         'unit_price',
         'total_value',
         'purpose',
+        'fuel_receipt_no',
+        'status',
         'issued_at',
     ];
+
+    public function delivery()
+    {
+        return $this->belongsTo(Delivery::class, 'delivery_id', 'delivery_id');
+    }
 
     public function fuel()
     {

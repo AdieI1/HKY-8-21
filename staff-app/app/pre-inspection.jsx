@@ -35,6 +35,7 @@ export default function PreInspection() {
   const [submitting, setSubmitting] = useState(false);
   const [itemStates, setItemStates] = useState({});
   const [odometer, setOdometer] = useState("");
+  const [endingFuel, setEndingFuel] = useState("");
   const [photos, setPhotos] = useState([]);
   const [progress, setProgress] = useState({ completed: 0, total: 21, defects: 0 });
 
@@ -43,7 +44,12 @@ export default function PreInspection() {
       let targetDeliveryId = params?.deliveryId;
       if (!targetDeliveryId) {
         const list = await getDeliveries().catch(() => []);
-        const pending = list.find((d) => ["assigned", "pending", "in_transit", "arrived"].includes(d?.status));
+        const pending = list.find(
+          (d) =>
+            Boolean(d?.driver_id && d?.vehicle_id) &&
+            d?.fuel_issuance_status !== "pending" &&
+            ["assigned", "accepted", "in_transit", "arrived"].includes(d?.status)
+        );
         if (pending) targetDeliveryId = pending.delivery_id;
       }
 
@@ -86,8 +92,9 @@ export default function PreInspection() {
   }, [itemStates]);
 
   const isAllAnswered = progress.completed === progress.total;
-  const hasOdometer = odometer.trim().length > 0;
-  const canComplete = isAllAnswered && hasOdometer && !submitting;
+  const hasOdometer = odometer.trim().length > 0 && !isNaN(Number(odometer));
+  const hasEndingFuel = !isPost || (endingFuel.trim().length > 0 && !isNaN(Number(endingFuel)));
+  const canComplete = isAllAnswered && hasOdometer && hasEndingFuel && !submitting;
   const hasDefects = progress.defects > 0;
   const canReport = hasDefects && !submitting;
 
@@ -122,6 +129,8 @@ export default function PreInspection() {
         Alert.alert("Checklist Incomplete", `Please answer all checklist items (${progress.completed}/${progress.total}) before completing.`);
       } else if (!hasOdometer) {
         Alert.alert("Odometer Required", `Please enter the ${isPost ? "ending" : "starting"} odometer reading.`);
+      } else if (isPost && !hasEndingFuel) {
+        Alert.alert("Ending Fuel Required", "Please enter the ending fuel reading (in liters) before completing Post-Trip Inspection.");
       }
       return;
     }
@@ -150,6 +159,7 @@ export default function PreInspection() {
         payload.starting_odometer = Number(odometer) || 0;
       } else {
         payload.ending_odometer = Number(odometer) || 0;
+        payload.ending_fuel = Number(endingFuel);
       }
 
       await saveChecklist(deliveryId, payload);
@@ -194,6 +204,9 @@ export default function PreInspection() {
           onItemChange={handleItemChange}
           odometer={odometer}
           onOdometerChange={setOdometer}
+          endingFuel={endingFuel}
+          onEndingFuelChange={setEndingFuel}
+          startingFuel={delivery?.starting_fuel ?? delivery?.fuel_issued ?? null}
           photos={photos}
           onPhotosChange={setPhotos}
           onProgressChange={handleProgressChange}

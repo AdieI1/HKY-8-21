@@ -109,21 +109,47 @@ export default function RequestDetailsModal({
                 </span>
                 <div style={{ padding: 10, border: '1px solid #E2E8F0', borderRadius: 6, background: '#F8FAFC' }}>
                   {selectedRequest.item_permit_url ? (
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#0369A1', marginBottom: 6 }}>
-                        {selectedRequest.item_permit_type || 'Cargo Quarantine Clearance'}
-                      </div>
-                      <a href={selectedRequest.item_permit_url} target="_blank" rel="noreferrer" title="Click to view full permit document">
-                        <img
-                          src={selectedRequest.item_permit_url}
-                          alt="Item Delivery Permit"
-                          style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 6, objectFit: 'contain', background: '#fff', border: '1px solid #CBD5E1' }}
-                        />
-                      </a>
-                      <div style={{ fontSize: 11, color: '#64748B', marginTop: 4, textAlign: 'center' }}>
-                        Click image to view high-res soft copy
-                      </div>
-                    </div>
+                    (() => {
+                      const permitUrl = String(selectedRequest.item_permit_url);
+                      const cleanPath = permitUrl.split('?')[0].toLowerCase();
+                      const isPdf = cleanPath.endsWith('.pdf') || permitUrl.toLowerCase().startsWith('data:application/pdf');
+                      const isImg =
+                        permitUrl.toLowerCase().startsWith('data:image/') ||
+                        /\.(png|jpe?g|webp|gif|bmp|svg)$/.test(cleanPath);
+                      return (
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#0369A1', marginBottom: 6 }}>
+                            {selectedRequest.item_permit_type || 'Cargo Quarantine Clearance'}
+                          </div>
+                          {isImg ? (
+                            <a href={permitUrl} target="_blank" rel="noreferrer" title="Click to view full permit document">
+                              <img
+                                src={permitUrl}
+                                alt="Item Delivery Permit"
+                                style={{ maxWidth: '100%', maxHeight: 150, borderRadius: 6, objectFit: 'contain', background: '#fff', border: '1px solid #CBD5E1' }}
+                              />
+                            </a>
+                          ) : isPdf ? (
+                            <iframe
+                              src={permitUrl}
+                              title="Item Delivery Permit PDF"
+                              style={{ width: '100%', height: 190, borderRadius: 6, border: '1px solid #CBD5E1', background: '#fff' }}
+                            />
+                          ) : (
+                            <div style={{ padding: '10px 12px', borderRadius: 6, background: '#fff', border: '1px solid #CBD5E1', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#1E293B', fontWeight: 600 }}>
+                              <i className="fas fa-file-alt" style={{ color: '#0284C7', fontSize: 18 }}></i>
+                              <span>{permitUrl.split('?')[0].split('/').pop() || 'Attached Permit Document'}</span>
+                            </div>
+                          )}
+                          <div style={{ fontSize: 11.5, marginTop: 6, textAlign: 'center' }}>
+                            <a href={permitUrl} target="_blank" rel="noreferrer" style={{ color: '#0284C7', fontWeight: 600, textDecoration: 'none' }}>
+                              <i className="fas fa-arrow-up-right-from-square" style={{ marginRight: 4 }}></i>
+                              Open / Download Permit Soft Copy
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })()
                   ) : (
                     <div style={{ color: '#888', fontSize: 12 }}>
                       No commodity quarantine permit attached. (Standard cargo)
@@ -187,15 +213,13 @@ export default function RequestDetailsModal({
                     <>
                       <span>{selectedRequest.receiver_name}</span>
                       {selectedRequest.receiver_phone && (
-                        <a
-                          href={`tel:${selectedRequest.receiver_phone}`}
+                        <span
                           style={{
                             marginLeft: '8px',
                             color: '#0284c7',
                             background: '#e0f2fe',
                             padding: '2px 8px',
                             borderRadius: '4px',
-                            textDecoration: 'none',
                             fontSize: '13px',
                             display: 'inline-flex',
                             alignItems: 'center',
@@ -204,7 +228,7 @@ export default function RequestDetailsModal({
                         >
                           <i className="fas fa-phone-alt" style={{ fontSize: '11px' }}></i>
                           {selectedRequest.receiver_phone}
-                        </a>
+                        </span>
                       )}
                     </>
                   ) : (

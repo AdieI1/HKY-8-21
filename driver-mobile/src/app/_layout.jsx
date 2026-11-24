@@ -1,6 +1,7 @@
 import { Stack } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ThemeProvider } from "../context/ThemeContext";
+import DriverNotificationManager from "../../components/DriverNotificationManager";
 
 export default function RootLayout() {
   return (
@@ -15,6 +16,7 @@ export default function RootLayout() {
           <Stack.Screen name="navigation" />
           <Stack.Screen name="reportissue" />
         </Stack>
+        <DriverNotificationManager />
       </ThemeProvider>
     </SafeAreaProvider>
   );

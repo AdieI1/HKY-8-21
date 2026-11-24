@@ -4,6 +4,7 @@ import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
 import TableSkeleton from '../components/TableSkeleton';
+import reverb from '../utils/reverb';
 
 function formatDate(dateString) {
   if (!dateString) return '—';
@@ -48,6 +49,9 @@ const EMPTY_ISSUE_FORM = {
 function FuelInventoryPage() {
   const [fuels, setFuels] = useState([]);
   const [issuances, setIssuances] = useState([]);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [pendingOverrides, setPendingOverrides] = useState({});
+  const [processingPendingId, setProcessingPendingId] = useState(null);
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -97,29 +101,139 @@ function FuelInventoryPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setLoadError('');
+  const loadData = useCallback(async (isSilent = false) => {
+    if (!isSilent) {
+      setLoading(true);
+      setLoadError('');
+    }
     try {
-      const [fuelsRes, issuancesRes, vehiclesRes, driversRes] = await Promise.all([
-        api.get('/fuel-inventory'),
-        api.get('/fuel-issuances'),
-        api.get('/vehicles'),
-        api.get('/drivers'),
-      ]);
-      setFuels(fuelsRes.data);
-      setIssuances(issuancesRes.data);
-      setVehicles(vehiclesRes.data);
-      setDrivers(driversRes.data);
+      if (isSilent) {
+        const [fuelsRes, issuancesRes, pendingRes] = await Promise.all([
+          api.get('/fuel-inventory', { skipCache: true }),
+          api.get('/fuel-issuances', { skipCache: true }),
+          api.get('/fuel-issuances/pending', { skipCache: true }).catch(() => ({ data: [] })),
+        ]);
+        setFuels(fuelsRes.data);
+        setIssuances(issuancesRes.data);
+        setPendingRequests(Array.isArray(pendingRes.data) ? pendingRes.data : []);
+      } else {
+        const [fuelsRes, issuancesRes, pendingRes, vehiclesRes, driversRes] = await Promise.all([
+          api.get('/fuel-inventory', { skipCache: true }),
+          api.get('/fuel-issuances', { skipCache: true }),
+          api.get('/fuel-issuances/pending', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/vehicles'),
+          api.get('/drivers'),
+        ]);
+        setFuels(fuelsRes.data);
+        setIssuances(issuancesRes.data);
+        setPendingRequests(Array.isArray(pendingRes.data) ? pendingRes.data : []);
+        setVehicles(vehiclesRes.data);
+        setDrivers(driversRes.data);
+      }
     } catch (err) {
-      setLoadError('Could not load fuel inventory. Is the backend running and are you logged in?');
+      if (!isSilent) {
+        setLoadError('Could not load fuel inventory. Is the backend running and are you logged in?');
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, []);
 
+  const handleConfirmPendingFuel = async (req) => {
+    const override = pendingOverrides[req.issuance_id] || {};
+    const chosenFuelId = override.fuel_id ?? req.fuel_id;
+    const fixedLiters = Number(req.liters || 0);
+
+    if (!fixedLiters || fixedLiters <= 0) {
+      setToast({ type: 'error', message: 'Invalid fuel quantity on this trip ticket.' });
+      setTimeout(() => setToast(null), 4000);
+      return;
+    }
+
+    setProcessingPendingId(req.issuance_id);
+    try {
+      const res = await api.post(`/fuel-issuances/${req.issuance_id}/confirm`, {
+        fuel_id: chosenFuelId,
+      });
+      const receiptNo = res.data?.fuel_receipt_no;
+      setToast({
+        type: 'success',
+        message: receiptNo
+          ? `Fuel confirmed (${receiptNo})! Stock deducted and trip released for Pre-Trip Inspection.`
+          : 'Fuel issuance confirmed and delivery released for Pre-Trip Inspection.',
+      });
+      setTimeout(() => setToast(null), 5000);
+      await loadData();
+    } catch (err) {
+      setToast({
+        type: 'error',
+        message: err.response?.data?.message || 'Could not confirm fuel issuance.',
+      });
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setProcessingPendingId(null);
+    }
+  };
+
+  const handleRejectPendingFuel = async (req) => {
+    setProcessingPendingId(req.issuance_id);
+    try {
+      await api.post(`/fuel-issuances/${req.issuance_id}/reject`, {
+        reason: 'Returned by Fuel Inventory for review',
+      });
+      setToast({
+        type: 'success',
+        message: 'Fuel request returned to Dispatch and driver/truck released.',
+      });
+      setTimeout(() => setToast(null), 4000);
+      await loadData();
+    } catch (err) {
+      setToast({
+        type: 'error',
+        message: err.response?.data?.message || 'Could not return fuel request.',
+      });
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setProcessingPendingId(null);
+    }
+  };
+
   useEffect(() => {
-    loadData();
+    loadData(false);
+
+    // Live updates for Pending Fuel Issuance confirmations without manual page refresh
+    const unsubDelivery = reverb.subscribe('deliveries', 'delivery.updated', () => {
+      loadData(true);
+    });
+    const unsubNotif = reverb.subscribe('system-notifications', 'notification.created', () => {
+      loadData(true);
+    });
+
+    const handleLiveRefresh = () => {
+      if (!document.hidden) {
+        loadData(true);
+      }
+    };
+    window.addEventListener('focus', handleLiveRefresh);
+    window.addEventListener('app:data-mutated', handleLiveRefresh);
+    document.addEventListener('visibilitychange', handleLiveRefresh);
+
+    const pollInterval = setInterval(() => {
+      if (!document.hidden) {
+        loadData(true);
+      }
+    }, 8000);
+
+    return () => {
+      unsubDelivery();
+      unsubNotif();
+      window.removeEventListener('focus', handleLiveRefresh);
+      window.removeEventListener('app:data-mutated', handleLiveRefresh);
+      document.removeEventListener('visibilitychange', handleLiveRefresh);
+      clearInterval(pollInterval);
+    };
   }, [loadData]);
 
   // Derived Total Inventory Value
@@ -459,6 +573,186 @@ function FuelInventoryPage() {
             </article>
           </section>
 
+          {/* Pending Trip Fuel Confirmations Queue */}
+          {pendingRequests.length > 0 && (
+            <div
+              className="content-section"
+              style={{
+                marginBottom: 20,
+                border: '1.5px solid #fcd34d',
+                background: '#fffbeb',
+                borderRadius: 12,
+                padding: '16px 20px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 8,
+                      background: '#f59e0b',
+                      color: '#fff',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 15,
+                    }}
+                  >
+                    <i className="fas fa-gas-pump"></i>
+                  </span>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 15.5, fontWeight: 800, color: '#92400e' }}>
+                      Pending Fuel Issuance Confirmations ({pendingRequests.length})
+                    </h3>
+                    <span style={{ fontSize: 12, color: '#a16207' }}>
+                      Confirm fuel issuance to deduct stock, auto-generate the Fuel Receipt No., and release the truck for Pre-Trip Inspection.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table" style={{ background: '#ffffff', borderRadius: 8, overflow: 'hidden' }}>
+                  <thead>
+                    <tr>
+                      <th>Delivery</th>
+                      <th>Vehicle &amp; Driver</th>
+                      <th>Customer / Destination</th>
+                      <th>Fuel Tank</th>
+                      <th>Liters</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingRequests.map((req) => {
+                      const override = pendingOverrides[req.issuance_id] || {};
+                      const selectedFuelId = override.fuel_id ?? req.fuel_id;
+                      const litersVal = Number(req.liters || 0);
+                      const tank = fuels.find((f) => Number(f.fuel_id) === Number(selectedFuelId)) || req.fuel;
+                      const insufficient = tank && Number(tank.current_stock || 0) < litersVal;
+                      const isBusy = processingPendingId === req.issuance_id;
+                      const delCode = req.delivery_id ? `DLV${String(req.delivery_id).padStart(4, '0')}` : `FTX-${String(req.issuance_id).padStart(5, '0')}`;
+
+                      return (
+                        <tr key={req.issuance_id}>
+                          <td style={{ fontWeight: 800, fontFamily: 'monospace', color: '#0f172a', whiteSpace: 'nowrap' }}>
+                            {delCode}
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13 }}>
+                              {req.vehicle ? `${req.vehicle.model || 'Truck'} (${req.vehicle.plate_number || '—'})` : 'Vehicle'}
+                            </div>
+                            <div style={{ fontSize: 12, color: '#64748b' }}>
+                              Driver: {req.driver?.user?.full_name || 'Assigned Driver'}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                              {req.delivery?.request?.customer?.full_name || 'Customer'}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: '#64748b', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {req.delivery?.request?.dropoff_address || req.purpose || '—'}
+                            </div>
+                          </td>
+                          <td>
+                            <select
+                              value={selectedFuelId || ''}
+                              disabled={isBusy}
+                              onChange={(e) =>
+                                setPendingOverrides((prev) => ({
+                                  ...prev,
+                                  [req.issuance_id]: { ...prev[req.issuance_id], fuel_id: Number(e.target.value) },
+                                }))
+                              }
+                              style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12.5, fontWeight: 600 }}
+                            >
+                              {fuels.map((f) => (
+                                <option key={f.fuel_id} value={f.fuel_id}>
+                                  {f.fuel_type} ({Number(f.current_stock || 0).toLocaleString()} L avail)
+                                </option>
+                              ))}
+                            </select>
+                            {insufficient && (
+                              <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 700, marginTop: 3 }}>
+                                Insufficient stock ({Number(tank.current_stock || 0).toLocaleString()} L)
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <span
+                              title="Fixed fuel allocation set by Dispatch"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                padding: '5px 10px',
+                                borderRadius: 6,
+                                background: insufficient ? '#fef2f2' : '#f1f5f9',
+                                border: insufficient ? '1px solid #fecaca' : '1px solid #cbd5e1',
+                                color: insufficient ? '#b91c1c' : '#0f172a',
+                                fontWeight: 800,
+                                fontSize: 13,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <i className="fas fa-lock" style={{ fontSize: 10, opacity: 0.65 }}></i>
+                              {litersVal.toLocaleString()} L
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                disabled={isBusy || insufficient}
+                                onClick={() => handleConfirmPendingFuel(req)}
+                                style={{
+                                  background: insufficient ? '#cbd5e1' : '#16a34a',
+                                  color: insufficient ? '#64748b' : '#ffffff',
+                                  border: 'none',
+                                  padding: '7px 12px',
+                                  borderRadius: 6,
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  cursor: isBusy || insufficient ? 'not-allowed' : 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                }}
+                              >
+                                <i className={isBusy ? 'fas fa-spinner fa-spin' : 'fas fa-check-circle'}></i>
+                                <span>{isBusy ? 'Processing...' : 'Confirm & Issue'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => handleRejectPendingFuel(req)}
+                                title="Return to Dispatch without issuing fuel"
+                                style={{
+                                  background: '#ffffff',
+                                  color: '#b91c1c',
+                                  border: '1px solid #fecaca',
+                                  padding: '7px 10px',
+                                  borderRadius: 6,
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  cursor: isBusy ? 'not-allowed' : 'pointer',
+                                }}
+                              >
+                                Return
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* Fuel Inventory Table Section */}
           <div className="content-section fuel-inventory-section">
             <div className="fuel-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
@@ -613,6 +907,7 @@ function FuelInventoryPage() {
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th>Transaction ID</th>
                     <th>Date & Time</th>
                     <th>Type</th>
                     <th>Fuel Type</th>
@@ -626,14 +921,23 @@ function FuelInventoryPage() {
                 </thead>
                 <tbody>
                   {loading ? (
-                    <TableSkeleton rows={4} columns={9} />
+                    <TableSkeleton rows={4} columns={10} />
                   ) : filteredHistory.length === 0 ? (
-                    <tr><td colSpan="9" style={{ textAlign: 'center', padding: 20, color: '#888' }}>No fuel transactions found for this period.</td></tr>
+                    <tr><td colSpan="10" style={{ textAlign: 'center', padding: 20, color: '#888' }}>No fuel transactions found for this period.</td></tr>
                   ) : (
                     paginatedRecentTx.map((tx) => {
                       const isIn = tx.transaction_type === 'in';
+                      const txCode = `FTX-${String(tx.issuance_id || 0).padStart(5, '0')}`;
                       return (
                         <tr key={tx.issuance_id}>
+                          <td style={{ fontWeight: 700, fontFamily: 'monospace', color: '#0f172a', whiteSpace: 'nowrap' }}>
+                            <div>{txCode}</div>
+                            {tx.fuel_receipt_no && (
+                              <div style={{ fontSize: 11, color: '#15803d', fontWeight: 700, marginTop: 2 }}>
+                                {tx.fuel_receipt_no}
+                              </div>
+                            )}
+                          </td>
                           <td>{formatDateTime(tx.issued_at || tx.created_at)}</td>
                           <td>
                             <span style={{
@@ -821,8 +1125,8 @@ function FuelInventoryPage() {
               </div>
             </div>
             <div className="modal-footer" style={{ padding: '14px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <button className="btn-cancel" onClick={() => setShowReceiveModal(false)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer' }}>Cancel</button>
-              <button className="btn-save" onClick={submitReceive} disabled={saving} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: '#16a34a', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
+              <button type="button" onClick={() => setShowReceiveModal(false)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+              <button type="button" className="btn-save" onClick={submitReceive} disabled={saving} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: '#16a34a', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
                 {saving ? 'Receiving...' : 'Confirm Receipt'}
               </button>
             </div>
@@ -923,8 +1227,8 @@ function FuelInventoryPage() {
               </div>
             </div>
             <div className="modal-footer" style={{ padding: '14px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <button className="btn-cancel" onClick={() => setShowIssueModal(false)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer' }}>Cancel</button>
-              <button className="btn-save" onClick={submitIssue} disabled={saving} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
+              <button type="button" onClick={() => setShowIssueModal(false)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+              <button type="button" className="btn-save" onClick={submitIssue} disabled={saving} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
                 {saving ? 'Issuing...' : 'Confirm Issue'}
               </button>
             </div>
@@ -978,8 +1282,8 @@ function FuelInventoryPage() {
               </div>
             </div>
             <div className="modal-footer" style={{ padding: '14px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <button className="btn-cancel" onClick={() => setShowEditModal(false)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer' }}>Cancel</button>
-              <button className="btn-save" onClick={submitEdit} disabled={saving} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: '#475569', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
+              <button type="button" onClick={() => setShowEditModal(false)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+              <button type="button" className="btn-save" onClick={submitEdit} disabled={saving} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: '#475569', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
                 {saving ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
@@ -1204,6 +1508,7 @@ function FuelInventoryPage() {
                   <table className="data-table">
                     <thead>
                       <tr>
+                        <th>Transaction ID</th>
                         <th>Date &amp; Time</th>
                         <th>Type</th>
                         <th>Fuel</th>
@@ -1221,8 +1526,17 @@ function FuelInventoryPage() {
                         const pageItems = filteredHistory.slice(startIndex, startIndex + 5);
                         return pageItems.map((tx) => {
                           const isIn = tx.transaction_type === 'in';
+                          const txCode = `FTX-${String(tx.issuance_id || 0).padStart(5, '0')}`;
                           return (
                             <tr key={tx.issuance_id}>
+                              <td style={{ fontWeight: 700, fontFamily: 'monospace', color: '#0f172a', whiteSpace: 'nowrap' }}>
+                            <div>{txCode}</div>
+                            {tx.fuel_receipt_no && (
+                              <div style={{ fontSize: 11, color: '#15803d', fontWeight: 700, marginTop: 2 }}>
+                                {tx.fuel_receipt_no}
+                              </div>
+                            )}
+                          </td>
                               <td>{formatDateTime(tx.issued_at || tx.created_at)}</td>
                               <td>
                                 <span style={{
@@ -1256,7 +1570,7 @@ function FuelInventoryPage() {
                         });
                       })()}
                       {filteredHistory.length === 0 && (
-                        <tr><td colSpan="9" style={{ textAlign: 'center', padding: 24, color: '#888' }}>No transactions recorded for this selection.</td></tr>
+                        <tr><td colSpan="10" style={{ textAlign: 'center', padding: 24, color: '#888' }}>No transactions recorded for this selection.</td></tr>
                       )}
                     </tbody>
                   </table>

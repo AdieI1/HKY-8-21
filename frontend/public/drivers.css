@@ -3426,13 +3426,20 @@
 }
 
 
-/* ── Print Media Query ── */
+/* ── Print Media Query — scoped ONLY when PrintableIncidentModal is open ── */
 @media print {
-    body * {
+    html:has(.incident-print-modal-overlay),
+    body:has(.incident-print-modal-overlay) {
+        background: #ffffff !important;
+        overflow: visible !important;
+        height: auto !important;
+    }
+
+    body:has(.incident-print-modal-overlay) * {
         visibility: hidden !important;
     }
 
-    .incident-print-modal-overlay {
+    body:has(.incident-print-modal-overlay) .incident-print-modal-overlay {
         position: absolute !important;
         inset: 0 !important;
         background: #fff !important;
@@ -3442,21 +3449,22 @@
         z-index: 999999 !important;
     }
 
-    .incident-print-modal-container {
+    body:has(.incident-print-modal-overlay) .incident-print-modal-container {
         max-width: 100% !important;
         margin: 0 !important;
     }
 
-    .no-print {
+    body:has(.incident-print-modal-overlay) .no-print,
+    body:has(.incident-print-modal-overlay) .dashboard-container {
         display: none !important;
     }
 
-    .incident-paper-sheet,
-    .incident-paper-sheet * {
+    body:has(.incident-print-modal-overlay) .incident-paper-sheet,
+    body:has(.incident-print-modal-overlay) .incident-paper-sheet * {
         visibility: visible !important;
     }
 
-    .incident-paper-sheet {
+    body:has(.incident-print-modal-overlay) .incident-paper-sheet {
         position: absolute !important;
         left: 0 !important;
         top: 0 !important;

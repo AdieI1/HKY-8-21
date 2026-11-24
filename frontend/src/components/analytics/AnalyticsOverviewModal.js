@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import ExportMenu from '../ExportMenu';
 
 const MONTHS_FULL = [
   'January',
@@ -198,23 +199,33 @@ function AnalyticsOverviewModal({ isOpen, type, onClose, deliveries = [] }) {
   const title = isRevenue ? 'Revenue Overview' : 'Deliveries Overview';
   const valueColumnLabel = isRevenue ? 'Total Revenue' : 'Total Deliveries';
 
-  const handleExport = () => {
-    const csvRows = [
-      [groupBy === 'monthly' ? 'Month' : 'Period', valueColumnLabel],
-      ...tableData.map((row) => [row.period, row.value]),
-    ];
-
-    const csvContent = csvRows
-      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${type}-overview-${selectedYear}-${groupBy}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const buildOverviewExportSpec = () => {
+    const totalVal = tableData.reduce((s, r) => s + Number(r.rawValue || 0), 0);
+    return {
+      filename: `HJY-${type}-overview-${selectedYear}-${groupBy}`,
+      sheetName: title,
+      title: `${title} (${selectedYear})`,
+      subtitle: `Grouped ${groupBy}`,
+      summary: [
+        { label: 'Reporting Year', value: selectedYear },
+        { label: 'Grouping', value: groupBy.charAt(0).toUpperCase() + groupBy.slice(1) },
+        { label: isRevenue ? 'Total Revenue' : 'Total Deliveries', value: totalVal, format: isRevenue ? 'currency' : 'integer' },
+      ],
+      tables: [
+        {
+          title: `${title} Breakdown`,
+          columns: [
+            { header: groupBy === 'monthly' ? 'Month' : 'Period', align: 'left', bold: true, minWidth: 24 },
+            { header: isRevenue ? 'Total Revenue (PHP)' : 'Total Deliveries', align: 'right', format: isRevenue ? 'currency' : 'integer', minWidth: 22 },
+          ],
+          rows: tableData.map((row) => [
+            row.period,
+            row.isFuture ? '—' : Number(row.rawValue || 0),
+          ]),
+          totalsRow: ['TOTAL', totalVal],
+        },
+      ],
+    };
   };
 
   return (
@@ -277,15 +288,13 @@ function AnalyticsOverviewModal({ isOpen, type, onClose, deliveries = [] }) {
             </select>
           </div>
 
-          <button
-            type="button"
+          <ExportMenu
+            getSpec={buildOverviewExportSpec}
+            label="Export"
             className="overview-export-pill-btn"
-            onClick={handleExport}
-            title="Export overview table as CSV"
-          >
-            <i className="fas fa-arrow-up-from-bracket"></i>
-            <span>Export</span>
-          </button>
+            iconClass="fas fa-arrow-up-from-bracket"
+            title="Export overview table as Excel (.xlsx) or CSV (.csv)"
+          />
         </div>
 
         {/* Data Breakdown Table */}

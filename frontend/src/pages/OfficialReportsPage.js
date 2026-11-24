@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from '../components/Sidebar';
 import NotificationBell from '../components/NotificationBell';
+import ExportMenu from '../components/ExportMenu';
 import api from '../api/api-client';
 import './OfficialReportsPage.css';
 
@@ -183,7 +184,7 @@ export default function OfficialReportsPage() {
     setTimeout(() => {
       window.print();
       setIsPrinting(false);
-    }, 60);
+    }, 150);
   };
 
   const [deliveries, setDeliveries] = useState([]);
@@ -330,9 +331,9 @@ export default function OfficialReportsPage() {
     const avgRating =
       periodReviews.length > 0
         ? (
-            periodReviews.reduce((s, r) => s + Number(r.overall_rating || r.driver_rating || 0), 0) /
-            periodReviews.length
-          ).toFixed(1)
+          periodReviews.reduce((s, r) => s + Number(r.overall_rating || r.driver_rating || 0), 0) /
+          periodReviews.length
+        ).toFixed(1)
         : '—';
 
     return { total, completed, delayed, completionRate, totalDistance, totalFuel, avgRating };
@@ -348,9 +349,9 @@ export default function OfficialReportsPage() {
       const rating =
         drvReviews.length > 0
           ? (
-              drvReviews.reduce((s, r) => s + Number(r.driver_rating || r.overall_rating || 0), 0) /
-              drvReviews.length
-            ).toFixed(1)
+            drvReviews.reduce((s, r) => s + Number(r.driver_rating || r.overall_rating || 0), 0) /
+            drvReviews.length
+          ).toFixed(1)
           : '—';
       const drvIncidents = periodIncidents.filter(
         (inc) => Number(inc.reported_by) === Number(drv.user_id) || drvDelIds.has(Number(inc.delivery_id))
@@ -434,87 +435,347 @@ export default function OfficialReportsPage() {
   const periodLabel = getPeriodRangeLabel(timeframe, now);
   const docRef = `REP-${activeReportMeta.code}-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
 
-  // CSV Export tailored to the active report
-  const handleExportCsv = () => {
-    let headers = [];
-    let rows = [];
+  // Unified Export Spec (powers both Minimalist Excel .xlsx and Structured CSV .csv)
+  const buildExportSpec = () => {
+    const baseSpec = {
+      filename: `HJY-${activeReportMeta.code}-Report-${timeframe}-${now.toISOString().slice(0, 10)}`,
+      sheetName: activeReportMeta.title,
+      title: `Official ${activeReportMeta.title} Report`,
+      subtitle: periodLabel,
+      docRef,
+    };
 
     if (selectedReport === 'revenue') {
-      headers = ['Delivery ID', 'Date', 'Customer', 'Cargo', 'Amount (PHP)', 'Payment Status'];
-      rows = revenueData.billable.map((d) => [
-        deliveryCode(d.delivery_id),
-        formatDate(d.trip_date || d.created_at),
-        d.request?.customer?.full_name || 'Customer',
-        d.request?.item_name || d.request?.cargo_type || 'Cargo',
-        revenueData.getAmount(d).toFixed(2),
-        (d.payment_verification || 'pending').toUpperCase(),
-      ]);
-    } else if (selectedReport === 'performance') {
-      headers = ['Delivery ID', 'Date', 'Driver', 'Vehicle', 'Distance (km)', 'Status'];
-      rows = periodDeliveries.map((d) => [
-        deliveryCode(d.delivery_id),
-        formatDate(d.trip_date || d.created_at),
-        d.driver?.user?.full_name || 'Driver',
-        d.vehicle?.plate_number || '—',
-        Number(d.distance_travelled || d.request?.distance_km || 0).toFixed(1),
-        String(d.status || '').replace(/_/g, ' ').toUpperCase(),
-      ]);
-    } else if (selectedReport === 'drivers') {
-      headers = ['Driver', 'License #', 'Status', 'Total Trips', 'Completed Trips', 'Avg Rating', 'Incidents'];
-      rows = driverReportRows.map((r) => [
-        r.name,
-        r.license,
-        r.status,
-        r.totalTrips,
-        r.completedTrips,
-        r.rating,
-        r.incidents,
-      ]);
-    } else if (selectedReport === 'vehicles') {
-      headers = ['Plate #', 'Vehicle Model', 'Status', 'Odometer', 'Trips', 'Distance', 'Maintenance Logs'];
-      rows = vehicleReportRows.map((r) => [
-        r.plate,
-        r.model,
-        r.status,
-        r.odometer,
-        r.trips,
-        r.distance,
-        r.maintCount,
-      ]);
-    } else if (selectedReport === 'inventory') {
-      headers = ['Category', 'Item Name', 'Supplier', 'Current Stock', 'Reorder Level', 'Unit Price', 'Status'];
-      rows = [...inventoryData.fuelRows, ...inventoryData.partRows].map((r) => [
-        r.category,
-        r.name,
-        r.supplier,
-        r.stock,
-        r.reorder,
-        r.unitPrice,
-        r.label,
-      ]);
-    } else if (selectedReport === 'issues') {
-      headers = ['Incident ID', 'Date', 'Type', 'Severity', 'Delivery', 'Description', 'Status'];
-      rows = periodIncidents.map((inc) => [
-        `INC-${String(inc.incident_id || 0).padStart(5, '0')}`,
-        formatDate(inc.reported_at || inc.created_at),
-        String(inc.incident_type || 'other').replace(/_/g, ' '),
-        String(inc.severity || 'medium').toUpperCase(),
-        inc.delivery_id ? deliveryCode(inc.delivery_id) : '—',
-        inc.description || '—',
-        String(inc.status || 'pending').toUpperCase(),
-      ]);
+      return {
+        ...baseSpec,
+        summary: [
+          { label: 'Gross Revenue', value: revenueData.gross, format: 'currency' },
+          { label: 'Approved / Paid', value: revenueData.approved, format: 'currency' },
+          { label: 'Pending Verification', value: revenueData.pending, format: 'currency' },
+          { label: 'Average Revenue per Trip', value: revenueData.avg, format: 'currency' },
+          { label: 'Total Billable Deliveries', value: revenueData.billable.length, format: 'integer' },
+        ],
+        tables: [
+          {
+            title: 'Itemized Revenue & Billing Ledger',
+            columns: [
+              { header: 'Tracking #', align: 'center', bold: true, minWidth: 14 },
+              { header: 'Date', align: 'center', minWidth: 15 },
+              { header: 'Customer', align: 'left', minWidth: 22 },
+              { header: 'Cargo', align: 'left', minWidth: 24 },
+              { header: 'Driver', align: 'left', minWidth: 20 },
+              { header: 'Amount (PHP)', align: 'right', format: 'currency', minWidth: 18 },
+              { header: 'Payment Status', align: 'center', minWidth: 16 },
+            ],
+            rows: revenueData.billable.map((d) => [
+              deliveryCode(d.delivery_id),
+              formatDate(d.trip_date || d.created_at),
+              d.request?.customer?.full_name || d.request?.receiver_name || 'Customer',
+              d.request?.item_name || d.request?.cargo_type || 'Cargo',
+              d.driver?.user?.full_name || 'Unassigned',
+              revenueData.getAmount(d),
+              (d.payment_verification || 'pending').toUpperCase(),
+            ]),
+            totalsRow: [
+              'TOTAL',
+              '',
+              `${revenueData.billable.length} deliveries`,
+              '',
+              '',
+              revenueData.gross,
+              '',
+            ],
+          },
+          {
+            title: 'Top Clients by Revenue',
+            columns: [
+              { header: 'Rank', align: 'center', format: 'integer', minWidth: 10 },
+              { header: 'Client Name', align: 'left', minWidth: 26 },
+              { header: 'Deliveries', align: 'right', format: 'integer', minWidth: 14 },
+              { header: 'Total Revenue (PHP)', align: 'right', format: 'currency', minWidth: 22 },
+            ],
+            rows: revenueData.topCustomers.map((c, idx) => [
+              idx + 1,
+              c.name,
+              c.trips,
+              c.revenue,
+            ]),
+            totalsRow: [
+              'TOTAL',
+              `${revenueData.topCustomers.length} clients`,
+              revenueData.billable.length,
+              revenueData.gross,
+            ],
+          },
+        ],
+      };
     }
 
-    const csv = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `HJY-${activeReportMeta.code}-Report-${timeframe}-${now.toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    if (selectedReport === 'performance') {
+      return {
+        ...baseSpec,
+        summary: [
+          { label: 'Total Deliveries', value: performanceData.total, format: 'integer' },
+          { label: 'Completed Deliveries', value: performanceData.completed, format: 'integer' },
+          { label: 'Completion Rate', value: `${performanceData.completionRate}%` },
+          { label: 'Delayed Deliveries', value: performanceData.delayed, format: 'integer' },
+          { label: 'Total Distance (km)', value: performanceData.totalDistance, format: 'decimal' },
+          { label: 'Average Rating', value: performanceData.avgRating === '—' ? 'No ratings yet' : `${performanceData.avgRating} / 5.0` },
+        ],
+        tables: [
+          {
+            title: 'Delivery Operations & Execution Log',
+            columns: [
+              { header: 'Delivery ID', align: 'center', bold: true, minWidth: 14 },
+              { header: 'Date', align: 'center', minWidth: 15 },
+              { header: 'Customer', align: 'left', minWidth: 22 },
+              { header: 'Driver', align: 'left', minWidth: 20 },
+              { header: 'Vehicle Plate', align: 'center', minWidth: 15 },
+              { header: 'Distance (km)', align: 'right', format: 'decimal', minWidth: 15 },
+              { header: 'Status', align: 'center', minWidth: 18 },
+            ],
+            rows: periodDeliveries.map((d) => [
+              deliveryCode(d.delivery_id),
+              formatDate(d.trip_date || d.created_at),
+              d.request?.customer?.full_name || 'Customer',
+              d.driver?.user?.full_name || 'Unassigned',
+              d.vehicle?.plate_number || '—',
+              Number(d.distance_travelled || d.request?.distance_km || 0),
+              String(d.status || '').replace(/_/g, ' ').toUpperCase(),
+            ]),
+            totalsRow: [
+              'TOTAL',
+              '',
+              `${periodDeliveries.length} trips`,
+              '',
+              '',
+              performanceData.totalDistance,
+              `${performanceData.completionRate}% COMPLETED`,
+            ],
+          },
+        ],
+      };
+    }
+
+    if (selectedReport === 'drivers') {
+      const totalTrips = driverReportRows.reduce((s, r) => s + r.totalTrips, 0);
+      const completedTrips = driverReportRows.reduce((s, r) => s + r.completedTrips, 0);
+      const totalInc = driverReportRows.reduce((s, r) => s + r.incidents, 0);
+      return {
+        ...baseSpec,
+        summary: [
+          { label: 'Total Drivers', value: driverReportRows.length, format: 'integer' },
+          { label: 'Total Assigned Trips', value: totalTrips, format: 'integer' },
+          { label: 'Completed Trips', value: completedTrips, format: 'integer' },
+          { label: 'Logged Incidents', value: totalInc, format: 'integer' },
+        ],
+        tables: [
+          {
+            title: 'Driver Performance & Safety Roster',
+            columns: [
+              { header: 'Driver Name', align: 'left', bold: true, minWidth: 24 },
+              { header: 'License #', align: 'center', minWidth: 18 },
+              { header: 'Status', align: 'center', minWidth: 14 },
+              { header: 'Total Trips', align: 'right', format: 'integer', minWidth: 14 },
+              { header: 'Completed Trips', align: 'right', format: 'integer', minWidth: 16 },
+              { header: 'Avg Rating', align: 'center', minWidth: 13 },
+              { header: 'Incidents', align: 'right', format: 'integer', minWidth: 12 },
+            ],
+            rows: driverReportRows.map((r) => [
+              r.name,
+              r.license,
+              String(r.status || '').toUpperCase(),
+              r.totalTrips,
+              r.completedTrips,
+              r.rating === '—' ? '—' : `${r.rating} / 5`,
+              r.incidents,
+            ]),
+            totalsRow: [
+              'TOTAL',
+              `${driverReportRows.length} drivers`,
+              '',
+              totalTrips,
+              completedTrips,
+              '',
+              totalInc,
+            ],
+          },
+        ],
+      };
+    }
+
+    if (selectedReport === 'vehicles') {
+      const totalTrips = vehicleReportRows.reduce((s, r) => s + r.trips, 0);
+      const totalMaintCost = periodMaintenances.reduce(
+        (s, m) => s + Number(m.total_cost || m.maintenance_cost || m.cost || 0),
+        0
+      );
+      return {
+        ...baseSpec,
+        summary: [
+          { label: 'Fleet Size', value: vehicleReportRows.length, format: 'integer' },
+          { label: 'Total Fleet Trips', value: totalTrips, format: 'integer' },
+          { label: 'Maintenance Records', value: periodMaintenances.length, format: 'integer' },
+          { label: 'Total Maintenance Cost', value: totalMaintCost, format: 'currency' },
+        ],
+        tables: [
+          {
+            title: 'Fleet Utilization & Status',
+            columns: [
+              { header: 'Plate #', align: 'center', bold: true, minWidth: 14 },
+              { header: 'Vehicle Model', align: 'left', minWidth: 24 },
+              { header: 'Status', align: 'center', minWidth: 16 },
+              { header: 'Odometer', align: 'right', minWidth: 15 },
+              { header: 'Trips', align: 'right', format: 'integer', minWidth: 11 },
+              { header: 'Distance', align: 'right', minWidth: 15 },
+              { header: 'Maintenance Logs', align: 'right', format: 'integer', minWidth: 17 },
+            ],
+            rows: vehicleReportRows.map((r) => [
+              r.plate,
+              r.model,
+              String(r.status || '').replace(/_/g, ' ').toUpperCase(),
+              r.odometer,
+              r.trips,
+              r.distance,
+              r.maintCount,
+            ]),
+            totalsRow: [
+              'TOTAL',
+              `${vehicleReportRows.length} vehicles`,
+              '',
+              '',
+              totalTrips,
+              '',
+              periodMaintenances.length,
+            ],
+          },
+          {
+            title: 'Vehicle Maintenance Ledger',
+            columns: [
+              { header: 'Maintenance ID', align: 'center', bold: true, minWidth: 16 },
+              { header: 'Date', align: 'center', minWidth: 15 },
+              { header: 'Plate #', align: 'center', minWidth: 14 },
+              { header: 'Service Type', align: 'left', minWidth: 24 },
+              { header: 'Cost (PHP)', align: 'right', format: 'currency', minWidth: 18 },
+              { header: 'Status', align: 'center', minWidth: 15 },
+            ],
+            rows: periodMaintenances.map((m) => [
+              `MNT-${String(m.maintenance_id || 0).padStart(4, '0')}`,
+              formatDate(m.maintenance_date || m.created_at),
+              m.vehicle?.plate_number || '—',
+              m.maintenance_type || m.service_type || 'Maintenance',
+              Number(m.total_cost || m.maintenance_cost || m.cost || 0),
+              String(m.status || 'Scheduled').toUpperCase(),
+            ]),
+            totalsRow: [
+              'TOTAL',
+              '',
+              `${periodMaintenances.length} records`,
+              '',
+              totalMaintCost,
+              '',
+            ],
+          },
+        ],
+      };
+    }
+
+    if (selectedReport === 'inventory') {
+      const allItems = [...inventoryData.fuelRows, ...inventoryData.partRows];
+      return {
+        ...baseSpec,
+        summary: [
+          { label: 'Total Fuel Stock (L)', value: inventoryData.totalFuelLiters, format: 'decimal' },
+          { label: 'Fuel Issued in Period (L)', value: inventoryData.totalFuelIssued, format: 'decimal' },
+          { label: 'Flagged Low / Out-of-Stock Items', value: inventoryData.allFlagged.length, format: 'integer' },
+          { label: 'Total Inventory Items', value: allItems.length, format: 'integer' },
+        ],
+        tables: [
+          {
+            title: 'Inventory Stock & Reorder Flags',
+            columns: [
+              { header: 'Category', align: 'left', minWidth: 16 },
+              { header: 'Item Name', align: 'left', bold: true, minWidth: 24 },
+              { header: 'Supplier', align: 'left', minWidth: 22 },
+              { header: 'Current Stock', align: 'right', minWidth: 16 },
+              { header: 'Reorder Level', align: 'right', minWidth: 16 },
+              { header: 'Unit Price', align: 'right', minWidth: 15 },
+              { header: 'Stock Status', align: 'center', minWidth: 16 },
+            ],
+            rows: allItems.map((r) => [
+              r.category,
+              r.name,
+              r.supplier,
+              r.stock,
+              r.reorder,
+              r.unitPrice,
+              r.label,
+            ]),
+          },
+          {
+            title: 'Fuel Issuances in Period',
+            columns: [
+              { header: 'Transaction ID', align: 'center', bold: true, minWidth: 16 },
+              { header: 'Date', align: 'center', minWidth: 15 },
+              { header: 'Fuel Type', align: 'left', minWidth: 16 },
+              { header: 'Liters Issued', align: 'right', format: 'decimal', minWidth: 16 },
+              { header: 'Vehicle', align: 'left', minWidth: 22 },
+              { header: 'Purpose', align: 'left', minWidth: 24, wrap: true },
+            ],
+            rows: periodFuelIssuances.map((f) => [
+              `FTX-${String(f.issuance_id || 0).padStart(5, '0')}`,
+              formatDate(f.issued_at || f.issue_date || f.created_at),
+              f.fuel?.fuel_type || 'Fuel',
+              Number(f.liters || f.quantity || 0),
+              f.vehicle ? `${f.vehicle.model || 'Truck'} (${f.vehicle.plate_number || '—'})` : 'General',
+              f.purpose || '—',
+            ]),
+            totalsRow: [
+              'TOTAL',
+              '',
+              `${periodFuelIssuances.length} issuances`,
+              inventoryData.totalFuelIssued,
+              '',
+              '',
+            ],
+          },
+        ],
+      };
+    }
+
+    // Issues & Incidents
+    return {
+      ...baseSpec,
+      summary: [
+        { label: 'Total Incidents', value: periodIncidents.length, format: 'integer' },
+        { label: 'High Severity', value: issuesData.high, format: 'integer' },
+        { label: 'Open / Pending', value: issuesData.open, format: 'integer' },
+        { label: 'Resolved', value: issuesData.resolved, format: 'integer' },
+      ],
+      tables: [
+        {
+          title: 'Incident & Safety Reports Ledger',
+          columns: [
+            { header: 'Incident ID', align: 'center', bold: true, minWidth: 15 },
+            { header: 'Date', align: 'center', minWidth: 15 },
+            { header: 'Type', align: 'left', minWidth: 18 },
+            { header: 'Severity', align: 'center', minWidth: 13 },
+            { header: 'Delivery', align: 'center', minWidth: 14 },
+            { header: 'Description', align: 'left', minWidth: 32, maxWidth: 44, wrap: true },
+            { header: 'Status', align: 'center', minWidth: 14 },
+          ],
+          rows: periodIncidents.map((inc) => [
+            `INC-${String(inc.incident_id || 0).padStart(5, '0')}`,
+            formatDate(inc.reported_at || inc.created_at),
+            String(inc.incident_type || 'other').replace(/_/g, ' '),
+            String(inc.severity || 'medium').toUpperCase(),
+            inc.delivery_id ? deliveryCode(inc.delivery_id) : '—',
+            inc.description || '—',
+            String(inc.status || 'pending').toUpperCase(),
+          ]),
+        },
+      ],
+    };
   };
 
   return (
@@ -620,10 +881,13 @@ export default function OfficialReportsPage() {
             </div>
 
             <div className="or-doc-toolbar-actions">
-              <button type="button" className="or-btn-csv" onClick={handleExportCsv}>
-                <i className="fas fa-file-csv"></i>
-                <span>Export CSV</span>
-              </button>
+              <ExportMenu
+                getSpec={buildExportSpec}
+                label="Export"
+                className="or-btn-csv"
+                iconClass="fas fa-file-excel"
+                title="Export report as formatted Excel (.xlsx) or CSV (.csv)"
+              />
               <button type="button" className="or-btn-print" onClick={handlePrint}>
                 <i className="fas fa-print"></i>
                 <span>Print / Save as PDF</span>

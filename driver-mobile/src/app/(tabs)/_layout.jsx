@@ -1,54 +1,48 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Haptics from "expo-haptics";
-import { getMyNotifications } from "../../../services/api";
+import { getMyNotifications, getSavedUser } from "../../../services/api";
 
 import { useTheme } from "../../context/ThemeContext";
 
-const READ_STORAGE_KEY = "@driver_read_notifications";
-const SEEN_STORAGE_KEY = "@driver_seen_notifications";
+const getReadStorageKey = async () => {
+  try {
+    const user = await getSavedUser();
+    const uid = user?.user_id || user?.id || "default";
+    return `@driver_read_notifications_${uid}`;
+  } catch {
+    return "@driver_read_notifications_default";
+  }
+};
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  const checkNotifications = async () => {
+  const checkNotifications = useCallback(async () => {
     try {
-      const [list, savedRead, savedSeen] = await Promise.all([
+      const readKey = await getReadStorageKey();
+      const [list, savedRead] = await Promise.all([
         getMyNotifications().catch(() => []),
-        AsyncStorage.getItem(READ_STORAGE_KEY),
-        AsyncStorage.getItem(SEEN_STORAGE_KEY),
+        AsyncStorage.getItem(readKey),
       ]);
 
       const readIds = new Set(savedRead ? JSON.parse(savedRead) : []);
-      const seenIds = new Set(savedSeen ? JSON.parse(savedSeen) : []);
       const notifications = Array.isArray(list) ? list : [];
 
-      const unread = notifications.filter((n) => !readIds.has(n.id));
+      const unread = notifications.filter((n) => n?.id && !readIds.has(String(n.id)));
       setUnreadCount(unread.length);
-
-      const newItems = notifications.filter((n) => !seenIds.has(n.id));
-      if (newItems.length > 0) {
-        try {
-          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch {}
-        for (const item of newItems) {
-          seenIds.add(item.id);
-        }
-        await AsyncStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify([...seenIds]));
-      }
     } catch {}
-  };
+  }, []);
 
   useEffect(() => {
     checkNotifications();
-    const interval = setInterval(checkNotifications, 8000);
+    const interval = setInterval(checkNotifications, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [checkNotifications]);
 
   return (
     <Tabs
@@ -101,17 +95,23 @@ export default function TabsLayout() {
 
       <Tabs.Screen
         name="notifications"
+        listeners={{
+          tabPress: () => {
+            checkNotifications();
+          },
+        }}
         options={{
           title: "Notifications",
-          tabBarBadge: unreadCount > 0 ? "" : undefined,
+          tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? "99+" : unreadCount) : undefined,
           tabBarBadgeStyle: {
             backgroundColor: "#E53935",
-            minWidth: 8,
-            maxWidth: 8,
-            height: 8,
-            borderRadius: 4,
-            marginTop: 4,
-            marginLeft: 2,
+            color: "#FFFFFF",
+            fontSize: 10,
+            fontWeight: "700",
+            minWidth: 18,
+            height: 18,
+            borderRadius: 9,
+            lineHeight: 16,
           },
           tabBarIcon: ({ color }) => (
             <Ionicons name="notifications" size={22} color={color} />

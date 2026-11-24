@@ -64,6 +64,9 @@ export default function InspectionChecklistCard({
   onItemChange,
   odometer = "",
   onOdometerChange,
+  endingFuel = "",
+  onEndingFuelChange,
+  startingFuel = null,
   photos = [],
   onPhotosChange,
   onProgressChange,
@@ -151,16 +154,32 @@ export default function InspectionChecklistCard({
       ))}
 
       <View style={[styles.inputSection, { borderTopColor: theme.border }]}>
-        <Text style={[styles.inputLabel, { color: theme.text }]}>{isPost ? "Ending Odometer" : "Starting Odometer"}</Text>
+        <Text style={[styles.inputLabel, { color: theme.text }]}>{isPost ? "Ending Odometer (km) *" : "Starting Odometer (km) *"}</Text>
         <TextInput
           style={[styles.textInput, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
           value={odometer}
           onChangeText={onOdometerChange}
           placeholder={isPost ? "Enter ending odometer (e.g. 68000)" : "Enter starting odometer (e.g. 67000)"}
           placeholderTextColor={theme.textSecondary}
-          keyboardType="numeric"
+          keyboardType="decimal-pad"
         />
       </View>
+
+      {isPost && (
+        <View style={[styles.inputSection, { borderTopColor: theme.border, marginTop: 10, paddingTop: 10 }]}>
+          <Text style={[styles.inputLabel, { color: theme.text }]}>
+            Ending Fuel (Liters) *{startingFuel != null ? `  (Issued: ${Number(startingFuel).toLocaleString()} L)` : ""}
+          </Text>
+          <TextInput
+            style={[styles.textInput, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
+            value={endingFuel}
+            onChangeText={onEndingFuelChange}
+            placeholder="Enter remaining fuel in liters (e.g. 120)"
+            placeholderTextColor={theme.textSecondary}
+            keyboardType="decimal-pad"
+          />
+        </View>
+      )}
 
       <View style={styles.photoSection}>
         <UploadPhoto photos={photos} onPhotosChange={onPhotosChange} />

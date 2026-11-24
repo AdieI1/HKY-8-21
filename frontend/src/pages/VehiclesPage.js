@@ -5,17 +5,29 @@ import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
 import TableSkeleton from '../components/TableSkeleton';
 import PrintableIncidentModal from '../components/driver/PrintableIncidentModal';
+import reverb from '../utils/reverb';
 import {
   validatePlateNumber,
   formatPlateInput,
+  validateEngineNumber,
+  formatEngineNumberInput,
+  getEngineNumberFeedback,
+  validateChassisNumber,
+  formatChassisNumberInput,
+  getChassisNumberFeedback,
   validateDateSequence,
   validatePositiveNumber,
   validatePolicyNumber,
   formatPolicyNumberInput,
+  getPolicyNumberFeedback,
   validateOrNumber,
   formatOrNumberInput,
+  getOrNumberFeedback,
   validateCrNumber,
   formatCrNumberInput,
+  getCrNumberFeedback,
+  getTomorrowIso,
+  isStrictlyFutureDate,
 } from '../utils/validation';
 
 const ACTIVE_DELIVERY_STATUSES = [
@@ -201,10 +213,16 @@ const EMPTY_FORM = {
   model: '',
   brand: '',
   plate_number: '',
+  engine_number: '',
+  chassis_number: '',
   color: '',
   vehicle_type: '10-Wheeler Truck',
+  classification: 'Private (PVT)',
+  vehicle_category: 'N2',
+  body_type: 'Truck Tractor Head',
   fuel_type: 'diesel',
   capacity: '',
+  passenger_capacity: '',
   mileage: '',
   odometer_reading: '',
   registration_valid_from: '',
@@ -365,29 +383,69 @@ function VehiclesPage() {
     };
   };
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setLoadError('');
+  const loadData = useCallback(async (isSilent = false) => {
+    if (!isSilent) {
+      setLoading(true);
+      setLoadError('');
+    }
     try {
       const [vehiclesRes, deliveriesRes, partsRes, incidentsRes] = await Promise.all([
-        api.get('/vehicles'),
-        api.get('/deliveries'),
-        api.get('/spare-parts'),
-        api.get('/incident-reports').catch(() => ({ data: [] })),
+        api.get('/vehicles', { skipCache: true }),
+        api.get('/deliveries', { skipCache: true }),
+        isSilent ? Promise.resolve(null) : api.get('/spare-parts'),
+        api.get('/incident-reports', { skipCache: true }).catch(() => ({ data: [] })),
       ]);
       setVehicles(Array.isArray(vehiclesRes?.data) ? vehiclesRes.data : (vehiclesRes?.data?.data || []));
       setDeliveries(Array.isArray(deliveriesRes?.data) ? deliveriesRes.data : (deliveriesRes?.data?.data || []));
-      setSpareParts(Array.isArray(partsRes?.data) ? partsRes.data : (partsRes?.data?.data || []));
+      if (partsRes) {
+        setSpareParts(Array.isArray(partsRes?.data) ? partsRes.data : (partsRes?.data?.data || []));
+      }
       setIncidents(Array.isArray(incidentsRes?.data) ? incidentsRes.data : (incidentsRes?.data?.data || []));
     } catch (err) {
-      setLoadError('Could not load vehicle data. Is the backend running and are you logged in?');
+      if (!isSilent) {
+        setLoadError('Could not load vehicle data. Is the backend running and are you logged in?');
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    loadData();
+    loadData(false);
+
+    let isPolling = false;
+    const silentRefresh = async () => {
+      if (isPolling || (typeof document !== 'undefined' && document.hidden)) return;
+      isPolling = true;
+      try {
+        await loadData(true);
+      } finally {
+        isPolling = false;
+      }
+    };
+
+    const unsubDelivery = reverb.subscribe('deliveries', 'delivery.updated', silentRefresh);
+    const unsubNotif = reverb.subscribe('system-notifications', 'notification.created', silentRefresh);
+
+    const handleFocus = () => {
+      if (!document.hidden) silentRefresh();
+    };
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('app:data-mutated', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    const pollInterval = setInterval(silentRefresh, 8000);
+
+    return () => {
+      unsubDelivery();
+      unsubNotif();
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('app:data-mutated', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+      clearInterval(pollInterval);
+    };
   }, [loadData]);
 
   const assignedDriverFor = useCallback(
@@ -647,10 +705,16 @@ function VehiclesPage() {
       model: vehicle.model || '',
       brand: vehicle.brand || '',
       plate_number: vehicle.plate_number || '',
+      engine_number: vehicle.engine_number || '',
+      chassis_number: vehicle.chassis_number || '',
       color: vehicle.color || '',
       vehicle_type: vehicle.vehicle_type || '10-Wheeler Truck',
+      classification: vehicle.classification || 'Private (PVT)',
+      vehicle_category: vehicle.vehicle_category || 'N2',
+      body_type: vehicle.body_type || 'Truck Tractor Head',
       fuel_type: vehicle.fuel_type || 'diesel',
       capacity: vehicle.capacity || '',
+      passenger_capacity: vehicle.passenger_capacity != null ? vehicle.passenger_capacity : '',
       mileage: vehicle.mileage || '',
       odometer_reading: vehicle.odometer_reading || '',
       registration_valid_from: vehicle.registration_valid_from || '',
@@ -699,6 +763,16 @@ function VehiclesPage() {
     } else if (!validatePlateNumber(form.plate_number)) {
       errors.plate_number = 'Format must be ABC-1234 (3 letters, hyphen, 4 numbers)';
     }
+    if (!editingVehicle && (!form.engine_number || !form.engine_number.trim())) {
+      errors.engine_number = 'Engine Number is required';
+    } else if (form.engine_number?.trim() && !validateEngineNumber(form.engine_number)) {
+      errors.engine_number = 'Use truck engine format (e.g. 8M22-025168, 10–14 chars)';
+    }
+    if (!editingVehicle && (!form.chassis_number || !form.chassis_number.trim())) {
+      errors.chassis_number = 'Chassis Number is required';
+    } else if (form.chassis_number?.trim() && !validateChassisNumber(form.chassis_number)) {
+      errors.chassis_number = 'Use truck chassis format (e.g. FV50LH-520103) or 17-char VIN';
+    }
     if (!form.color || !form.color.trim()) {
       errors.color = 'Color is required';
     }
@@ -714,6 +788,12 @@ function VehiclesPage() {
       errors.capacity = 'Load Capacity is required';
     } else if (!validatePositiveNumber(form.capacity)) {
       errors.capacity = 'Capacity must be a positive number';
+    }
+    if (form.passenger_capacity !== '' && form.passenger_capacity != null) {
+      const pax = Number(form.passenger_capacity);
+      if (!Number.isInteger(pax) || pax < 1 || pax > 60) {
+        errors.passenger_capacity = 'Passenger capacity must be a whole number (1–60)';
+      }
     }
     if (form.mileage === '' || form.mileage == null) {
       errors.mileage = 'Mileage is required';
@@ -737,7 +817,7 @@ function VehiclesPage() {
     if (!form.insurance_policy_number || !form.insurance_policy_number.trim()) {
       errors.insurance_policy_number = 'Policy Number is required';
     } else if (!validatePolicyNumber(form.insurance_policy_number)) {
-      errors.insurance_policy_number = 'Format must be e.g. POL-8921-X (4-30 chars)';
+      errors.insurance_policy_number = 'Use valid truck policy format (e.g. MC-CV-26-0014614)';
     }
     if (!form.insurance_coverage_type) {
       errors.insurance_coverage_type = 'Coverage Type is required';
@@ -747,6 +827,8 @@ function VehiclesPage() {
     }
     if (!form.insurance_valid_until) {
       errors.insurance_valid_until = 'Valid Until date is required';
+    } else if (!isStrictlyFutureDate(form.insurance_valid_until)) {
+      errors.insurance_valid_until = 'Valid Until must be strictly after today (tomorrow onward)';
     } else if (form.insurance_valid_from && !validateDateSequence(form.insurance_valid_from, form.insurance_valid_until)) {
       errors.insurance_valid_until = 'Valid Until must be on or after Valid From date';
     }
@@ -755,18 +837,20 @@ function VehiclesPage() {
     if (!form.or_number || !form.or_number.trim()) {
       errors.or_number = 'OR Number is required';
     } else if (!validateOrNumber(form.or_number)) {
-      errors.or_number = 'Format must be e.g. OR-8912401 or 7-18 alphanumeric';
+      errors.or_number = 'Use LTO OR format (e.g. 038925000007757 or 1001-000000222188)';
     }
     if (!form.cr_number || !form.cr_number.trim()) {
       errors.cr_number = 'CR Number is required';
     } else if (!validateCrNumber(form.cr_number)) {
-      errors.cr_number = 'Format must be e.g. CR-1928401 or 7-14 alphanumeric';
+      errors.cr_number = 'Use LTO CR format (e.g. 0098260263, 29254032-3, or 1001-24-699000111)';
     }
     if (!form.registration_date) {
       errors.registration_date = 'Registration Date is required';
     }
     if (!form.expiration_date) {
       errors.expiration_date = 'Expiration Date is required';
+    } else if (!isStrictlyFutureDate(form.expiration_date)) {
+      errors.expiration_date = 'Expiration Date must be strictly after today (tomorrow onward)';
     } else if (form.registration_date && !validateDateSequence(form.registration_date, form.expiration_date)) {
       errors.expiration_date = 'Expiration date must be on or after registration date';
     }
@@ -804,10 +888,18 @@ function VehiclesPage() {
       formData.append('model', form.model);
       if (form.brand) formData.append('brand', form.brand);
       formData.append('plate_number', form.plate_number);
+      if (form.engine_number) formData.append('engine_number', form.engine_number);
+      if (form.chassis_number) formData.append('chassis_number', form.chassis_number);
       formData.append('color', form.color);
       formData.append('vehicle_type', form.vehicle_type);
+      if (form.classification) formData.append('classification', form.classification);
+      if (form.vehicle_category) formData.append('vehicle_category', form.vehicle_category);
+      if (form.body_type) formData.append('body_type', form.body_type);
       formData.append('fuel_type', form.fuel_type);
       if (form.capacity) formData.append('capacity', form.capacity);
+      if (form.passenger_capacity !== '' && form.passenger_capacity != null) {
+        formData.append('passenger_capacity', form.passenger_capacity);
+      }
       if (form.mileage) formData.append('mileage', form.mileage);
       if (form.odometer_reading) formData.append('odometer_reading', form.odometer_reading);
       if (form.registration_valid_from) formData.append('registration_valid_from', form.registration_valid_from);
@@ -1834,7 +1926,7 @@ function VehiclesPage() {
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#1e293b' }}>
-                      {schedulingVehicle.model || 'FUSO FJ 2823R'}
+                      {schedulingVehicle.model || 'Truck'}
                     </h3>
                     <span
                       style={{
@@ -2292,8 +2384,14 @@ function VehiclesPage() {
                     Vehicle Specs
                   </h4>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Vehicle Type:</strong> {selectedVehicle.vehicle_type || '—'}</p>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Body Type:</strong> {selectedVehicle.body_type || '—'}</p>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Classification:</strong> {selectedVehicle.classification || '—'}</p>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Vehicle Category:</strong> {selectedVehicle.vehicle_category || '—'}</p>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Engine No.:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{selectedVehicle.engine_number || '—'}</span></p>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Chassis No.:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{selectedVehicle.chassis_number || '—'}</span></p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Fuel Type:</strong> <span style={{ textTransform: 'capitalize' }}>{selectedVehicle.fuel_type || 'diesel'}</span></p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Load Capacity:</strong> {selectedVehicle.capacity ? `${selectedVehicle.capacity} kg` : '—'}</p>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Passenger Capacity:</strong> {selectedVehicle.passenger_capacity ? `${selectedVehicle.passenger_capacity} pax` : '—'}</p>
                   <p style={{ margin: '6px 0', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <strong>Color:</strong>
                     {selectedVehicle.color && parseColorToHex(selectedVehicle.color) && (
@@ -2703,7 +2801,7 @@ function VehiclesPage() {
                       <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.model ? '#dc2626' : '#334155', marginBottom: 4 }}>Vehicle Model <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="text"
-                        placeholder="e.g. FUSO FJ 2823R"
+                        placeholder="e.g. Super Great / FJ 2823R"
                         value={form.model}
                         onChange={(e) => handleFormFieldChange('model', e.target.value)}
                         style={getFieldStyle('model')}
@@ -2718,7 +2816,7 @@ function VehiclesPage() {
                       <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.brand ? '#dc2626' : '#334155', marginBottom: 4 }}>Brand / Make <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="text"
-                        placeholder="e.g. Mitsubishi / Isuzu / Hino"
+                        placeholder="e.g. Mitsubishi Fuso / Isuzu / Hino"
                         value={form.brand}
                         onChange={(e) => handleFormFieldChange('brand', e.target.value)}
                         style={getFieldStyle('brand')}
@@ -2876,6 +2974,89 @@ function VehiclesPage() {
                       )}
                     </div>
                   </div>
+
+                  <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginTop: 14 }}>
+                    {(() => {
+                      const engFeedback = getEngineNumberFeedback(form.engine_number);
+                      const hasLiveErr = engFeedback && !engFeedback.valid;
+                      const isLiveValid = engFeedback && engFeedback.valid;
+                      return (
+                        <div className="form-group">
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.engine_number || hasLiveErr ? '#dc2626' : '#334155', marginBottom: 4 }}>
+                            Engine No. {!editingVehicle && <span style={{ color: '#dc2626' }}>*</span>}
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. 8M22-025168"
+                            maxLength={14}
+                            value={form.engine_number}
+                            onChange={(e) => handleFormFieldChange('engine_number', formatEngineNumberInput(e.target.value))}
+                            style={getFieldStyle('engine_number', hasLiveErr
+                              ? { border: '1.5px solid #dc2626', background: '#fef2f2' }
+                              : isLiveValid
+                                ? { border: '1.5px solid #16a34a', background: '#f0fdf4' }
+                                : {})}
+                          />
+                          {formErrors.engine_number ? (
+                            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.engine_number}
+                            </span>
+                          ) : engFeedback ? (
+                            <span style={{ fontSize: 11, color: isLiveValid ? '#15803d' : '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className={isLiveValid ? 'fas fa-check-circle' : 'fas fa-exclamation-circle'} style={{ fontSize: 10 }}></i> {engFeedback.message}
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
+
+                    {(() => {
+                      const chFeedback = getChassisNumberFeedback(form.chassis_number);
+                      const hasLiveErr = chFeedback && !chFeedback.valid;
+                      const isLiveValid = chFeedback && chFeedback.valid;
+                      return (
+                        <div className="form-group">
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.chassis_number || hasLiveErr ? '#dc2626' : '#334155', marginBottom: 4 }}>
+                            Chassis No. {!editingVehicle && <span style={{ color: '#dc2626' }}>*</span>}
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. FV50LH-520103"
+                            maxLength={17}
+                            value={form.chassis_number}
+                            onChange={(e) => handleFormFieldChange('chassis_number', formatChassisNumberInput(e.target.value))}
+                            style={getFieldStyle('chassis_number', hasLiveErr
+                              ? { border: '1.5px solid #dc2626', background: '#fef2f2' }
+                              : isLiveValid
+                                ? { border: '1.5px solid #16a34a', background: '#f0fdf4' }
+                                : {})}
+                          />
+                          {formErrors.chassis_number ? (
+                            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.chassis_number}
+                            </span>
+                          ) : chFeedback ? (
+                            <span style={{ fontSize: 11, color: isLiveValid ? '#15803d' : '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className={isLiveValid ? 'fas fa-check-circle' : 'fas fa-exclamation-circle'} style={{ fontSize: 10 }}></i> {chFeedback.message}
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
+
+                    <div className="form-group">
+                      <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Classification</label>
+                      <select
+                        value={form.classification}
+                        onChange={(e) => handleFormFieldChange('classification', e.target.value)}
+                        style={getFieldStyle('classification')}
+                      >
+                        <option value="Private (PVT)">Private (PVT)</option>
+                        <option value="For Hire (TH)">For Hire (TH)</option>
+                        <option value="Government (GOV)">Government (GOV)</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Section 2: Specifications & Photo */}
@@ -2886,6 +3067,42 @@ function VehiclesPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1.2fr', gap: 18 }}>
                     <div>
                       <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                        <div className="form-group">
+                          <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Vehicle Category</label>
+                          <select
+                            value={form.vehicle_category}
+                            onChange={(e) => handleFormFieldChange('vehicle_category', e.target.value)}
+                            style={getFieldStyle('vehicle_category')}
+                          >
+                            <option value="N1">N1 — Light Truck (≤3,500 kg)</option>
+                            <option value="N2">N2 — Medium Truck (3,501–12,000 kg)</option>
+                            <option value="N3">N3 — Heavy Truck (&gt;12,000 kg)</option>
+                            <option value="O3">O3 — Medium Trailer</option>
+                            <option value="O4">O4 — Heavy Trailer</option>
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Body Type</label>
+                          <select
+                            value={form.body_type}
+                            onChange={(e) => handleFormFieldChange('body_type', e.target.value)}
+                            style={getFieldStyle('body_type')}
+                          >
+                            <option value="Truck Tractor Head">Truck Tractor Head</option>
+                            <option value="Wing Van">Wing Van</option>
+                            <option value="Closed Van">Closed Van</option>
+                            <option value="Dropside">Dropside</option>
+                            <option value="Flatbed">Flatbed</option>
+                            <option value="Cargo Truck">Cargo Truck</option>
+                            <option value="Dump Truck">Dump Truck</option>
+                            <option value="Trailer">Trailer</option>
+                            <option value="Reefer Van">Reefer Van</option>
+                            <option value="Tanker">Tanker</option>
+                            <option value="Other">Other</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 14 }}>
                         <div className="form-group">
                           <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.capacity ? '#dc2626' : '#334155', marginBottom: 4 }}>Load Capacity (kg) <span style={{ color: '#dc2626' }}>*</span></label>
                           <input
@@ -2899,6 +3116,23 @@ function VehiclesPage() {
                           {formErrors.capacity && (
                             <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                               <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.capacity}
+                            </span>
+                          )}
+                        </div>
+                        <div className="form-group">
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.passenger_capacity ? '#dc2626' : '#334155', marginBottom: 4 }}>Passenger Capacity</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="60"
+                            placeholder="e.g. 3"
+                            value={form.passenger_capacity}
+                            onChange={(e) => handleFormFieldChange('passenger_capacity', e.target.value)}
+                            style={getFieldStyle('passenger_capacity')}
+                          />
+                          {formErrors.passenger_capacity && (
+                            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.passenger_capacity}
                             </span>
                           )}
                         </div>
@@ -3043,22 +3277,37 @@ function VehiclesPage() {
                         </span>
                       )}
                     </div>
-                    <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.insurance_policy_number ? '#dc2626' : '#334155', marginBottom: 4 }}>Policy Number <span style={{ color: '#dc2626' }}>*</span></label>
-                      <input
-                        type="text"
-                        placeholder="e.g. POL-8921-X"
-                        maxLength={30}
-                        value={form.insurance_policy_number}
-                        onChange={(e) => handleFormFieldChange('insurance_policy_number', formatPolicyNumberInput(e.target.value))}
-                        style={getFieldStyle('insurance_policy_number', { textTransform: 'uppercase' })}
-                      />
-                      {formErrors.insurance_policy_number && (
-                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.insurance_policy_number}
-                        </span>
-                      )}
-                    </div>
+                    {(() => {
+                      const policyFeedback = getPolicyNumberFeedback(form.insurance_policy_number);
+                      const hasLiveErr = policyFeedback && !policyFeedback.valid;
+                      const isLiveValid = policyFeedback && policyFeedback.valid;
+                      return (
+                        <div className="form-group">
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.insurance_policy_number || hasLiveErr ? '#dc2626' : '#334155', marginBottom: 4 }}>Policy Number <span style={{ color: '#dc2626' }}>*</span></label>
+                          <input
+                            type="text"
+                            placeholder="e.g. MC-CV-26-0014614"
+                            maxLength={30}
+                            value={form.insurance_policy_number}
+                            onChange={(e) => handleFormFieldChange('insurance_policy_number', formatPolicyNumberInput(e.target.value))}
+                            style={getFieldStyle('insurance_policy_number', hasLiveErr
+                              ? { border: '1.5px solid #dc2626', background: '#fef2f2' }
+                              : isLiveValid
+                                ? { border: '1.5px solid #16a34a', background: '#f0fdf4' }
+                                : {})}
+                          />
+                          {formErrors.insurance_policy_number ? (
+                            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.insurance_policy_number}
+                            </span>
+                          ) : policyFeedback ? (
+                            <span style={{ fontSize: 11, color: isLiveValid ? '#15803d' : '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className={isLiveValid ? 'fas fa-check-circle' : 'fas fa-exclamation-circle'} style={{ fontSize: 10 }}></i> {policyFeedback.message}
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
                     <div className="form-group">
                       <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.insurance_coverage_type ? '#dc2626' : '#334155', marginBottom: 4 }}>Coverage Type <span style={{ color: '#dc2626' }}>*</span></label>
                       <select
@@ -3098,6 +3347,7 @@ function VehiclesPage() {
                       <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.insurance_valid_until ? '#dc2626' : '#334155', marginBottom: 4 }}>Valid Until <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="date"
+                        min={[getTomorrowIso(), form.insurance_valid_from].filter(Boolean).sort().pop()}
                         value={form.insurance_valid_until || ''}
                         onChange={(e) => handleFormFieldChange('insurance_valid_until', e.target.value)}
                         style={getFieldStyle('insurance_valid_until')}
@@ -3117,38 +3367,68 @@ function VehiclesPage() {
                     <i className="fas fa-id-card"></i> Registration Info
                   </h4>
                   <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-                    <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.or_number ? '#dc2626' : '#334155', marginBottom: 4 }}>OR Number (Official Receipt) <span style={{ color: '#dc2626' }}>*</span></label>
-                      <input
-                        type="text"
-                        placeholder="e.g. OR-8912401"
-                        maxLength={20}
-                        value={form.or_number}
-                        onChange={(e) => handleFormFieldChange('or_number', formatOrNumberInput(e.target.value))}
-                        style={getFieldStyle('or_number', { textTransform: 'uppercase' })}
-                      />
-                      {formErrors.or_number && (
-                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.or_number}
-                        </span>
-                      )}
-                    </div>
-                    <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.cr_number ? '#dc2626' : '#334155', marginBottom: 4 }}>CR Number (Certificate of Registration) <span style={{ color: '#dc2626' }}>*</span></label>
-                      <input
-                        type="text"
-                        placeholder="e.g. CR-1928401"
-                        maxLength={18}
-                        value={form.cr_number}
-                        onChange={(e) => handleFormFieldChange('cr_number', formatCrNumberInput(e.target.value))}
-                        style={getFieldStyle('cr_number', { textTransform: 'uppercase' })}
-                      />
-                      {formErrors.cr_number && (
-                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.cr_number}
-                        </span>
-                      )}
-                    </div>
+                    {(() => {
+                      const orFeedback = getOrNumberFeedback(form.or_number);
+                      const hasLiveErr = orFeedback && !orFeedback.valid;
+                      const isLiveValid = orFeedback && orFeedback.valid;
+                      return (
+                        <div className="form-group">
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.or_number || hasLiveErr ? '#dc2626' : '#334155', marginBottom: 4 }}>OR Number (Official Receipt) <span style={{ color: '#dc2626' }}>*</span></label>
+                          <input
+                            type="text"
+                            placeholder="e.g. 1001-000000222188"
+                            maxLength={17}
+                            value={form.or_number}
+                            onChange={(e) => handleFormFieldChange('or_number', formatOrNumberInput(e.target.value))}
+                            style={getFieldStyle('or_number', hasLiveErr
+                              ? { border: '1.5px solid #dc2626', background: '#fef2f2' }
+                              : isLiveValid
+                                ? { border: '1.5px solid #16a34a', background: '#f0fdf4' }
+                                : {})}
+                          />
+                          {formErrors.or_number ? (
+                            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.or_number}
+                            </span>
+                          ) : orFeedback ? (
+                            <span style={{ fontSize: 11, color: isLiveValid ? '#15803d' : '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className={isLiveValid ? 'fas fa-check-circle' : 'fas fa-exclamation-circle'} style={{ fontSize: 10 }}></i> {orFeedback.message}
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
+                    {(() => {
+                      const crFeedback = getCrNumberFeedback(form.cr_number);
+                      const hasLiveErr = crFeedback && !crFeedback.valid;
+                      const isLiveValid = crFeedback && crFeedback.valid;
+                      return (
+                        <div className="form-group">
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.cr_number || hasLiveErr ? '#dc2626' : '#334155', marginBottom: 4 }}>CR Number (Certificate of Registration) <span style={{ color: '#dc2626' }}>*</span></label>
+                          <input
+                            type="text"
+                            placeholder="e.g. 29254032-3"
+                            maxLength={17}
+                            value={form.cr_number}
+                            onChange={(e) => handleFormFieldChange('cr_number', formatCrNumberInput(e.target.value))}
+                            style={getFieldStyle('cr_number', hasLiveErr
+                              ? { border: '1.5px solid #dc2626', background: '#fef2f2' }
+                              : isLiveValid
+                                ? { border: '1.5px solid #16a34a', background: '#f0fdf4' }
+                                : {})}
+                          />
+                          {formErrors.cr_number ? (
+                            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.cr_number}
+                            </span>
+                          ) : crFeedback ? (
+                            <span style={{ fontSize: 11, color: isLiveValid ? '#15803d' : '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className={isLiveValid ? 'fas fa-check-circle' : 'fas fa-exclamation-circle'} style={{ fontSize: 10 }}></i> {crFeedback.message}
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
@@ -3173,6 +3453,7 @@ function VehiclesPage() {
                       <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.expiration_date ? '#dc2626' : '#334155', marginBottom: 4 }}>Expiration Date <span style={{ color: '#dc2626' }}>*</span></label>
                       <input
                         type="date"
+                        min={[getTomorrowIso(), form.registration_date || form.registration_valid_from].filter(Boolean).sort().pop()}
                         value={form.expiration_date || form.registration_valid_until || ''}
                         onChange={(e) => {
                           handleFormFieldChange('expiration_date', e.target.value);

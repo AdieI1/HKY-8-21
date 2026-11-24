@@ -1,18 +1,166 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
   Modal,
   ScrollView,
   TouchableOpacity,
-  Image,
   StyleSheet,
   Dimensions,
+  ActivityIndicator,
+  Linking,
+  Alert,
 } from "react-native";
+import { Image } from "expo-image";
+import * as WebBrowser from "expo-web-browser";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { resolveStorageUrl } from "../utils/imageUrl";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
+const PERMIT_IMAGE_HEADERS = {
+  "ngrok-skip-browser-warning": "true",
+};
+
+const isPdfUrl = (url) => {
+  if (!url) return false;
+  const s = String(url).toLowerCase();
+  return s.startsWith("data:application/pdf") || /\.pdf(\?.*)?$/i.test(s);
+};
+
+const isDocumentUrl = (url) => {
+  if (!url) return false;
+  const s = String(url).toLowerCase();
+  return (
+    isPdfUrl(s) ||
+    s.startsWith("data:application/") ||
+    s.startsWith("data:text/") ||
+    /\.(doc|docx|xls|xlsx|txt|csv)(\?.*)?$/i.test(s)
+  );
+};
+
+const getFileLabel = (url, fallback = "Permit Document") => {
+  if (!url) return fallback;
+  try {
+    const clean = String(url).split("?")[0];
+    const parts = clean.split("/");
+    const last = parts[parts.length - 1];
+    return last ? decodeURIComponent(last) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+function PermitAttachmentPreview({ url, title, onEnlargeImage, onOpenDocument }) {
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+
+  useEffect(() => {
+    setLoading(true);
+    setFailed(false);
+  }, [url, retryKey]);
+
+  const isDoc = isDocumentUrl(url);
+  const isPdf = isPdfUrl(url);
+
+  if (isDoc) {
+    return (
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() => onOpenDocument(url)}
+        style={styles.documentCard}
+      >
+        <View style={[styles.docIconCircle, isPdf ? styles.docIconPdf : styles.docIconFile]}>
+          <Ionicons
+            name={isPdf ? "document-text" : "document-attach"}
+            size={28}
+            color={isPdf ? "#DC2626" : "#2563EB"}
+          />
+        </View>
+        <View style={styles.docInfo}>
+          <Text style={styles.docBadgeText}>{isPdf ? "PDF DOCUMENT" : "ATTACHED FILE"}</Text>
+          <Text style={styles.docFileName} numberOfLines={1}>
+            {getFileLabel(url, title)}
+          </Text>
+          <Text style={styles.docHint}>Tap to view or download official copy</Text>
+        </View>
+        <View style={styles.docOpenBtn}>
+          <Ionicons name="open-outline" size={18} color="#FFFFFF" />
+          <Text style={styles.docOpenBtnText}>View</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <View style={styles.permitPreviewContainer}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() => {
+          if (failed) {
+            setRetryKey((k) => k + 1);
+          } else {
+            onEnlargeImage(url, title);
+          }
+        }}
+        style={styles.imageTouchable}
+      >
+        {!failed ? (
+          <>
+            <Image
+              key={`${url}-${retryKey}`}
+              source={{ uri: url, headers: PERMIT_IMAGE_HEADERS }}
+              style={styles.permitThumbnail}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={150}
+              onLoadStart={() => setLoading(true)}
+              onLoad={() => setLoading(false)}
+              onError={() => {
+                setLoading(false);
+                setFailed(true);
+              }}
+            />
+            {loading && (
+              <View style={styles.loadingOverlay}>
+                <ActivityIndicator size="small" color="#951F21" />
+                <Text style={styles.loadingText}>Loading permit image...</Text>
+              </View>
+            )}
+            {!loading && (
+              <View style={styles.tapToZoomOverlay}>
+                <Ionicons name="expand" size={16} color="#FFFFFF" />
+                <Text style={styles.tapToZoomText}>Tap to enlarge</Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <View style={styles.errorPreviewBox}>
+            <Ionicons name="cloud-offline-outline" size={28} color="#9CA3AF" />
+            <Text style={styles.errorPreviewTitle}>Could not load image preview</Text>
+            <View style={styles.errorActionRow}>
+              <TouchableOpacity
+                style={styles.retryBtn}
+                onPress={() => setRetryKey((k) => k + 1)}
+              >
+                <Ionicons name="refresh" size={14} color="#FFFFFF" />
+                <Text style={styles.retryBtnText}>Retry</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.openBrowserBtn}
+                onPress={() => onOpenDocument(url)}
+              >
+                <Ionicons name="open-outline" size={14} color="#1D4ED8" />
+                <Text style={styles.openBrowserBtnText}>Open File</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 export default function DeliveryPermitsModal({
   visible,
@@ -21,6 +169,27 @@ export default function DeliveryPermitsModal({
 }) {
   const [fullscreenImage, setFullscreenImage] = useState(null);
   const [fullscreenTitle, setFullscreenTitle] = useState("");
+  const [fullscreenLoading, setFullscreenLoading] = useState(false);
+
+  const openPermitDocument = async (url) => {
+    if (!url) return;
+    try {
+      await WebBrowser.openBrowserAsync(url, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+      });
+    } catch {
+      try {
+        const supported = await Linking.canOpenURL(url);
+        if (supported) {
+          await Linking.openURL(url);
+        } else {
+          Alert.alert("Cannot Open File", "Unable to open this permit document on your device.");
+        }
+      } catch {
+        Alert.alert("Cannot Open File", "Unable to open this permit document on your device.");
+      }
+    }
+  };
 
   const request = delivery?.request || {};
 
@@ -168,26 +337,16 @@ export default function DeliveryPermitsModal({
                 </View>
 
                 {hasItemPermit ? (
-                  <View style={styles.permitPreviewContainer}>
-                    <TouchableOpacity
-                      activeOpacity={0.9}
-                      onPress={() => {
-                        setFullscreenImage(itemPermitUrl);
-                        setFullscreenTitle(itemPermitType || "Item Delivery Permit");
-                      }}
-                      style={styles.imageTouchable}
-                    >
-                      <Image
-                        source={{ uri: itemPermitUrl }}
-                        style={styles.permitThumbnail}
-                        resizeMode="cover"
-                      />
-                      <View style={styles.tapToZoomOverlay}>
-                        <Ionicons name="expand" size={16} color="#FFFFFF" />
-                        <Text style={styles.tapToZoomText}>Tap to enlarge</Text>
-                      </View>
-                    </TouchableOpacity>
-                  </View>
+                  <PermitAttachmentPreview
+                    url={itemPermitUrl}
+                    title={itemPermitType || "Item Delivery Permit"}
+                    onEnlargeImage={(uri, ttl) => {
+                      setFullscreenLoading(true);
+                      setFullscreenImage(uri);
+                      setFullscreenTitle(ttl);
+                    }}
+                    onOpenDocument={openPermitDocument}
+                  />
                 ) : (
                   <View style={styles.emptyPermitNotice}>
                     <Ionicons name="shield-outline" size={20} color="#9CA3AF" />
@@ -251,26 +410,16 @@ export default function DeliveryPermitsModal({
                 ) : null}
 
                 {hasAreaPermit ? (
-                  <View style={styles.permitPreviewContainer}>
-                    <TouchableOpacity
-                      activeOpacity={0.9}
-                      onPress={() => {
-                        setFullscreenImage(areaPermitUrl);
-                        setFullscreenTitle(areaPermitType || "Area Delivery Permit");
-                      }}
-                      style={styles.imageTouchable}
-                    >
-                      <Image
-                        source={{ uri: areaPermitUrl }}
-                        style={styles.permitThumbnail}
-                        resizeMode="cover"
-                      />
-                      <View style={styles.tapToZoomOverlay}>
-                        <Ionicons name="expand" size={16} color="#FFFFFF" />
-                        <Text style={styles.tapToZoomText}>Tap to enlarge</Text>
-                      </View>
-                    </TouchableOpacity>
-                  </View>
+                  <PermitAttachmentPreview
+                    url={areaPermitUrl}
+                    title={areaPermitType || "Area Delivery Permit"}
+                    onEnlargeImage={(uri, ttl) => {
+                      setFullscreenLoading(true);
+                      setFullscreenImage(uri);
+                      setFullscreenTitle(ttl);
+                    }}
+                    onOpenDocument={openPermitDocument}
+                  />
                 ) : (
                   <View style={styles.emptyPermitNotice}>
                     <Ionicons name="compass-outline" size={20} color="#9CA3AF" />
@@ -308,6 +457,12 @@ export default function DeliveryPermitsModal({
               {fullscreenTitle}
             </Text>
             <TouchableOpacity
+              onPress={() => openPermitDocument(fullscreenImage)}
+              style={styles.fullscreenCloseButton}
+            >
+              <Ionicons name="open-outline" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
               onPress={() => setFullscreenImage(null)}
               style={styles.fullscreenCloseButton}
             >
@@ -317,11 +472,23 @@ export default function DeliveryPermitsModal({
 
           <View style={styles.fullscreenBody}>
             {fullscreenImage && (
-              <Image
-                source={{ uri: fullscreenImage }}
-                style={styles.fullscreenImage}
-                resizeMode="contain"
-              />
+              <>
+                <Image
+                  source={{ uri: fullscreenImage, headers: PERMIT_IMAGE_HEADERS }}
+                  style={styles.fullscreenImage}
+                  contentFit="contain"
+                  cachePolicy="memory-disk"
+                  transition={150}
+                  onLoadStart={() => setFullscreenLoading(true)}
+                  onLoad={() => setFullscreenLoading(false)}
+                  onError={() => setFullscreenLoading(false)}
+                />
+                {fullscreenLoading && (
+                  <View style={styles.fullscreenLoader}>
+                    <ActivityIndicator size="large" color="#FFFFFF" />
+                  </View>
+                )}
+              </>
             )}
           </View>
         </View>
@@ -579,5 +746,141 @@ const styles = StyleSheet.create({
   fullscreenImage: {
     width: SCREEN_WIDTH,
     height: "100%",
+  },
+  fullscreenLoader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(249, 250, 251, 0.85)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  loadingText: {
+    fontSize: 12,
+    color: "#6B7280",
+    fontWeight: "500",
+  },
+  errorPreviewBox: {
+    height: 160,
+    backgroundColor: "#F9FAFB",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+    gap: 8,
+  },
+  errorPreviewTitle: {
+    fontSize: 12.5,
+    color: "#4B5563",
+    fontWeight: "600",
+  },
+  errorActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 4,
+  },
+  retryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#951F21",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 6,
+  },
+  retryBtnText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  openBrowserBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 6,
+  },
+  openBrowserBtnText: {
+    color: "#1D4ED8",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  documentCard: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 10,
+    padding: 12,
+  },
+  docIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  docIconPdf: {
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+  },
+  docIconFile: {
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+  },
+  docInfo: {
+    flex: 1,
+  },
+  docBadgeText: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#991B1B",
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  docFileName: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  docHint: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  docOpenBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#951F21",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  docOpenBtnText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

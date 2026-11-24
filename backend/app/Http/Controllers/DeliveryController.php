@@ -224,27 +224,44 @@ class DeliveryController extends Controller
         }
 
         if ($fileInput instanceof \Illuminate\Http\UploadedFile) {
-            $filename = 'area_permit_' . time() . '_' . Str::random(8) . '.' . $fileInput->getClientOriginalExtension();
+            $ext = strtolower($fileInput->getClientOriginalExtension() ?: 'bin');
+            $filename = 'permit_' . time() . '_' . Str::random(8) . '.' . $ext;
             return $fileInput->storeAs($folder, $filename, 'public');
         }
 
         if (is_string($fileInput) && str_starts_with($fileInput, 'data:')) {
             try {
-                if (preg_match('/^data:(?:image|application)\/(\w+);base64,/', $fileInput, $matches)) {
-                    $ext = strtolower($matches[1]);
-                    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'pdf'])) {
-                        $ext = 'jpg';
+                if (preg_match('/^data:([^;]+);base64,(.+)$/s', $fileInput, $matches)) {
+                    $mime = strtolower(trim($matches[1]));
+                    $mimeToExt = [
+                        'image/jpeg' => 'jpg',
+                        'image/jpg' => 'jpg',
+                        'image/png' => 'png',
+                        'image/webp' => 'webp',
+                        'image/gif' => 'gif',
+                        'application/pdf' => 'pdf',
+                        'application/msword' => 'doc',
+                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+                        'application/vnd.ms-excel' => 'xls',
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+                        'text/plain' => 'txt',
+                    ];
+                    $ext = $mimeToExt[$mime] ?? null;
+                    if (!$ext && str_contains($mime, '/')) {
+                        $sub = preg_replace('/[^a-z0-9]/', '', explode('/', $mime)[1] ?? '');
+                        $ext = in_array($sub, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'doc', 'docx', 'txt'], true) ? $sub : 'bin';
                     }
-                    $base64Data = substr($fileInput, strpos($fileInput, ',') + 1);
-                    $decoded = base64_decode($base64Data);
+                    $ext = $ext ?: 'bin';
+
+                    $decoded = base64_decode($matches[2]);
                     if ($decoded !== false) {
-                        $filename = 'area_permit_' . time() . '_' . Str::random(8) . '.' . $ext;
+                        $filename = 'permit_' . time() . '_' . Str::random(8) . '.' . $ext;
                         Storage::disk('public')->put($folder . '/' . $filename, $decoded);
                         return $folder . '/' . $filename;
                     }
                 }
             } catch (\Throwable $e) {
-                Log::warning('Failed to decode area permit file: ' . $e->getMessage());
+                Log::warning('Failed to decode permit file: ' . $e->getMessage());
             }
         }
 
@@ -314,6 +331,11 @@ class DeliveryController extends Controller
             'reliefIncident',
         ])
             ->where('driver_id', $driver->driver_id)
+            ->where('status', '!=', 'pending')
+            ->where(function ($q) {
+                $q->whereNull('fuel_issuance_status')
+                    ->orWhere('fuel_issuance_status', '!=', 'pending');
+            })
             ->orderByDesc('delivery_id')
             ->get();
 
@@ -349,8 +371,14 @@ class DeliveryController extends Controller
         $deliveries = Delivery::with([
             'request.customer',
             'reviews.customer',
+            'checklists',
         ])
             ->where('driver_id', $driver->driver_id)
+            ->where('status', '!=', 'pending')
+            ->where(function ($q) {
+                $q->whereNull('fuel_issuance_status')
+                    ->orWhere('fuel_issuance_status', '!=', 'pending');
+            })
             ->orderByDesc('delivery_id')
             ->get();
 
@@ -379,6 +407,28 @@ class DeliveryController extends Controller
                 'createdAt' => $assignedDate,
                 'isRating' => false,
             ];
+
+            $preTripChecklist = $delivery->checklists?->firstWhere('type', 'pre_trip');
+            if ($preTripChecklist) {
+                $inspectedDate = $preTripChecklist->completed_at
+                    ? \Carbon\Carbon::parse($preTripChecklist->completed_at)->toIso8601String()
+                    : ($preTripChecklist->created_at
+                        ? \Carbon\Carbon::parse($preTripChecklist->created_at)->toIso8601String()
+                        : $assignedDate);
+
+                $notifications[] = [
+                    'id' => 'pretrip_cleared_' . $delivery->delivery_id,
+                    'deliveryId' => $delivery->delivery_id,
+                    'type' => 'Pre-Trip Inspection Cleared',
+                    'driver' => $customerName,
+                    'cargo' => 'Vehicle cleared — ready for navigation',
+                    'weight' => $cargoType,
+                    'location' => $pickup,
+                    'createdAt' => $inspectedDate,
+                    'isRating' => false,
+                    'isInspectionCleared' => true,
+                ];
+            }
 
             if ($delivery->reviews && $delivery->reviews->count() > 0) {
                 foreach ($delivery->reviews as $review) {
@@ -586,11 +636,32 @@ class DeliveryController extends Controller
                 ?? \App\Models\User::whereHas('role', fn($q) => $q->whereIn('role_name', ['Staff', 'Admin', 'Dispatcher', 'staff', 'admin']))->value('user_id')
                 ?? 2;
 
-            // Relief reassignment is a fresh start for the new driver ('assigned')
-            if ($isReliefAssignment) {
+            $requestedFuelLiters = isset($validated['fuel_issued']) && $validated['fuel_issued'] !== ''
+                ? (float) $validated['fuel_issued']
+                : 0.0;
+
+            // Relief reassignment or fresh dispatch with fuel > 0 requires Fuel Inventory confirmation first
+            $wasOngoing = !$isReliefAssignment && in_array($delivery->status, ['accepted', 'in_transit', 'out_for_delivery', 'loading_cargo', 'arrived_pickup']);
+            $needsFuelConfirmation = !$wasOngoing && $requestedFuelLiters > 0;
+
+            $fuelTank = null;
+            if ($needsFuelConfirmation) {
+                $vehFuelType = strtolower((string) ($targetVehicle?->fuel_type ?: 'diesel'));
+                $fuelTank = \App\Models\FuelInventory::whereRaw('LOWER(fuel_type) LIKE ?', ['%' . $vehFuelType . '%'])
+                    ->orderByDesc('current_stock')
+                    ->first()
+                    ?: \App\Models\FuelInventory::orderByDesc('current_stock')->first();
+
+                if (!$fuelTank) {
+                    throw new \RuntimeException('No fuel inventory tank is configured in Fuel Inventory Management.');
+                }
+            }
+
+            if ($needsFuelConfirmation) {
+                $newStatus = 'pending';
+            } elseif ($isReliefAssignment) {
                 $newStatus = 'assigned';
             } else {
-                $wasOngoing = in_array($delivery->status, ['accepted', 'in_transit', 'out_for_delivery', 'loading_cargo', 'arrived_pickup']);
                 $newStatus = $wasOngoing ? 'out_for_delivery' : 'assigned';
             }
 
@@ -614,7 +685,8 @@ class DeliveryController extends Controller
                 'estimated_duration_days' => $durationDays,
                 'estimated_delivery_date' => $estDeliveryDate,
                 'fuel_issued' => $validated['fuel_issued'] ?? $delivery->fuel_issued,
-                'fuel_receipt_no' => $validated['fuel_receipt_no'] ?? null,
+                'fuel_receipt_no' => $needsFuelConfirmation ? null : ($validated['fuel_receipt_no'] ?? $delivery->fuel_receipt_no),
+                'fuel_issuance_status' => $needsFuelConfirmation ? 'pending' : ($wasOngoing ? ($delivery->fuel_issuance_status ?: 'confirmed') : 'not_required'),
                 'remarks' => $validated['remarks'] ?? null,
                 'starting_odometer' => $odometer !== null ? $odometer : $delivery->starting_odometer,
                 'starting_fuel' => $startingFuel !== null ? $startingFuel : $delivery->starting_fuel,
@@ -630,6 +702,29 @@ class DeliveryController extends Controller
                 'area_permit_type' => $areaPermitType,
                 'permit_notes' => $permitNotes,
             ]);
+
+            if ($needsFuelConfirmation && $fuelTank) {
+                $delCodePad = 'DLV' . str_pad((string) $delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+                $unitPrice = (float) ($fuelTank->unit_price ?? 0);
+                \App\Models\FuelIssuance::updateOrCreate(
+                    [
+                        'delivery_id' => $delivery->delivery_id,
+                        'status' => 'pending',
+                    ],
+                    [
+                        'fuel_id' => $fuelTank->fuel_id,
+                        'transaction_type' => 'out',
+                        'vehicle_id' => $request->vehicle_id,
+                        'driver_id' => $request->driver_id,
+                        'issued_by' => $dispatcherUserId,
+                        'liters' => $requestedFuelLiters,
+                        'unit_price' => $unitPrice,
+                        'total_value' => round($requestedFuelLiters * $unitPrice, 2),
+                        'purpose' => "Trip Ticket Dispatch ({$delCodePad})",
+                        'issued_at' => now(),
+                    ]
+                );
+            }
 
             if ($delivery->request) {
                 $itemPermitUpdate = [];
@@ -674,48 +769,58 @@ class DeliveryController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | Record tracking event
+            | Record tracking event & notifications
             |--------------------------------------------------------------------------
             */
 
-            DeliveryTracking::create([
-                'delivery_id' => $delivery->delivery_id,
-                'status_update' => 'assigned',
-            ]);
-
-            $delCode = 'DEL' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+            $delCode = 'DLV' . str_pad((string) $delivery->delivery_id, 4, '0', STR_PAD_LEFT);
             $driverName = $delivery->driver?->user?->full_name ?: 'Driver';
+            $plate = $delivery->vehicle?->plate_number ?: 'Vehicle';
 
-            if ($isReliefAssignment) {
-                $customerMsg = $cargoLoaded
-                    ? "A relief truck ({$driverName}) has been dispatched to secure cargo and complete delivery #{$delCode}."
-                    : "A replacement truck ({$driverName}) has been assigned and is heading to the pickup location for delivery #{$delCode}.";
-                AppNotification::notify('dispatch', 'Relief Truck Dispatched', $customerMsg, '/delivery');
-
-                if ($delivery->request?->customer_id) {
-                    AppNotification::create([
-                        'user_id' => $delivery->request->customer_id,
-                        'title' => 'Relief Truck Dispatched (#' . $delCode . ')',
-                        'message' => $customerMsg,
-                        'type' => 'delivery_relief',
-                        'data' => [
-                            'delivery_id' => $delivery->delivery_id,
-                            'is_relief' => true,
-                            'cargo_loaded' => $cargoLoaded,
-                        ],
-                    ]);
-                }
+            if ($needsFuelConfirmation) {
+                AppNotification::notify(
+                    'fuel',
+                    "Pending Fuel Confirmation ({$delCode})",
+                    "Trip ticket {$delCode} ({$plate}, {$driverName}) requests {$requestedFuelLiters} L of " . ($fuelTank?->fuel_type ?: 'fuel') . ". Confirm in Fuel Inventory to issue receipt and release for Pre-Trip Inspection.",
+                    '/fuel-inventory'
+                );
             } else {
-                AppNotification::notify('dispatch', 'Delivery Assigned', "Delivery #{$delCode} assigned to {$driverName}.", '/delivery');
+                DeliveryTracking::create([
+                    'delivery_id' => $delivery->delivery_id,
+                    'status_update' => 'assigned',
+                ]);
 
-                if ($delivery->request?->customer_id) {
-                    AppNotification::notify(
-                        'delivery_status',
-                        "Driver Dispatched (#{$delCode})",
-                        "Driver {$driverName} has been assigned to your shipment #{$delCode} and is preparing for dispatch.",
-                        '/deliveries',
-                        $delivery->request->customer_id
-                    );
+                if ($isReliefAssignment) {
+                    $customerMsg = $cargoLoaded
+                        ? "A relief truck ({$driverName}) has been dispatched to secure cargo and complete delivery #{$delCode}."
+                        : "A replacement truck ({$driverName}) has been assigned and is heading to the pickup location for delivery #{$delCode}.";
+                    AppNotification::notify('dispatch', 'Relief Truck Dispatched', $customerMsg, '/delivery');
+
+                    if ($delivery->request?->customer_id) {
+                        AppNotification::create([
+                            'user_id' => $delivery->request->customer_id,
+                            'title' => 'Relief Truck Dispatched (#' . $delCode . ')',
+                            'message' => $customerMsg,
+                            'type' => 'delivery_relief',
+                            'data' => [
+                                'delivery_id' => $delivery->delivery_id,
+                                'is_relief' => true,
+                                'cargo_loaded' => $cargoLoaded,
+                            ],
+                        ]);
+                    }
+                } else {
+                    AppNotification::notify('dispatch', 'Delivery Assigned', "Delivery #{$delCode} assigned to {$driverName}.", '/delivery');
+
+                    if ($delivery->request?->customer_id) {
+                        AppNotification::notify(
+                            'delivery_status',
+                            "Driver Dispatched (#{$delCode})",
+                            "Driver {$driverName} has been assigned to your shipment #{$delCode} and is preparing for dispatch.",
+                            '/deliveries',
+                            $delivery->request->customer_id
+                        );
+                    }
                 }
             }
 
@@ -953,6 +1058,12 @@ class DeliveryController extends Controller
 
         $targetStatus = $validated['status'];
 
+        if ($delivery->fuel_issuance_status === 'pending' || $delivery->status === 'pending') {
+            return response()->json([
+                'message' => 'Fuel issuance must be confirmed before accepting or starting this delivery.'
+            ], 422);
+        }
+
         if (
             $targetStatus === 'accepted' &&
             !$delivery->checklists()->where('type', 'pre_trip')->exists()
@@ -1101,14 +1212,33 @@ class DeliveryController extends Controller
 
         $delivery->update($updates);
 
+        $hasPostTrip = $delivery->checklists()->where('type', 'post_trip')->exists();
+
         if ($shouldComplete && $delivery->status !== 'completed') {
-            $this->setDeliveryStatus($delivery, 'completed');
-        } else if ($shouldComplete || $delivery->status === 'completed') {
+            if ($hasPostTrip) {
+                $this->setDeliveryStatus($delivery, 'completed');
+            } else {
+                // Hold completion until Staff finishes Post-Trip Inspection (ending odometer & ending fuel)
+                $this->setDeliveryStatus($delivery, 'returning_to_hq');
+
+                $delCode = 'DLV' . str_pad((string) $delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+                $plate = $delivery->vehicle?->plate_number ?: 'Truck';
+                $driverName = $delivery->driver?->user?->full_name ?: 'Driver';
+                AppNotification::notify(
+                    'inspection',
+                    "Post-Trip Inspection Required ({$delCode})",
+                    "Proof of delivery submitted for {$delCode} ({$plate}, {$driverName}). Complete Post-Trip Inspection with ending odometer and ending fuel to finalize this delivery.",
+                    '/delivery'
+                );
+            }
+        } elseif ($delivery->status === 'completed') {
             $this->autoIssueCollectionReceipt($delivery);
         }
 
         return response()->json([
-            'message' => 'Proof of delivery recorded successfully.',
+            'message' => $hasPostTrip
+                ? 'Proof of delivery recorded and delivery completed.'
+                : 'Proof of delivery recorded. Awaiting Staff Post-Trip Inspection to finalize delivery.',
             'delivery' => $this->loadDriverDelivery($delivery),
         ]);
     }
@@ -1244,20 +1374,32 @@ class DeliveryController extends Controller
         }
 
         if ($validated['type'] === 'post_trip') {
-            $updateData = [];
-            if (isset($validated['ending_odometer'])) {
-                $updateData['ending_odometer'] = $validated['ending_odometer'];
+            if (!isset($validated['ending_odometer']) || !isset($validated['ending_fuel'])) {
+                return response()->json([
+                    'message' => 'Ending odometer and ending fuel readings are required to complete the post-trip inspection.'
+                ], 422);
             }
-            if (isset($validated['ending_fuel'])) {
-                $updateData['ending_fuel'] = $validated['ending_fuel'];
-            }
-            if (!empty($updateData)) {
-                $delivery->update($updateData);
-            }
-            if (isset($validated['ending_odometer']) && $delivery->vehicle) {
+
+            $updateData = [
+                'ending_odometer' => $validated['ending_odometer'],
+                'ending_fuel' => $validated['ending_fuel'],
+            ];
+            $delivery->update($updateData);
+
+            if ($delivery->vehicle) {
                 $delivery->vehicle->update(['odometer_reading' => $validated['ending_odometer']]);
             }
-            $this->setDeliveryStatus($delivery, 'completed');
+
+            if ($delivery->status !== 'completed') {
+                $this->setDeliveryStatus($delivery, 'completed');
+            } else {
+                $delivery->update(['end_time' => $delivery->end_time ?: now()]);
+                try {
+                    \App\Events\DeliveryUpdated::dispatch($delivery->fresh());
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning("Reverb broadcast error: " . $e->getMessage());
+                }
+            }
         }
 
         return response()->json([

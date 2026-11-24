@@ -354,7 +354,7 @@ export default function ProofOfDeliveryModal({
             <View style={styles.securityNotice}>
               <Ionicons name="shield-checkmark" size={18} color="#10B981" />
               <Text style={styles.securityNoticeText}>
-                Submitting this proof will mark the trip completed and notify dispatch and the customer.
+                Submitting this proof records cargo delivery and notifies Staff to complete Post-Trip Inspection.
               </Text>
             </View>
 

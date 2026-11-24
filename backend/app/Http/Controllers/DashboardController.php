@@ -9,6 +9,7 @@ use App\Models\Vehicle;
 use App\Models\VehicleMaintenance;
 use App\Models\IncidentReport;
 use App\Models\SystemLog;
+use App\Models\SystemSetting;
 use App\Models\SparePart;
 use App\Models\FuelInventory;
 use App\Models\User;
@@ -59,6 +60,7 @@ class DashboardController extends Controller
         $fuelInventories = FuelInventory::all();
         $users = User::with('role')->get();
         $roles = Role::all();
+        $systemSettings = SystemSetting::getSettings();
 
         return response()->json([
             'deliveries' => $deliveries,
@@ -72,6 +74,7 @@ class DashboardController extends Controller
             'fuel_inventories' => $fuelInventories,
             'users' => $users,
             'roles' => $roles,
+            'system_settings' => $systemSettings,
         ]);
     }
 

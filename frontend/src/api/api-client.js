@@ -40,7 +40,8 @@ api.interceptors.response.use(
 |--------------------------------------------------------------------------
 */
 const cache = new Map();
-const DEFAULT_CACHE_TTL_MS = 20000; // 20 seconds
+const inFlightGets = new Map();
+const DEFAULT_CACHE_TTL_MS = 5000; // 5 seconds (fresh tab switching without stale status lag)
 
 export function clearApiCache() {
   cache.clear();
@@ -70,21 +71,34 @@ api.get = async function (url, config = {}) {
     });
   }
 
-  const response = await originalGet(url, config);
-
-  if (!shouldSkip && response && response.status === 200) {
-    cache.set(cacheKey, {
-      response: {
-        data: response.data,
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      },
-      timestamp: now,
-    });
+  // Deduplicate concurrent identical GET requests so single-threaded backend isn't queued twice
+  if (inFlightGets.has(cacheKey)) {
+    const sharedRes = await inFlightGets.get(cacheKey);
+    return {
+      ...sharedRes,
+      data: sharedRes.data !== undefined ? JSON.parse(JSON.stringify(sharedRes.data)) : sharedRes.data,
+    };
   }
 
-  return response;
+  const requestPromise = originalGet(url, config).then((response) => {
+    if (response && response.status === 200) {
+      cache.set(cacheKey, {
+        response: {
+          data: response.data,
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        },
+        timestamp: Date.now(),
+      });
+    }
+    return response;
+  }).finally(() => {
+    inFlightGets.delete(cacheKey);
+  });
+
+  inFlightGets.set(cacheKey, requestPromise);
+  return requestPromise;
 };
 
 // Invalidate in-memory cache whenever state-mutating requests occur and notify UI

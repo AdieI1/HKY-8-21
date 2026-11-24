@@ -809,29 +809,33 @@
     margin-top: 4px;
 }
 
-/* Print Stylesheet */
+/* Print Stylesheet — scoped ONLY when the Analytics / Completion Rate report modal is open */
 @media print {
-    body, html {
+    html:has(.analytics-report-overlay),
+    body:has(.analytics-report-overlay) {
         background: #ffffff !important;
+        overflow: visible !important;
+        height: auto !important;
     }
-    body * {
-        visibility: hidden;
+    body:has(.analytics-report-overlay) * {
+        visibility: hidden !important;
     }
-    .analytics-report-overlay,
-    .analytics-report-overlay * {
-        visibility: visible;
+    body:has(.analytics-report-overlay) .analytics-report-overlay,
+    body:has(.analytics-report-overlay) .analytics-report-overlay * {
+        visibility: visible !important;
     }
-    .analytics-report-overlay {
+    body:has(.analytics-report-overlay) .analytics-report-overlay {
         position: absolute !important;
         left: 0 !important;
         top: 0 !important;
         width: 100% !important;
+        height: auto !important;
         background: transparent !important;
         padding: 0 !important;
         backdrop-filter: none !important;
         overflow: visible !important;
     }
-    .analytics-report-modal {
+    body:has(.analytics-report-overlay) .analytics-report-modal {
         max-width: 100% !important;
         max-height: none !important;
         box-shadow: none !important;
@@ -840,12 +844,10 @@
         margin: 0 !important;
         overflow: visible !important;
     }
-    .report-modal-actions-bar {
-        display: none !important;
-    }
-    .sidebar,
-    .header,
-    .dashboard-container {
+    body:has(.analytics-report-overlay) .report-modal-actions-bar,
+    body:has(.analytics-report-overlay) .sidebar,
+    body:has(.analytics-report-overlay) .header,
+    body:has(.analytics-report-overlay) .dashboard-container {
         display: none !important;
     }
 }

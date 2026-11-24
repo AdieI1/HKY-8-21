@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import api from '../../api/api-client';
+import ExportMenu from '../ExportMenu';
 
 function formatCurrency(amount) {
   if (amount === null || amount === undefined || isNaN(amount)) return '₱ 0.00';
@@ -129,56 +130,98 @@ function ClaimsRefundsModal({
     }
   };
 
-  const handleExportCSV = () => {
+  const buildExportSpec = () => {
+    const today = new Date().toISOString().split('T')[0];
     if (activeTab === 'claims') {
-      if (filteredClaims.length === 0) return;
-      const headers = ['Incident Code', 'Delivery Code', 'Customer', 'Cargo Type', 'Claim Amount (PHP)', 'Reason', 'Cargo Condition', 'Flagged By', 'Claim Status', 'Date'];
-      const rows = filteredClaims.map((inc) => {
-        const status = localStatuses[inc.incident_id] || inc.refund_status || 'pending_review';
-        return [
-          `INC-${String(inc.incident_id).padStart(5, '0')}`,
-          inc.delivery?.request?.request_id ? `REQ${String(inc.delivery.request.request_id).padStart(4, '0')}` : 'N/A',
-          `"${inc.delivery?.request?.customer?.full_name || 'N/A'}"`,
-          `"${inc.delivery?.request?.cargo_type || 'N/A'}"`,
-          inc.refund_amount || 0,
-          `"${inc.refund_reason || 'Compensation Claim'}"`,
-          inc.cargo_condition || 'N/A',
-          `"${inc.resolver?.full_name || 'Authorized Staff'}"`,
-          status,
-          inc.resolved_at || inc.reported_at || 'N/A',
-        ];
-      });
-      const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement('a');
-      link.setAttribute('href', encodedUri);
-      link.setAttribute('download', `incident_claims_audit_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } else {
-      if (filteredMaintenance.length === 0) return;
-      const headers = ['Maintenance ID', 'Plate Number', 'Vehicle Model', 'Service Type', 'Cost (PHP)', 'Status', 'Maintained By', 'Date', 'Notes'];
-      const rows = filteredMaintenance.map((m) => [
-        `MNT-${String(m.maintenance_id).padStart(4, '0')}`,
-        `"${m.vehicle?.plate_number || 'N/A'}"`,
-        `"${m.vehicle?.model || 'N/A'}"`,
-        `"${m.maintenance_type || 'Maintenance'}"`,
-        m.maintenance_cost || m.total_cost || 0,
-        m.status || 'Scheduled',
-        `"${m.maintained_by_name || m.maintainer?.full_name || 'Internal Mechanic'}"`,
-        m.maintenance_date || 'N/A',
-        `"${(m.notes || m.description || '').replace(/"/g, '""')}"`,
-      ]);
-      const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement('a');
-      link.setAttribute('href', encodedUri);
-      link.setAttribute('download', `vehicle_maintenance_losses_${new Date().toISOString().split('T')[0]}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      if (filteredClaims.length === 0) return null;
+      const totalClaims = filteredClaims.reduce((s, inc) => s + Number(inc.refund_amount || 0), 0);
+      return {
+        filename: `HJY-Incident-Claims-${today}`,
+        sheetName: 'Incident Claims',
+        title: 'Incident Claims & Refunds Audit Report',
+        subtitle: `${filteredClaims.length} claim record(s)`,
+        summary: [
+          { label: 'Total Claims Listed', value: filteredClaims.length, format: 'integer' },
+          { label: 'Total Claim Amount', value: totalClaims, format: 'currency' },
+        ],
+        tables: [
+          {
+            title: 'Incident Claims Ledger',
+            columns: [
+              { header: 'Incident Code', align: 'center', bold: true, minWidth: 15 },
+              { header: 'Request Code', align: 'center', minWidth: 14 },
+              { header: 'Customer', align: 'left', minWidth: 22 },
+              { header: 'Cargo Type', align: 'left', minWidth: 20 },
+              { header: 'Claim Amount (PHP)', align: 'right', format: 'currency', minWidth: 19 },
+              { header: 'Reason', align: 'left', minWidth: 24, wrap: true },
+              { header: 'Cargo Condition', align: 'center', minWidth: 16 },
+              { header: 'Flagged By', align: 'left', minWidth: 20 },
+              { header: 'Claim Status', align: 'center', minWidth: 16 },
+              { header: 'Date', align: 'center', minWidth: 16 },
+            ],
+            rows: filteredClaims.map((inc) => {
+              const status = localStatuses[inc.incident_id] || inc.refund_status || 'pending_review';
+              const rawDate = inc.resolved_at || inc.reported_at;
+              const dateStr = rawDate ? new Date(rawDate).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—';
+              return [
+                `INC-${String(inc.incident_id).padStart(5, '0')}`,
+                inc.delivery?.request?.request_id ? `REQ${String(inc.delivery.request.request_id).padStart(4, '0')}` : '—',
+                inc.delivery?.request?.customer?.full_name || '—',
+                inc.delivery?.request?.cargo_type || '—',
+                Number(inc.refund_amount || 0),
+                inc.refund_reason || 'Compensation Claim',
+                inc.cargo_condition || '—',
+                inc.resolver?.full_name || 'Authorized Staff',
+                String(status).replace(/_/g, ' ').toUpperCase(),
+                dateStr,
+              ];
+            }),
+            totalsRow: ['TOTAL', '', `${filteredClaims.length} claims`, '', totalClaims, '', '', '', '', ''],
+          },
+        ],
+      };
     }
+
+    if (filteredMaintenance.length === 0) return null;
+    const totalMaint = filteredMaintenance.reduce((s, m) => s + Number(m.maintenance_cost || m.total_cost || 0), 0);
+    return {
+      filename: `HJY-Vehicle-Maintenance-Losses-${today}`,
+      sheetName: 'Maintenance Costs',
+      title: 'Vehicle Maintenance & Operational Losses Report',
+      subtitle: `${filteredMaintenance.length} maintenance record(s)`,
+      summary: [
+        { label: 'Total Maintenance Records', value: filteredMaintenance.length, format: 'integer' },
+        { label: 'Total Maintenance Cost', value: totalMaint, format: 'currency' },
+      ],
+      tables: [
+        {
+          title: 'Vehicle Maintenance Ledger',
+          columns: [
+            { header: 'Maintenance ID', align: 'center', bold: true, minWidth: 15 },
+            { header: 'Plate Number', align: 'center', minWidth: 14 },
+            { header: 'Vehicle Model', align: 'left', minWidth: 20 },
+            { header: 'Service Type', align: 'left', minWidth: 22 },
+            { header: 'Cost (PHP)', align: 'right', format: 'currency', minWidth: 18 },
+            { header: 'Status', align: 'center', minWidth: 14 },
+            { header: 'Maintained By', align: 'left', minWidth: 20 },
+            { header: 'Date', align: 'center', minWidth: 15 },
+            { header: 'Notes', align: 'left', minWidth: 28, maxWidth: 42, wrap: true },
+          ],
+          rows: filteredMaintenance.map((m) => [
+            `MNT-${String(m.maintenance_id).padStart(4, '0')}`,
+            m.vehicle?.plate_number || '—',
+            m.vehicle?.model || '—',
+            m.maintenance_type || 'Maintenance',
+            Number(m.maintenance_cost || m.total_cost || 0),
+            String(m.status || 'Scheduled').toUpperCase(),
+            m.maintained_by_name || m.maintainer?.full_name || 'Internal Mechanic',
+            m.maintenance_date ? new Date(m.maintenance_date).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : '—',
+            m.notes || m.description || '—',
+          ]),
+          totalsRow: ['TOTAL', '', `${filteredMaintenance.length} records`, '', totalMaint, '', '', '', ''],
+        },
+      ],
+    };
   };
 
   if (!isOpen) return null;
@@ -414,16 +457,15 @@ function ClaimsRefundsModal({
             </select>
           )}
 
-          <button
-            type="button"
+          <ExportMenu
+            getSpec={buildExportSpec}
+            label="Export"
             className="overview-export-pill-btn"
-            onClick={handleExportCSV}
-            title={activeTab === 'claims' ? 'Export filtered claims to CSV' : 'Export vehicle maintenance to CSV'}
+            iconClass="fas fa-arrow-up-from-bracket"
+            disabled={activeTab === 'claims' ? filteredClaims.length === 0 : filteredMaintenance.length === 0}
+            title={activeTab === 'claims' ? 'Export filtered claims as Excel or CSV' : 'Export vehicle maintenance as Excel or CSV'}
             style={{ padding: '9px 16px', fontSize: '13px', borderRadius: '8px' }}
-          >
-            <i className="fas fa-arrow-up-from-bracket"></i>
-            <span>Export CSV</span>
-          </button>
+          />
         </div>
 
         {/* Table Content Container */}

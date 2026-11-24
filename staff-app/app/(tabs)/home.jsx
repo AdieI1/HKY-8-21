@@ -83,7 +83,9 @@ export default function Home() {
       const pendingPreTrip = deliveries.filter(
         (d) =>
           !d?.checklists?.some((c) => c.type === "pre_trip") &&
-          ["assigned", "pending"].includes(d?.status)
+          Boolean(d?.driver_id && d?.vehicle_id) &&
+          d?.fuel_issuance_status !== "pending" &&
+          ["assigned", "accepted"].includes(d?.status)
       );
 
       const pendingPostTrip = deliveries.filter(
@@ -142,11 +144,12 @@ export default function Home() {
         const plate = vehicle?.plate_number || `Delivery #${d?.delivery_id}`;
         const typeStr = brandModel || (vehicle?.type ? `${vehicle.type}` : "Fuso - Truck");
 
-        const dateObj = d?.created_at
+        const rawActivityTime = d?.updated_at || d?.start_time || d?.created_at;
+        const dateObj = rawActivityTime
           ? new Date(
-              String(d.created_at).includes(" ") && !String(d.created_at).includes("T")
-                ? String(d.created_at).replace(" ", "T")
-                : d.created_at
+              String(rawActivityTime).includes(" ") && !String(rawActivityTime).includes("T")
+                ? String(rawActivityTime).replace(" ", "T")
+                : rawActivityTime
             )
           : new Date();
 
@@ -178,8 +181,11 @@ export default function Home() {
         };
       });
 
-      // Sort tasks latest first (newest date/time, then highest delivery_id)
+      // Prioritize Pre-Trip inspections first, then latest activity time
       formattedTasks.sort((a, b) => {
+        if (a.inspectionType !== b.inspectionType) {
+          return a.inspectionType === "Pre-Trip" ? -1 : 1;
+        }
         if (b.timestamp !== a.timestamp) {
           return b.timestamp - a.timestamp;
         }

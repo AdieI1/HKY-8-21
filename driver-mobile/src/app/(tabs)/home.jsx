@@ -68,7 +68,7 @@ export default function Home() {
                     ? deliveries.find(
                           (d) =>
                               String(d?.delivery_id) === String(savedActiveId) &&
-                              !["completed", "rejected"].includes(d?.status)
+                              !["completed", "returning_to_hq", "rejected"].includes(d?.status)
                       )
                     : null);
 
@@ -102,7 +102,7 @@ export default function Home() {
             const deliveryList = Array.isArray(deliveries)
                 ? deliveries.filter(
                       (delivery) =>
-                          !["completed", "rejected"].includes(delivery?.status)
+                          !["completed", "returning_to_hq", "rejected"].includes(delivery?.status)
                   )
                 : [];
 

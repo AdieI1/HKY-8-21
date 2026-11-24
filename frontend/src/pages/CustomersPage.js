@@ -4,6 +4,7 @@ import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
 import TableSkeleton from '../components/TableSkeleton';
+import ExportMenu from '../components/ExportMenu';
 
 function formatDate(dateString) {
   if (!dateString) return '—';
@@ -423,28 +424,55 @@ function CustomersPage() {
 
 
 
-  const exportCsv = () => {
-    const headers = ['Customer ID', 'Name', 'Phone', 'Email', 'Date Joined', 'Cumulative Spend (PHP)', 'Status'];
-    const rows = [headers];
-    filteredCustomers.forEach((c) => {
-      rows.push([
-        customerCode(c.user_id),
-        c.full_name,
-        c.phone || '',
-        c.email || '',
-        formatDate(c.created_at),
-        spendFor(c.user_id),
-        c.status,
-      ]);
-    });
-    const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `customers-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const buildCustomerExportSpec = () => {
+    const totalSpend = filteredCustomers.reduce((s, c) => s + Number(spendFor(c.user_id) || 0), 0);
+    const activeCount = filteredCustomers.filter((c) => (c.status || 'active').toLowerCase() === 'active').length;
+    const blacklistedCount = filteredCustomers.length - activeCount;
+
+    return {
+      filename: `HJY-Customers-${new Date().toISOString().split('T')[0]}`,
+      sheetName: 'Customers',
+      title: showBlacklistedOnly ? 'Blacklisted Customers Directory' : 'Customer Directory Report',
+      subtitle: `${filteredCustomers.length} customer record(s)`,
+      summary: [
+        { label: 'Total Customers Listed', value: filteredCustomers.length, format: 'integer' },
+        { label: 'Active Customers', value: activeCount, format: 'integer' },
+        { label: 'Blacklisted / Inactive', value: blacklistedCount, format: 'integer' },
+        { label: 'Total Cumulative Spend', value: totalSpend, format: 'currency' },
+      ],
+      tables: [
+        {
+          title: 'Customer Records',
+          columns: [
+            { header: 'Customer ID', align: 'center', bold: true, minWidth: 14 },
+            { header: 'Full Name', align: 'left', minWidth: 24 },
+            { header: 'Contact Number', align: 'center', minWidth: 16 },
+            { header: 'Email Address', align: 'left', minWidth: 26 },
+            { header: 'Date Joined', align: 'center', minWidth: 15 },
+            { header: 'Cumulative Spend (PHP)', align: 'right', format: 'currency', minWidth: 22 },
+            { header: 'Status', align: 'center', minWidth: 14 },
+          ],
+          rows: filteredCustomers.map((c) => [
+            customerCode(c.user_id),
+            c.full_name || '—',
+            c.phone || '—',
+            c.email || '—',
+            formatDate(c.created_at),
+            Number(spendFor(c.user_id) || 0),
+            String(c.status || 'active').toUpperCase(),
+          ]),
+          totalsRow: [
+            'TOTAL',
+            `${filteredCustomers.length} customers`,
+            '',
+            '',
+            '',
+            totalSpend,
+            '',
+          ],
+        },
+      ],
+    };
   };
 
   return (
@@ -550,7 +578,13 @@ function CustomersPage() {
                 >
                   {showBlacklistedOnly ? 'Show All' : 'Blacklisted'}
                 </button>
-                <button className="export-btn" onClick={exportCsv}><i className="fas fa-upload"></i> Export</button>
+                <ExportMenu
+                  getSpec={buildCustomerExportSpec}
+                  label="Export"
+                  className="export-btn"
+                  iconClass="fas fa-upload"
+                  title="Export customers as Excel (.xlsx) or CSV (.csv)"
+                />
               </div>
             </div>
 

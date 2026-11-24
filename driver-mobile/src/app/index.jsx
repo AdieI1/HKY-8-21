@@ -39,6 +39,7 @@ export default function Index() {
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [loginError, setLoginError] = useState("");
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
     // OWASP Enforced First-Login Password Rotation State
@@ -54,7 +55,7 @@ export default function Index() {
         if (!deliveryId) return false;
         try {
             const delivery = await getDelivery(deliveryId);
-            if (!delivery || ["completed", "rejected"].includes(delivery.status)) {
+            if (!delivery || ["completed", "returning_to_hq", "rejected"].includes(delivery.status)) {
                 await clearActiveAcceptedDeliveryId();
                 return false;
             }
@@ -200,48 +201,31 @@ export default function Index() {
     }, []);
 
     const handleLogin = async () => {
-        console.log("================================");
-        console.log("LOGIN BUTTON PRESSED");
-        console.log("EMAIL:", email);
-        console.log("PASSWORD LENGTH:", password.length);
-        console.log("================================");
+        setLoginError("");
 
         // EMPTY EMAIL
         if (!email.trim()) {
-            Alert.alert(
-                "Login Required",
-                "Please enter your email."
-            );
+            setLoginError("Please enter your email.");
             return;
         }
 
         // EMPTY PASSWORD
         if (!password) {
-            Alert.alert(
-                "Login Required",
-                "Please enter your password."
-            );
+            setLoginError("Please enter your password.");
             return;
         }
 
         try {
             setLoading(true);
 
-            console.log("CALLING BACKEND LOGIN...");
-
             const data = await login(
                 email.trim(),
                 password
             );
 
-            console.log("BACKEND LOGIN SUCCESS");
-            console.log("USER:", data.user);
-            console.log("TOKEN EXISTS:", !!data.token);
-
             if (!data?.token) {
-                throw new Error(
-                    "Backend did not return an authentication token."
-                );
+                setLoginError("Provided credentials are incorrect.");
+                return;
             }
 
             // OWASP Enforced First-Login Password Rotation
@@ -254,17 +238,12 @@ export default function Index() {
             await navigateAfterLogin();
 
         } catch (error) {
-            console.error(
-                "BACKEND LOGIN FAILED:",
-                error
-            );
-
-            Alert.alert(
-                "Login Failed",
-                error?.message ||
-                    "Unable to connect to the server."
-            );
-
+            const msg = String(error?.message || "").toLowerCase();
+            if (msg.includes("network request failed") || msg.includes("failed to fetch")) {
+                setLoginError("Unable to connect to the server.");
+            } else {
+                setLoginError("Provided credentials are incorrect.");
+            }
         } finally {
             setLoading(false);
         }
@@ -306,7 +285,10 @@ export default function Index() {
                                 placeholderTextColor="#9D9D9D"
                                 style={styles.input}
                                 value={email}
-                                onChangeText={setEmail}
+                                onChangeText={(val) => {
+                                    setEmail(val);
+                                    if (loginError) setLoginError("");
+                                }}
                                 autoCapitalize="none"
                                 keyboardType="email-address"
                                 autoCorrect={false}
@@ -322,7 +304,10 @@ export default function Index() {
                                 style={styles.input}
                                 secureTextEntry={!showPassword}
                                 value={password}
-                                onChangeText={setPassword}
+                                onChangeText={(val) => {
+                                    setPassword(val);
+                                    if (loginError) setLoginError("");
+                                }}
                                 autoCapitalize="none"
                                 autoCorrect={false}
                                 editable={!loading}
@@ -348,6 +333,10 @@ export default function Index() {
                                 />
                             </TouchableOpacity>
                         </View>
+
+                        {loginError ? (
+                            <Text style={styles.errorText}>{loginError}</Text>
+                        ) : null}
 
                         {/* LOGIN BUTTON */}
                         <TouchableOpacity
@@ -562,8 +551,17 @@ const styles = StyleSheet.create({
         color: "#FFFFFF",
     },
 
+    errorText: {
+        color: "#FF6B6B",
+        fontSize: 13,
+        fontWeight: "500",
+        textAlign: "center",
+        marginTop: -6,
+        marginBottom: 4,
+    },
+
     submitButton: {
-        marginTop: 28,
+        marginTop: 22,
         height: 52,
         backgroundColor: "#E53935",
         borderRadius: 15,

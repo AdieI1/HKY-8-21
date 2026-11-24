@@ -6,6 +6,7 @@ import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
 import TableSkeleton from '../components/TableSkeleton';
 import PrintableIncidentModal from '../components/driver/PrintableIncidentModal';
+import reverb from '../utils/reverb';
 import {
   validatePhoneNumber,
   formatPhoneInput,
@@ -14,6 +15,10 @@ import {
   validateDateSequence,
   validatePositiveNumber,
   validateEmail,
+  getTodayIso,
+  getTomorrowIso,
+  isStrictlyFutureDate,
+  LTO_DL_CODES,
 } from '../utils/validation';
 
 function formatDate(dateString) {
@@ -138,12 +143,31 @@ function classifyDelivery(del) {
   };
 }
 
+const TERMINAL_DELIVERY_STATUSES = ['completed', 'delivered', 'rejected', 'cancelled'];
+
+function isDriverOnActiveDelivery(driver) {
+  if (!driver) return false;
+  return (
+    Array.isArray(driver.deliveries) &&
+    driver.deliveries.some(
+      (d) => !TERMINAL_DELIVERY_STATUSES.includes((d.status || '').toLowerCase())
+    )
+  );
+}
+
+function parseDlCodes(raw) {
+  if (!raw) return [];
+  const validSet = new Set(LTO_DL_CODES.map((c) => c.code));
+  return String(raw)
+    .split(/[\s,]+/)
+    .map((s) => s.trim().toUpperCase())
+    .filter((s) => validSet.has(s));
+}
+
 function availabilityLabel(driver) {
   if (driver.status === 'inactive') return 'Inactive';
   if (driver.availability_status === 'offline') return 'Inactive';
-  const hasActiveDelivery = Array.isArray(driver.deliveries) && driver.deliveries.some(
-    (d) => d.status !== 'completed' && d.status !== 'rejected'
-  );
+  const hasActiveDelivery = isDriverOnActiveDelivery(driver);
   if (driver.availability_status === 'busy' && hasActiveDelivery) return 'On Delivery';
   return 'Available';
 }
@@ -306,6 +330,7 @@ function DriversPage() {
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [archivingDriver, setArchivingDriver] = useState(null);
   const [toast, setToast] = useState(null);
+  const [staffMembers, setStaffMembers] = useState([]);
 
   const [incidentSearch, setIncidentSearch] = useState('');
   const [incidentType, setIncidentType] = useState('All');
@@ -323,25 +348,86 @@ function DriversPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setLoadError('');
+  const loadData = useCallback(async (isSilent = false) => {
+    if (!isSilent) {
+      setLoading(true);
+      setLoadError('');
+    }
     try {
-      const [driversRes, incidentsRes] = await Promise.all([
-        api.get('/drivers'),
-        api.get('/incident-reports'),
+      const [driversRes, incidentsRes, usersRes] = await Promise.all([
+        api.get('/drivers', { skipCache: true }),
+        api.get('/incident-reports', { skipCache: true }),
+        isSilent ? Promise.resolve(null) : api.get('/users').catch(() => ({ data: [] })),
       ]);
-      setDrivers(driversRes.data);
+      const freshDrivers = Array.isArray(driversRes.data) ? driversRes.data : [];
+      setDrivers(freshDrivers);
       setIncidents(incidentsRes.data);
+      setDetailsDriver((prev) => {
+        if (!prev?.driver_id) return prev;
+        return freshDrivers.find((d) => d.driver_id === prev.driver_id) || prev;
+      });
+      if (usersRes) {
+        const rawUsers = Array.isArray(usersRes.data) ? usersRes.data : [];
+        const companyStaff = rawUsers
+          .filter((u) => {
+            const roleName = (u.role?.role_name || u.role_name || '').toLowerCase();
+            const status = (u.status || 'active').toLowerCase();
+            return status !== 'inactive' && (roleName.includes('admin') || roleName.includes('staff'));
+          })
+          .map((u) => ({
+            id: u.user_id || u.id,
+            name: (u.full_name || '').trim(),
+            role: u.role?.role_name || u.role_name || 'Staff',
+          }))
+          .filter((u) => u.name)
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setStaffMembers(companyStaff);
+      }
     } catch (err) {
-      setLoadError('Could not load drivers. Is the backend running and are you logged in?');
+      if (!isSilent) {
+        setLoadError('Could not load drivers. Is the backend running and are you logged in?');
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    loadData();
+    loadData(false);
+
+    let isPolling = false;
+    const silentRefresh = async () => {
+      if (isPolling || (typeof document !== 'undefined' && document.hidden)) return;
+      isPolling = true;
+      try {
+        await loadData(true);
+      } finally {
+        isPolling = false;
+      }
+    };
+
+    const unsubDelivery = reverb.subscribe('deliveries', 'delivery.updated', silentRefresh);
+    const unsubNotif = reverb.subscribe('system-notifications', 'notification.created', silentRefresh);
+
+    const handleFocus = () => {
+      if (!document.hidden) silentRefresh();
+    };
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('app:data-mutated', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    const pollInterval = setInterval(silentRefresh, 8000);
+
+    return () => {
+      unsubDelivery();
+      unsubNotif();
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('app:data-mutated', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+      clearInterval(pollInterval);
+    };
   }, [loadData]);
 
   const activeDrivers = useMemo(() => drivers.filter((d) => d.status === 'active'), [drivers]);
@@ -553,6 +639,14 @@ function DriversPage() {
   };
 
   const openEditModal = (driver) => {
+    if (isDriverOnActiveDelivery(driver)) {
+      setToast({
+        type: 'error',
+        message: 'Cannot edit driver details while the driver is assigned to or currently on an active delivery.',
+      });
+      setTimeout(() => setToast(null), 4000);
+      return;
+    }
     const authUser = JSON.parse(localStorage.getItem('auth_user') || '{}');
     const defaultAuthorizedBy = authUser?.full_name || 'Administrator';
     setEditingDriver(driver);
@@ -598,7 +692,7 @@ function DriversPage() {
 
   const saveDriver = async () => {
     const errs = {};
-    const todayIso = new Date().toISOString().split('T')[0];
+    const todayIso = getTodayIso();
 
     // 1. Personal Information
     if (!form.first_name?.trim()) errs.first_name = 'First name is required.';
@@ -623,7 +717,9 @@ function DriversPage() {
       errs.license_number = 'Must follow LTO format (e.g. D01-23-456789).';
     }
     if (!form.license_type) errs.license_type = 'License type is required.';
-    if (!form.restriction_code?.trim()) errs.restriction_code = 'Restriction code is required (or None).';
+    if (parseDlCodes(form.restriction_code).length === 0) {
+      errs.restriction_code = 'Please select at least one valid LTO DL code.';
+    }
     if (!form.license_date_issued) {
       errs.license_date_issued = 'License issue date is required.';
     } else if (form.license_date_issued > todayIso) {
@@ -631,6 +727,8 @@ function DriversPage() {
     }
     if (!form.license_expiry_date) {
       errs.license_expiry_date = 'License expiry date is required.';
+    } else if (!isStrictlyFutureDate(form.license_expiry_date)) {
+      errs.license_expiry_date = 'License expiry date must be strictly after today (tomorrow onward).';
     } else if (form.license_date_issued && !validateDateSequence(form.license_date_issued, form.license_expiry_date)) {
       errs.license_expiry_date = 'Expiry date must be on or after issue date.';
     }
@@ -657,10 +755,12 @@ function DriversPage() {
     } else if (!validatePositiveNumber(form.experience_years)) {
       errs.experience_years = 'Years of experience cannot be negative.';
     }
-    if (!form.hired_by?.trim()) errs.hired_by = 'Hired By is required.';
+    if (!form.hired_by?.trim()) errs.hired_by = 'Please select who hired this driver.';
     if (!form.contract_start) errs.contract_start = 'Contract start date is required.';
     if (!form.contract_end) {
       errs.contract_end = 'Contract end date is required.';
+    } else if (!isStrictlyFutureDate(form.contract_end)) {
+      errs.contract_end = 'Contract end date must be strictly after today (tomorrow onward).';
     } else if (form.contract_start && !validateDateSequence(form.contract_start, form.contract_end)) {
       errs.contract_end = 'Contract end date must be on or after start date.';
     }
@@ -833,6 +933,13 @@ function DriversPage() {
   };
 
   const openArchiveModal = (driver) => {
+    if (isDriverOnActiveDelivery(driver)) {
+      setToast({
+        message: 'Cannot archive a driver while they are assigned to or currently on an active delivery.',
+      });
+      setTimeout(() => setToast(null), 5000);
+      return;
+    }
     setArchivingDriver(driver);
     setShowArchiveModal(true);
   };
@@ -847,6 +954,9 @@ function DriversPage() {
       setTimeout(() => setToast(null), 5000);
     } catch (err) {
       setShowArchiveModal(false);
+      const msg = err.response?.data?.message || 'Could not archive driver.';
+      setToast({ message: msg });
+      setTimeout(() => setToast(null), 5000);
     }
   };
 
@@ -980,7 +1090,9 @@ function DriversPage() {
                     ) : paginatedDrivers.length === 0 ? (
                       <tr><td colSpan="6" style={{ textAlign: 'center', padding: 24 }}>No drivers found.</td></tr>
                     ) : (
-                      paginatedDrivers.map((driver) => (
+                      paginatedDrivers.map((driver) => {
+                        const lockedOnDelivery = isDriverOnActiveDelivery(driver);
+                        return (
                         <tr key={driver.driver_id} className="driver-row" onClick={() => openDetails(driver)}>
                           <td className="driver-id">{driverCode(driver.driver_id)}</td>
                           <td>
@@ -1006,16 +1118,29 @@ function DriversPage() {
                           <td>{driver.user?.phone || '—'}</td>
                           <td className="action-cell">
                             <div className="driver-action-buttons">
-                              <button className="btn-edit-info" onClick={(e) => { e.stopPropagation(); openEditModal(driver); }}>
-                                <i className="fas fa-pen-to-square"></i> Edit
+                              <button
+                                className="btn-edit-info"
+                                disabled={lockedOnDelivery}
+                                title={lockedOnDelivery ? 'Cannot edit while assigned to or on an active delivery' : 'Edit driver details'}
+                                style={lockedOnDelivery ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                                onClick={(e) => { e.stopPropagation(); openEditModal(driver); }}
+                              >
+                                <i className={lockedOnDelivery ? 'fas fa-lock' : 'fas fa-pen-to-square'}></i> Edit
                               </button>
-                              <button className="btn-archive" onClick={(e) => { e.stopPropagation(); openArchiveModal(driver); }}>
-                                <i className="fas fa-box-archive"></i> Archive
+                              <button
+                                className="btn-archive"
+                                disabled={lockedOnDelivery}
+                                title={lockedOnDelivery ? 'Cannot archive while assigned to or on an active delivery' : 'Archive driver'}
+                                style={lockedOnDelivery ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                                onClick={(e) => { e.stopPropagation(); openArchiveModal(driver); }}
+                              >
+                                <i className={lockedOnDelivery ? 'fas fa-lock' : 'fas fa-box-archive'}></i> Archive
                               </button>
                             </div>
                           </td>
                         </tr>
-                      ))
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -1293,10 +1418,6 @@ function DriversPage() {
         const safeDeliveryPage = Math.min(driverDeliveryPage, totalDeliveryPages);
         const paginatedDeliveries = filteredDeliveries.slice((safeDeliveryPage - 1) * DELIVERY_PAGE_SIZE, safeDeliveryPage * DELIVERY_PAGE_SIZE);
 
-        const completedTrips = completedDeliveries.length;
-        const acceptedAssignments = driverDeliveries.length;
-        const declinedAssignments = 0;
-
         const driverIncidents = incidents.filter(
           (inc) =>
             inc.delivery?.driver_id === detailsDriver.driver_id ||
@@ -1404,16 +1525,54 @@ function DriversPage() {
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    className="driver-btn-edit-info"
-                    onClick={() => {
-                      setShowDetailsModal(false);
-                      openEditModal(detailsDriver);
-                    }}
-                  >
-                    <i className="far fa-edit"></i> Edit Information
-                  </button>
+                  {(() => {
+                    const detailsLockedOnDelivery = isDriverOnActiveDelivery(detailsDriver);
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          className="driver-btn-edit-info"
+                          disabled={detailsLockedOnDelivery}
+                          title={
+                            detailsLockedOnDelivery
+                              ? 'Cannot edit driver details while assigned to or on an active delivery'
+                              : 'Edit driver information'
+                          }
+                          style={
+                            detailsLockedOnDelivery
+                              ? { opacity: 0.5, cursor: 'not-allowed' }
+                              : undefined
+                          }
+                          onClick={() => {
+                            if (detailsLockedOnDelivery) return;
+                            setShowDetailsModal(false);
+                            openEditModal(detailsDriver);
+                          }}
+                        >
+                          <i className={detailsLockedOnDelivery ? 'fas fa-lock' : 'far fa-edit'}></i>{' '}
+                          {detailsLockedOnDelivery ? 'Locked (On Delivery)' : 'Edit Information'}
+                        </button>
+                        {detailsLockedOnDelivery && (
+                          <div
+                            style={{
+                              marginTop: 6,
+                              fontSize: 11.5,
+                              color: '#b45309',
+                              background: '#fffbeb',
+                              border: '1px solid #fde68a',
+                              borderRadius: 6,
+                              padding: '6px 8px',
+                              lineHeight: 1.35,
+                              textAlign: 'center',
+                            }}
+                          >
+                            <i className="fas fa-info-circle" style={{ marginRight: 5 }}></i>
+                            Editing is disabled until the assigned delivery is completed.
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
 
                   <button
                     type="button"
@@ -1518,7 +1677,7 @@ function DriversPage() {
                           </span>
                         </div>
                         <div className="driver-info-kv-row">
-                          <span className="driver-info-kv-key">Restriction Code</span>
+                          <span className="driver-info-kv-key">DL Code(s)</span>
                           <span className="driver-info-kv-val">{detailsDriver.restriction_code || 'None'}</span>
                         </div>
                         <div className="driver-info-kv-row">
@@ -2290,11 +2449,11 @@ function DriversPage() {
                     </div>
                     <div>
                       <h4 className="driver-section-title-text">Driver's License Details</h4>
-                      <span style={{ fontSize: 12, color: '#64748b' }}>LTO License credentials, validity, and restrictions</span>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>LTO License credentials, validity, and DL codes</span>
                     </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16 }}>
                     <div className="form-group" style={{ position: 'relative' }}>
                       <label className="driver-field-label">
                         License Number <span className="req-star">*</span>
@@ -2335,25 +2494,78 @@ function DriversPage() {
                         </div>
                       )}
                     </div>
+                  </div>
 
-                    <div className="form-group" style={{ position: 'relative' }}>
-                      <label className="driver-field-label">
-                        Restriction Code <span className="req-star">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        className={`driver-form-input ${formErrors.restriction_code ? 'input-error' : ''}`}
-                        placeholder="e.g. 1, 2 (or None)"
-                        value={form.restriction_code}
-                        onChange={(e) => handleFieldChange('restriction_code', e.target.value)}
-                      />
-                      {formErrors.restriction_code && (
-                        <div className="driver-error-feedback">
-                          <i className="fas fa-circle-exclamation"></i>
-                          <span>{formErrors.restriction_code}</span>
+                  <div className="form-group" style={{ position: 'relative', marginTop: 14 }}>
+                    <label className="driver-field-label" style={{ justifyContent: 'space-between' }}>
+                      <span>LTO DL Code(s) <span className="req-star">*</span></span>
+                      <span style={{ fontSize: 11, color: '#64748b', fontWeight: 500 }}>
+                        Select all authorized vehicle classes on license
+                      </span>
+                    </label>
+                    {(() => {
+                      const selectedCodes = parseDlCodes(form.restriction_code);
+                      const toggleDlCode = (code) => {
+                        const next = selectedCodes.includes(code)
+                          ? selectedCodes.filter((c) => c !== code)
+                          : [...selectedCodes, code];
+                        const ordered = LTO_DL_CODES.map((c) => c.code).filter((c) => next.includes(c));
+                        handleFieldChange('restriction_code', ordered.join(', '));
+                      };
+                      return (
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: 8,
+                            padding: '10px 12px',
+                            borderRadius: 8,
+                            border: formErrors.restriction_code ? '1.5px solid #dc2626' : '1px solid #cbd5e1',
+                            background: formErrors.restriction_code ? '#fef2f2' : '#f8fafc',
+                          }}
+                        >
+                          {LTO_DL_CODES.map((dl) => {
+                            const active = selectedCodes.includes(dl.code);
+                            return (
+                              <button
+                                key={dl.code}
+                                type="button"
+                                title={dl.label}
+                                onClick={() => toggleDlCode(dl.code)}
+                                style={{
+                                  padding: '6px 11px',
+                                  borderRadius: 6,
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  border: active ? '1.5px solid #b91c1c' : '1px solid #cbd5e1',
+                                  background: active ? '#b91c1c' : '#ffffff',
+                                  color: active ? '#ffffff' : '#334155',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                  transition: 'all 0.15s ease',
+                                }}
+                              >
+                                {active && <i className="fas fa-check" style={{ fontSize: 10 }}></i>}
+                                {dl.code}
+                              </button>
+                            );
+                          })}
                         </div>
-                      )}
-                    </div>
+                      );
+                    })()}
+                    {form.restriction_code && parseDlCodes(form.restriction_code).length === 0 && (
+                      <div style={{ fontSize: 11, color: '#b45309', marginTop: 4 }}>
+                        Legacy restriction code on file: &ldquo;{form.restriction_code}&rdquo; — please select the matching LTO DL code(s) above.
+                      </div>
+                    )}
+                    {formErrors.restriction_code && (
+                      <div className="driver-error-feedback">
+                        <i className="fas fa-circle-exclamation"></i>
+                        <span>{formErrors.restriction_code}</span>
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16, marginTop: 14 }}>
@@ -2363,7 +2575,7 @@ function DriversPage() {
                       </label>
                       <input
                         type="date"
-                        max={new Date().toISOString().split('T')[0]}
+                        max={getTodayIso()}
                         className={`driver-form-input ${formErrors.license_date_issued ? 'input-error' : ''}`}
                         value={form.license_date_issued || ''}
                         onChange={(e) => handleFieldChange('license_date_issued', e.target.value)}
@@ -2382,7 +2594,7 @@ function DriversPage() {
                       </label>
                       <input
                         type="date"
-                        min={form.license_date_issued || ''}
+                        min={[getTomorrowIso(), form.license_date_issued].filter(Boolean).sort().pop()}
                         className={`driver-form-input ${formErrors.license_expiry_date ? 'input-error' : ''}`}
                         value={form.license_expiry_date || ''}
                         onChange={(e) => handleFieldChange('license_expiry_date', e.target.value)}
@@ -2587,16 +2799,41 @@ function DriversPage() {
                           </span>
                         )}
                       </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. HR / Manager"
-                        className={`driver-form-input ${formErrors.hired_by ? 'input-error' : ''}`}
-                        value={form.hired_by || ''}
-                        disabled={Boolean(editingDriver)}
-                        readOnly={Boolean(editingDriver)}
-                        style={editingDriver ? { backgroundColor: '#f1f5f9', color: '#475569', cursor: 'not-allowed' } : {}}
-                        onChange={(e) => handleFieldChange('hired_by', e.target.value)}
-                      />
+                      {(() => {
+                        const authUser = JSON.parse(localStorage.getItem('auth_user') || '{}');
+                        const currentAuthName = (authUser?.full_name || '').trim();
+                        const optionsMap = new Map();
+                        staffMembers.forEach((m) => optionsMap.set(m.name.toLowerCase(), m));
+                        if (currentAuthName && !optionsMap.has(currentAuthName.toLowerCase())) {
+                          optionsMap.set(currentAuthName.toLowerCase(), {
+                            id: 'auth-self',
+                            name: currentAuthName,
+                            role: authUser?.role?.role_name || authUser?.role || 'Admin',
+                          });
+                        }
+                        const savedName = (form.hired_by || '').trim();
+                        const hasLegacyValue = savedName && !optionsMap.has(savedName.toLowerCase());
+                        const dropdownOptions = Array.from(optionsMap.values());
+                        return (
+                          <select
+                            className={`driver-form-select ${formErrors.hired_by ? 'input-error' : ''}`}
+                            value={form.hired_by || ''}
+                            disabled={Boolean(editingDriver)}
+                            style={editingDriver ? { backgroundColor: '#f1f5f9', color: '#475569', cursor: 'not-allowed' } : {}}
+                            onChange={(e) => handleFieldChange('hired_by', e.target.value)}
+                          >
+                            <option value="">Select Admin / Staff member...</option>
+                            {hasLegacyValue && (
+                              <option value={savedName}>{savedName}</option>
+                            )}
+                            {dropdownOptions.map((member) => (
+                              <option key={member.id} value={member.name}>
+                                {member.name} ({member.role})
+                              </option>
+                            ))}
+                          </select>
+                        );
+                      })()}
                       {formErrors.hired_by && (
                         <div className="driver-error-feedback">
                           <i className="fas fa-circle-exclamation"></i>
@@ -2631,7 +2868,7 @@ function DriversPage() {
                       </label>
                       <input
                         type="date"
-                        min={form.contract_start || ''}
+                        min={[getTomorrowIso(), form.contract_start].filter(Boolean).sort().pop()}
                         className={`driver-form-input ${formErrors.contract_end ? 'input-error' : ''}`}
                         value={form.contract_end || ''}
                         onChange={(e) => handleFieldChange('contract_end', e.target.value)}

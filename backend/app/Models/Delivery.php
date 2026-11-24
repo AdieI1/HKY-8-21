@@ -31,6 +31,7 @@ class Delivery extends Model
         'fuel_unit',
         'fuel_issued',
         'fuel_receipt_no',
+        'fuel_issuance_status',
         'remarks',
         'receipt_photo',
         'proof_of_delivery_path',
@@ -109,7 +110,11 @@ class Delivery extends Model
         if (str_starts_with($this->area_permit_path, 'http://') || str_starts_with($this->area_permit_path, 'https://')) {
             return str_replace('/api/storage/', '/storage/', $this->area_permit_path);
         }
-        $url = url('storage/' . ltrim($this->area_permit_path, '/'));
+        $cleanPath = ltrim(preg_replace('#^/?storage/#', '', $this->area_permit_path), '/');
+        if (request()) {
+            return request()->getSchemeAndHttpHost() . '/storage/' . $cleanPath;
+        }
+        $url = url('storage/' . $cleanPath);
         return str_replace('/api/storage/', '/storage/', $url);
     }
 

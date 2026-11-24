@@ -106,6 +106,9 @@ export default function PinRouteMap({ pickup, dropoff, onPickupChange, onDropoff
       maxBounds: MINDANAO_BOUNDS,
       maxBoundsViscosity: 1.0,
       minZoom: 7,
+      zoomAnimation: false,
+      fadeAnimation: false,
+      markerZoomAnimation: false,
     }).setView([8.4542, 124.6319], 10);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
 

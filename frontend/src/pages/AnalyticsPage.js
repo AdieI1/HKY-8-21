@@ -4,6 +4,7 @@ import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
 import TableSkeleton from '../components/TableSkeleton';
+import ExportMenu from '../components/ExportMenu';
 import AnalyticsOverviewModal from '../components/analytics/AnalyticsOverviewModal';
 import CustomerRatingsModal from '../components/analytics/CustomerRatingsModal';
 import ClaimsRefundsModal from '../components/analytics/ClaimsRefundsModal';
@@ -52,14 +53,11 @@ function AnalyticsPage() {
   const [timeFilter, setTimeFilter] = useState('all');
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   const [showReportModal, setShowReportModal] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
   const [overviewModalType, setOverviewModalType] = useState(null); // 'deliveries' | 'revenue' | null
   const [showRatingsModal, setShowRatingsModal] = useState(false);
   const [showClaimsModal, setShowClaimsModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [incidents, setIncidents] = useState([]);
-  const [importedPdfFile, setImportedPdfFile] = useState(null);
-  const [importedPdfUrl, setImportedPdfUrl] = useState(null);
   const PAGE_SIZE = 8;
 
   const authUser = useMemo(() => {
@@ -84,12 +82,6 @@ function AnalyticsPage() {
       'System Administrator'
     );
   }, [authUser]);
-
-  useEffect(() => {
-    return () => {
-      if (importedPdfUrl) URL.revokeObjectURL(importedPdfUrl);
-    };
-  }, [importedPdfUrl]);
 
   useEffect(() => {
     const update = () => {
@@ -442,27 +434,52 @@ function AnalyticsPage() {
     return filteredHistory.slice(start, start + PAGE_SIZE);
   }, [filteredHistory, historyPage]);
 
-  const exportHistory = () => {
-    const rows = [
-      ['Delivery ID', 'Customer', 'Driver', 'Vehicle', 'Status', 'Date', 'Trip Cost'],
-      ...filteredHistory.map((d) => [
-        deliveryCode(d.delivery_id),
-        d.request?.customer?.full_name || '—',
-        d.driver?.user?.full_name || 'Unassigned',
-        d.vehicle?.model || 'Unassigned',
-        d.status,
-        formatDate(d.created_at),
-        d.trip_cost || 0,
-      ]),
-    ];
-    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `delivery-history-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const buildHistoryExportSpec = () => {
+    const totalRevenue = filteredHistory.reduce((s, d) => s + Number(d.trip_cost || 0), 0);
+    const completedCount = filteredHistory.filter((d) => d.status === 'completed').length;
+    return {
+      filename: `HJY-Delivery-History-${new Date().toISOString().split('T')[0]}`,
+      sheetName: 'Delivery History',
+      title: 'Delivery History & Revenue Ledger',
+      subtitle: `${filteredHistory.length} delivery record(s)`,
+      summary: [
+        { label: 'Total Deliveries', value: filteredHistory.length, format: 'integer' },
+        { label: 'Completed Deliveries', value: completedCount, format: 'integer' },
+        { label: 'Total Revenue', value: totalRevenue, format: 'currency' },
+      ],
+      tables: [
+        {
+          title: 'Delivery History',
+          columns: [
+            { header: 'Delivery ID', align: 'center', bold: true, minWidth: 14 },
+            { header: 'Date', align: 'center', minWidth: 15 },
+            { header: 'Customer', align: 'left', minWidth: 22 },
+            { header: 'Driver', align: 'left', minWidth: 20 },
+            { header: 'Vehicle', align: 'left', minWidth: 20 },
+            { header: 'Status', align: 'center', minWidth: 16 },
+            { header: 'Revenue (PHP)', align: 'right', format: 'currency', minWidth: 18 },
+          ],
+          rows: filteredHistory.map((d) => [
+            deliveryCode(d.delivery_id),
+            formatDate(d.created_at),
+            d.request?.customer?.full_name || '—',
+            d.driver?.user?.full_name || 'Unassigned',
+            d.vehicle ? `${d.vehicle.model || 'Truck'}${d.vehicle.plate_number ? ` (${d.vehicle.plate_number})` : ''}` : 'Unassigned',
+            String(d.status || '').replace(/_/g, ' ').toUpperCase(),
+            Number(d.trip_cost || 0),
+          ]),
+          totalsRow: [
+            'TOTAL',
+            '',
+            `${filteredHistory.length} deliveries`,
+            '',
+            '',
+            '',
+            totalRevenue,
+          ],
+        },
+      ],
+    };
   };
 
   return (
@@ -523,16 +540,6 @@ function AnalyticsPage() {
                 >
                   <i className="fas fa-file-pdf"></i>
                   <span>Export PDF Report</span>
-                </button>
-
-                <button
-                  type="button"
-                  className="btn-report-action btn-report-import"
-                  onClick={() => setShowImportModal(true)}
-                  title="Import or upload external PDF audit file"
-                >
-                  <i className="fas fa-file-arrow-up"></i>
-                  <span>Import PDF File</span>
                 </button>
               </div>
             )}
@@ -894,9 +901,13 @@ function AnalyticsPage() {
                   <option value="revenue-desc">Highest Revenue</option>
                 </select>
                 {isAdmin && (
-                  <button className="btn-export" onClick={exportHistory} type="button">
-                    <i className="fas fa-file-export"></i> Export
-                  </button>
+                  <ExportMenu
+                    getSpec={buildHistoryExportSpec}
+                    label="Export"
+                    className="btn-export"
+                    iconClass="fas fa-file-export"
+                    title="Export delivery history as Excel (.xlsx) or CSV (.csv)"
+                  />
                 )}
               </div>
             </div>
@@ -1334,109 +1345,6 @@ function AnalyticsPage() {
         </div>
       )}
 
-      {/* Import PDF File Modal */}
-      {showImportModal && (
-        <div className="analytics-report-overlay">
-          <div className="analytics-report-modal" style={{ maxWidth: 640 }}>
-            <div className="report-modal-actions-bar">
-              <div className="report-title-tag">
-                <i className="fas fa-file-import" style={{ color: '#38bdf8' }}></i>
-                <span>Import External PDF Report Document</span>
-              </div>
-              <button
-                type="button"
-                className="btn-report-close"
-                onClick={() => setShowImportModal(false)}
-              >
-                <i className="fas fa-times"></i>
-              </button>
-            </div>
-
-            <div style={{ padding: 24, background: '#fff' }}>
-              <p style={{ fontSize: 13, color: '#475569', margin: '0 0 16px' }}>
-                Upload an external analytics audit or signed inspection PDF report to archive with administrative endorsement.
-              </p>
-
-              <div
-                style={{
-                  border: '2px dashed #cbd5e1',
-                  borderRadius: 10,
-                  padding: 30,
-                  textAlign: 'center',
-                  background: '#f8fafc',
-                  cursor: 'pointer',
-                  marginBottom: 16,
-                }}
-                onClick={() => document.getElementById('analytics-pdf-file-input')?.click()}
-              >
-                <input
-                  id="analytics-pdf-file-input"
-                  type="file"
-                  accept=".pdf,application/pdf"
-                  style={{ display: 'none' }}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      setImportedPdfFile(file);
-                      if (importedPdfUrl) URL.revokeObjectURL(importedPdfUrl);
-                      setImportedPdfUrl(URL.createObjectURL(file));
-                    }
-                  }}
-                />
-                <i className="fas fa-cloud-arrow-up" style={{ fontSize: 36, color: '#0284c7', marginBottom: 10 }}></i>
-                <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
-                  {importedPdfFile ? importedPdfFile.name : 'Click to select or drop a PDF file here'}
-                </div>
-                <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-                  {importedPdfFile ? `${(importedPdfFile.size / 1024).toFixed(1)} KB • PDF Document` : 'Accepts standard PDF documents up to 25MB'}
-                </div>
-              </div>
-
-              {importedPdfUrl && (
-                <div style={{ marginBottom: 16, border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
-                  <div style={{ background: '#f1f5f9', padding: '8px 12px', fontSize: 12, fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
-                    <span><i className="fas fa-check-circle" style={{ color: '#16a34a', marginRight: 6 }}></i> PDF Loaded Successfully</span>
-                    <a href={importedPdfUrl} target="_blank" rel="noreferrer" style={{ color: '#0284c7', textDecoration: 'none' }}>
-                      Open in Tab <i className="fas fa-external-link-alt"></i>
-                    </a>
-                  </div>
-                  <iframe src={importedPdfUrl} title="Imported PDF Preview" style={{ width: '100%', height: 260, border: 'none' }} />
-                </div>
-              )}
-
-              {/* Bottom Sign-off Section on Import */}
-              <div className="report-sign-off-section" style={{ marginTop: 20, paddingTop: 14 }}>
-                <div className="report-sign-off-grid">
-                  <div className="sign-off-box">
-                    <div className="sign-off-label" style={{ marginBottom: 18 }}>Prepared By:</div>
-                    <div className="sign-off-line"></div>
-                    <div className="sign-off-name">{adminName}</div>
-                    <div className="sign-off-role">System Administrator</div>
-                    <div className="sign-off-date">Imported on: {currentDate}</div>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowImportModal(false)}
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: 6,
-                    border: '1px solid #cbd5e1',
-                    background: '#fff',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Deliveries & Revenue Overview Modal (UI Design Frame) */}
       <AnalyticsOverviewModal

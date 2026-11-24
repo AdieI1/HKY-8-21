@@ -272,7 +272,7 @@ export default function CompletedDeliveryDetailsModal({
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px solid #F9FAFB' }}>
                   <span style={{ color: '#6B7280' }}>Vehicle:</span>
                   <span style={{ fontWeight: 600, color: '#111827' }}>
-                    {vehicle.plate_number ? `${vehicle.model || 'FUSO'} – ${vehicle.plate_number}` : 'Unassigned'}
+                    {vehicle.plate_number ? `${vehicle.model || 'Truck'} – ${vehicle.plate_number}` : 'Unassigned'}
                   </span>
                 </div>
 
@@ -281,14 +281,12 @@ export default function CompletedDeliveryDetailsModal({
                   <span style={{ fontWeight: 600, color: '#111827', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                     <span>{req.receiver_name || customer.full_name || 'Same as Customer'}</span>
                     {(req.receiver_phone || customer.phone) && (
-                      <a
-                        href={`tel:${req.receiver_phone || customer.phone}`}
+                      <span
                         style={{
                           color: '#0284c7',
                           background: '#e0f2fe',
                           padding: '1px 6px',
                           borderRadius: '4px',
-                          textDecoration: 'none',
                           fontSize: '12px',
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -297,7 +295,7 @@ export default function CompletedDeliveryDetailsModal({
                       >
                         <i className="fas fa-phone-alt" style={{ fontSize: '10px' }}></i>
                         {req.receiver_phone || customer.phone}
-                      </a>
+                      </span>
                     )}
                   </span>
                 </div>

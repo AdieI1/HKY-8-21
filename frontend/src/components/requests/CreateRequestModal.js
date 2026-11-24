@@ -203,6 +203,10 @@ export default function CreateRequestModal({
       newErrors.phone = 'Invalid phone number';
     }
 
+    if (form.receiver_phone?.trim() && !validatePhoneNumber(form.receiver_phone)) {
+      newErrors.receiver_phone = 'Invalid phone number';
+    }
+
     if (!form.email?.trim()) newErrors.email = 'Missing output';
 
     // Cargo Information
@@ -254,6 +258,8 @@ export default function CreateRequestModal({
         setFormError('Pick-up and Drop-off locations must be strictly within Mindanao only.');
       } else if (validationErrors.phone === 'Invalid phone number') {
         setFormError('Contact number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
+      } else if (validationErrors.receiver_phone === 'Invalid phone number') {
+        setFormError('Receiver contact number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
       } else if (validationErrors.scheduled_date) {
         setFormError(validationErrors.scheduled_date);
       } else {
@@ -598,11 +604,17 @@ export default function CreateRequestModal({
                 <label>Receiver Contact Phone:</label>
                 <input
                   type="text"
-                  className="form-input"
-                  placeholder="e.g. 0912 345 6789"
+                  maxLength={11}
+                  className={`form-input ${errors.receiver_phone ? 'input-error' : ''}`}
+                  placeholder="09xxxxxxxxx (leave blank if same as customer)"
                   value={form.receiver_phone || ''}
-                  onChange={(e) => handleInputChange('receiver_phone', e.target.value)}
+                  onChange={(e) => handleInputChange('receiver_phone', formatPhoneInput(e.target.value))}
                 />
+                {errors.receiver_phone && (
+                  <div className="input-error-msg">
+                    <i className="fas fa-circle-exclamation"></i> Must start with 09 and be 11 digits
+                  </div>
+                )}
               </div>
 
               <PinRouteMap
@@ -614,8 +626,21 @@ export default function CreateRequestModal({
               />
 
               <div className="form-group">
-                <label>Distance (km)</label>
-                <input type="number" className="form-input" value={form.distance_km} onChange={(e) => handleInputChange('distance_km', e.target.value)} placeholder="Auto-calculated from map" />
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Distance (km)</span>
+                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <i className="fas fa-lock" style={{ fontSize: 10 }}></i> Auto-calculated (fixed)
+                  </span>
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={form.distance_km !== '' && form.distance_km != null ? form.distance_km : ''}
+                  readOnly
+                  tabIndex={-1}
+                  placeholder="Auto-calculated from map"
+                  style={{ backgroundColor: '#f1f5f9', color: '#334155', fontWeight: 600, cursor: 'not-allowed' }}
+                />
               </div>
             </div>
 

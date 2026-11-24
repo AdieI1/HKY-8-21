@@ -31,17 +31,15 @@ export default function SettingsPage() {
 
   // System Configuration & Incident Notification Rules State
   const [systemConfig, setSystemConfig] = useState({
-    break_monitoring: { value: 8, unit: 'hours' },
+    idle_duration_threshold: { value: 30, unit: 'mins' },
     gps_disconnect_alert: { value: 20, unit: 'mins' },
-    overdue_request_threshold: { value: 3, unit: 'days' },
-    delivery_decline_threshold: { value: 3 },
+    overdue_request_threshold: { value: 2, unit: 'days' },
     archived_retention_duration: { value: 2, unit: 'months' },
     critical_alert: { value: 24, unit: 'hours' },
   });
   const [notificationRules, setNotificationRules] = useState({
     gps_disconnected: { enabled: true, severity: 'high' },
     idle_duration: { enabled: true, severity: 'medium' },
-    declined_delivery: { enabled: true, severity: 'high' },
     overdue_reminder: { enabled: true, severity: 'high' },
     critical_alert: { enabled: true, severity: 'high' },
   });
@@ -780,12 +778,12 @@ export default function SettingsPage() {
                 <div className="sysconfig-list">
                   {[
                     {
-                      key: 'break_monitoring',
-                      title: 'Break Monitoring',
-                      desc: 'Break duration alert threshold',
+                      key: 'idle_duration_threshold',
+                      title: 'Idle Duration Threshold',
+                      desc: 'Triggers an idle alert when an active in-transit truck remains stationary past this duration.',
                       icon: 'far fa-clock',
                       color: 'pink',
-                      units: ['hours', 'mins'],
+                      units: ['mins', 'hours'],
                     },
                     {
                       key: 'gps_disconnect_alert',
@@ -802,14 +800,6 @@ export default function SettingsPage() {
                       icon: 'fas fa-exclamation-triangle',
                       color: 'red',
                       units: ['days', 'hours'],
-                    },
-                    {
-                      key: 'delivery_decline_threshold',
-                      title: 'Delivery Decline Threshold',
-                      desc: 'Defines the number of Delivery declines permitted per driver before triggering a flag.',
-                      icon: 'far fa-frown',
-                      color: 'orange',
-                      units: null,
                     },
                     {
                       key: 'archived_retention_duration',
@@ -912,7 +902,6 @@ export default function SettingsPage() {
                   {[
                     { key: 'gps_disconnected', title: 'GPS Disconnected', desc: 'GPS Signal lost' },
                     { key: 'idle_duration', title: 'Idle Duration', desc: 'Notifies when a driver has been idle for an extended period.' },
-                    { key: 'declined_delivery', title: 'Declined Delivery', desc: 'Driver Exceeds Allowed Assignment Declines' },
                     { key: 'overdue_reminder', title: 'Overdue Reminder', desc: 'Occurs when a request is not completed by its due date.' },
                     { key: 'critical_alert', title: 'Critical Alert', desc: 'Occurs when the GPS connectivity is lost for longer than the normal duration.' },
                   ].map((rule) => {

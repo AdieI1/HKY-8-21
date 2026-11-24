@@ -6,8 +6,8 @@ import RequestDetailsModal from '../components/requests/RequestDetailsModal';
 import CreateRequestModal from '../components/requests/CreateRequestModal';
 import NotificationBell from '../components/NotificationBell';
 import TableSkeleton from '../components/TableSkeleton';
+import { getOverdueRequestConfig } from '../utils/systemRules';
 
-const OVERDUE_DAYS = 2;
 const ITEMS_PER_PAGE = 8;
 
 function formatDate(dateString) {
@@ -38,12 +38,12 @@ function requestCode(id, short) {
   return `${short ? 'RQ' : 'REQ'}${String(id).padStart(4, '0')}`;
 }
 
-function isOverdue(request) {
+function checkIsRequestOverdue(request, thresholdMs) {
   if (request.status !== 'pending') return false;
   if (request.is_scheduled && request.scheduled_date) {
     return Date.now() > new Date(request.scheduled_date + 'T23:59:59').getTime();
   }
-  return (Date.now() - new Date(request.created_at).getTime()) / 86400000 >= OVERDUE_DAYS;
+  return Date.now() - new Date(request.created_at).getTime() >= thresholdMs;
 }
 
 const EMPTY_FORM = {
@@ -59,6 +59,7 @@ const EMPTY_FORM = {
 
 function RequestsPage() {
   const [requests, setRequests] = useState([]);
+  const [overdueConfig, setOverdueConfig] = useState(() => getOverdueRequestConfig(null));
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [currentDate, setCurrentDate] = useState('');
@@ -91,10 +92,18 @@ function RequestsPage() {
     }
     setLoadError('');
     try {
-      const res = await api.get('/delivery-requests');
+      const [res, settingsRes] = await Promise.all([
+        api.get('/delivery-requests', { skipCache: true }),
+        isInitial ? api.get('/system-settings', { skipCache: true }).catch(() => ({ data: null })) : Promise.resolve(null),
+      ]);
       setRequests(res.data);
+      if (settingsRes?.data) {
+        setOverdueConfig(getOverdueRequestConfig(settingsRes.data));
+      }
     } catch {
-      setLoadError('Could not load requests. Is the backend running and are you logged in?');
+      if (isInitial) {
+        setLoadError('Could not load requests. Is the backend running and are you logged in?');
+      }
     } finally {
       if (isInitial) {
         setLoading(false);
@@ -102,12 +111,26 @@ function RequestsPage() {
     }
   }, []);
 
+  const isOverdue = useCallback(
+    (request) => checkIsRequestOverdue(request, overdueConfig.thresholdMs),
+    [overdueConfig.thresholdMs]
+  );
+
   useEffect(() => {
     loadData(true);
     const unsub = reverb.subscribe('system-notifications', 'notification.created', () => loadData(false));
-    const interval = setInterval(() => loadData(false), 60000);
+    const handleFocus = () => {
+      if (!document.hidden) loadData(false);
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+    const interval = setInterval(() => {
+      if (!document.hidden) loadData(false);
+    }, 10000);
     return () => {
       clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
       unsub();
     };
   }, [loadData]);
@@ -121,7 +144,7 @@ function RequestsPage() {
     const approved = activeRequests.filter((r) => r.status === 'approved').length;
     const scheduled = activeRequests.filter((r) => r.is_scheduled || r.scheduled_date).length;
     return { pending, overdue, approved, scheduled };
-  }, [activeRequests]);
+  }, [activeRequests, isOverdue]);
 
   const requestActivities = useMemo(() => {
     const list = [];
@@ -131,8 +154,8 @@ function RequestsPage() {
       const cTime = new Date(r.created_at || Date.now()).getTime();
       const uTime = new Date(r.updated_at || r.created_at || Date.now()).getTime();
 
-      if (isOverdue(r)) {
-        list.push({ id: `overdue-${r.request_id}`, type: 'overdue', icon: 'fas fa-exclamation-triangle', title: `${code} Overdue!`, sub: `${cust} • Pending response`, time: formatRelativeTime(r.created_at), timeMs: Date.now() + 100000000, request: r });
+      if (overdueConfig.reminderEnabled && isOverdue(r)) {
+        list.push({ id: `overdue-${r.request_id}`, type: 'overdue', icon: 'fas fa-exclamation-triangle', title: `${code} Overdue!`, sub: `${cust} • Pending (${overdueConfig.label})`, time: formatRelativeTime(r.created_at), timeMs: Date.now() + 100000000, request: r });
       }
       if (r.is_scheduled || r.scheduled_date) {
         list.push({ id: `sched-${r.request_id}`, type: 'scheduled', icon: 'far fa-calendar-alt', title: `${code} Scheduled`, sub: `${cust} • ${r.scheduled_date ? formatDate(r.scheduled_date) : 'Upcoming'}${r.scheduled_time_slot ? ` (${r.scheduled_time_slot})` : ''}`, time: formatRelativeTime(r.updated_at || r.created_at), timeMs: uTime + 200, request: r });
@@ -147,7 +170,7 @@ function RequestsPage() {
       }
     });
     return list.sort((a, b) => b.timeMs - a.timeMs);
-  }, [requests]);
+  }, [requests, isOverdue, overdueConfig.label, overdueConfig.reminderEnabled]);
 
   // Filter & Search Logic
   const filteredRequests = useMemo(() => {
@@ -191,7 +214,7 @@ function RequestsPage() {
       if (idA !== idB) return idB - idA;
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
-  }, [view, viewTab, draftRequests, activeRequests, requests, statusFilter, searchTerm]);
+  }, [view, viewTab, draftRequests, activeRequests, requests, statusFilter, searchTerm, isOverdue]);
 
   // Pagination Logic
   const totalPages = Math.ceil(filteredRequests.length / ITEMS_PER_PAGE) || 1;

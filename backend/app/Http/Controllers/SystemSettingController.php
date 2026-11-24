@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\SystemSetting;
+use App\Services\SystemRuleEvaluator;
 use Illuminate\Http\Request;
 
 class SystemSettingController extends Controller
@@ -78,6 +79,7 @@ class SystemSettingController extends Controller
         }
 
         $setting->update($updates);
+        SystemRuleEvaluator::resetThrottle();
 
         return response()->json(SystemSetting::getSettings());
     }
@@ -108,6 +110,7 @@ class SystemSettingController extends Controller
         }
 
         $setting->update($updates);
+        SystemRuleEvaluator::resetThrottle();
 
         return response()->json(SystemSetting::getSettings());
     }

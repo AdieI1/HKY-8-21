@@ -47,7 +47,7 @@ class DriverController extends Controller
             'license_type' => 'nullable|string|max:50',
             'restriction_code' => 'nullable|string|max:50',
             'license_date_issued' => 'nullable|date',
-            'license_expiry_date' => 'nullable|date',
+            'license_expiry_date' => 'nullable|date|after:today',
             'authorized_by' => 'nullable|string|max:100',
             'license_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
 
@@ -69,7 +69,10 @@ class DriverController extends Controller
             'date_hired' => 'nullable|date',
             'hired_by' => 'nullable|string|max:100',
             'contract_start' => 'nullable|date',
-            'contract_end' => 'nullable|date',
+            'contract_end' => 'nullable|date|after:today',
+        ], [
+            'license_expiry_date.after' => 'License expiry date must be strictly after today (tomorrow onward).',
+            'contract_end.after' => 'Contract end date must be strictly after today (tomorrow onward).',
         ]);
 
         $driverRole = Role::where(
@@ -237,6 +240,19 @@ class DriverController extends Controller
 
     public function update(Request $request, Driver $driver)
     {
+        $hasActiveDelivery = $driver->deliveries()
+            ->whereNotIn('status', ['completed', 'delivered', 'rejected', 'cancelled'])
+            ->exists();
+
+        if ($hasActiveDelivery) {
+            $isArchiving = $request->input('status') === 'inactive';
+            return response()->json([
+                'message' => $isArchiving
+                    ? 'Cannot archive driver while the driver is assigned to or currently on an active delivery.'
+                    : 'Cannot edit driver details while the driver is assigned to or currently on an active delivery.'
+            ], 422);
+        }
+
         $request->validate([
             'email' =>
                 'nullable|email|unique:users,email,' .
@@ -251,6 +267,8 @@ class DriverController extends Controller
             'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'birthdate' => 'nullable|date|before_or_equal:today',
             'license_number' => ['nullable', 'string', 'regex:/^[A-Z]\d{2}-\d{2}-\d{6}$/i'],
+            'license_expiry_date' => 'nullable|date|after:today',
+            'contract_end' => 'nullable|date|after:today',
             'license_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
             'medical_certificate_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
             'clearance_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
@@ -265,6 +283,9 @@ class DriverController extends Controller
 
             'status' =>
                 'nullable|in:active,inactive',
+        ], [
+            'license_expiry_date.after' => 'License expiry date must be strictly after today (tomorrow onward).',
+            'contract_end.after' => 'Contract end date must be strictly after today (tomorrow onward).',
         ]);
 
         $oldEmail = $driver->user?->email;
@@ -398,6 +419,16 @@ class DriverController extends Controller
 
     public function destroy(Driver $driver)
     {
+        $hasActiveDelivery = $driver->deliveries()
+            ->whereNotIn('status', ['completed', 'delivered', 'rejected', 'cancelled'])
+            ->exists();
+
+        if ($hasActiveDelivery) {
+            return response()->json([
+                'message' => 'Cannot delete driver while the driver is assigned to or currently on an active delivery.'
+            ], 422);
+        }
+
         // Clean up documents and avatar from disk
         foreach (['license_file', 'medical_certificate_file', 'clearance_file'] as $docField) {
             if ($driver->$docField) {

@@ -232,10 +232,41 @@ export default function DispatchDetailsModal({ delivery, onClose }) {
                   </span>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ color: '#6B7280' }}>Fuel Issued:</span>
-                  <span style={{ fontWeight: 600, color: '#111827' }}>
-                    {delivery.fuel_issued ? `${delivery.fuel_issued} Liters ${delivery.fuel_receipt_no ? `(Receipt #${delivery.fuel_receipt_no})` : ''}` : 'None issued'}
+                  <span style={{ fontWeight: 600, color: '#111827', display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {delivery.fuel_issued ? `${delivery.fuel_issued} Liters` : 'None issued'}
+                    {delivery.fuel_receipt_no && (
+                      <span
+                        style={{
+                          fontFamily: 'monospace',
+                          fontSize: 11.5,
+                          fontWeight: 700,
+                          color: '#15803d',
+                          background: '#dcfce7',
+                          border: '1px solid #bbf7d0',
+                          padding: '1px 7px',
+                          borderRadius: 4,
+                        }}
+                      >
+                        {delivery.fuel_receipt_no}
+                      </span>
+                    )}
+                    {!delivery.fuel_receipt_no && delivery.fuel_issuance_status === 'pending' && (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: '#b45309',
+                          background: '#fef3c7',
+                          border: '1px solid #fde68a',
+                          padding: '1px 7px',
+                          borderRadius: 4,
+                        }}
+                      >
+                        Pending Fuel Issuance
+                      </span>
+                    )}
                   </span>
                 </div>
               </div>

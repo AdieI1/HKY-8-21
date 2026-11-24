@@ -204,6 +204,8 @@ export function isDeliveryAssignedForMonitoring(d) {
   if (d.status === 'completed') return true;
   // Exclude unassigned/pending deliveries awaiting dispatch (they belong in Dispatch Management)
   if (!d.driver_id && !d.driver) return false;
+  // Include dispatched deliveries waiting for Fuel Inventory confirmation
+  if (d.fuel_issuance_status === 'pending' && d.status === 'pending') return true;
   if (d.status === 'pending' || d.status === 'draft') return false;
   return true;
 }
@@ -235,8 +237,14 @@ function statusLabel(d) {
       baseLabel = 'Awaiting Driver';
     }
   } else {
-    const step = STATUS_STEPS.find((s) => s.key === d.status);
-    baseLabel = step ? step.label : d.status === 'rejected' ? 'Rejected' : d.status === 'draft' ? 'Draft' : (d.status || 'Pending');
+    if (d.fuel_issuance_status === 'pending' && d.status === 'pending') {
+      baseLabel = 'Pending Fuel Issuance';
+    } else if (d.status === 'returning_to_hq' && (d.delivered_at || d.proof_of_delivery_path || d.receipt_photo)) {
+      baseLabel = 'Awaiting Post-Trip Inspection';
+    } else {
+      const step = STATUS_STEPS.find((s) => s.key === d.status);
+      baseLabel = step ? step.label : d.status === 'rejected' ? 'Rejected' : d.status === 'draft' ? 'Draft' : (d.status || 'Pending');
+    }
   }
 
   if (baseLabel === 'In Transit' || baseLabel === 'On Delivery') {
@@ -537,33 +545,39 @@ function DeliveryPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setLoadError('');
+  const loadData = useCallback(async (isSilent = false) => {
+    if (!isSilent) {
+      setLoading(true);
+      setLoadError('');
+    }
     try {
       const [res, forecastRes, driversRes, vehiclesRes] = await Promise.all([
-        api.get('/deliveries'),
-        api.get('/fleet/availability-forecast').catch(() => ({ data: null })),
-        api.get('/drivers').catch(() => ({ data: [] })),
-        api.get('/vehicles').catch(() => ({ data: [] })),
+        api.get('/deliveries', { skipCache: true }),
+        isSilent ? Promise.resolve(null) : api.get('/fleet/availability-forecast').catch(() => ({ data: null })),
+        api.get('/drivers', { skipCache: true }).catch(() => ({ data: [] })),
+        api.get('/vehicles', { skipCache: true }).catch(() => ({ data: [] })),
       ]);
       setDeliveries(res.data || []);
       if (forecastRes?.data) setForecast(forecastRes.data);
       if (driversRes?.data) setDrivers(driversRes.data || []);
       if (vehiclesRes?.data) setVehicles(vehiclesRes.data || []);
     } catch {
-      setLoadError('Could not load deliveries. Is the backend running and are you logged in?');
+      if (!isSilent) {
+        setLoadError('Could not load deliveries. Is the backend running and are you logged in?');
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    loadData();
+    loadData(false);
 
     // Instant real-time updates via Laravel Reverb WebSocket
     const unsubscribe = reverb.subscribe('deliveries', 'delivery.updated', () => {
-      loadData();
+      loadData(true);
     });
 
     // Instant real-time location updates via Laravel Reverb WebSocket
@@ -593,9 +607,9 @@ function DeliveryPage() {
       );
     });
 
-    // Controlled background poll (6s, bypasses 20s read cache, pauses when tab hidden, never overlaps)
+    // Controlled background poll (7s, bypasses read cache, pauses when tab hidden, never overlaps)
     let isPolling = false;
-    const interval = setInterval(async () => {
+    const pollDeliveries = async () => {
       if (isPolling || (typeof document !== 'undefined' && document.hidden)) return;
       isPolling = true;
       try {
@@ -612,10 +626,20 @@ function DeliveryPage() {
       } finally {
         isPolling = false;
       }
-    }, 6000);
+    };
+
+    const handleFocus = () => {
+      if (!document.hidden) pollDeliveries();
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    const interval = setInterval(pollDeliveries, 7000);
 
     return () => {
       clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
       unsubscribe();
       unsubscribeLocation();
     };
@@ -701,7 +725,10 @@ function DeliveryPage() {
     }
 
     const getTimestamp = (d) => {
-      const timeStr = d.created_at || d.start_time || d.updated_at;
+      const timeStr =
+        viewTab === 'completed'
+          ? (d.end_time || d.updated_at || d.delivered_at || d.created_at)
+          : (d.updated_at || d.start_time || d.created_at);
       if (!timeStr) return 0;
       const t = new Date(typeof timeStr === 'string' ? timeStr.replace(' ', 'T') : timeStr).getTime();
       return isNaN(t) ? 0 : t;
@@ -1352,8 +1379,7 @@ function DeliveryPage() {
                   </span>
                 </div>
                 {(selectedDelivery.request?.receiver_phone || selectedDelivery.request?.customer?.phone) && (
-                  <a
-                    href={`tel:${selectedDelivery.request?.receiver_phone || selectedDelivery.request?.customer?.phone}`}
+                  <span
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -1365,16 +1391,13 @@ function DeliveryPage() {
                       borderRadius: '6px',
                       fontWeight: 700,
                       fontSize: '12.5px',
-                      textDecoration: 'none',
                       whiteSpace: 'nowrap',
                       marginTop: '2px',
-                      transition: 'all 0.15s ease',
                     }}
-                    title="Call Receiver"
                   >
                     <i className="fas fa-phone-alt" style={{ fontSize: '11px' }}></i>
                     {selectedDelivery.request?.receiver_phone || selectedDelivery.request?.customer?.phone}
-                  </a>
+                  </span>
                 )}
               </div>
 

@@ -328,16 +328,18 @@ export default function DispatchTicketPanel({
                 </div>
               </div>
               <div className="tt-two-col" style={{ marginTop: '10px' }}>
-                <div className="tt-field">
-                  <label className="tt-label">Fuel Receipt No.</label>
-                  <input
-                    className="tt-input"
-                    type="text"
-                    placeholder="FR-2026-00045"
-                    value={fuelReceiptNo}
-                    onChange={(event) => setFuelReceiptNo(event.target.value)}
-                  />
-                </div>
+                {fuelReceiptNo ? (
+                  <div className="tt-field">
+                    <label className="tt-label">Fuel Receipt No.</label>
+                    <input
+                      className="tt-input"
+                      type="text"
+                      value={fuelReceiptNo}
+                      readOnly
+                      style={{ background: '#f0fdf4', color: '#15803d', fontWeight: 700, fontFamily: 'monospace' }}
+                    />
+                  </div>
+                ) : null}
                 <div className="tt-field">
                   <label className="tt-label">Remarks (Optional)</label>
                   <input

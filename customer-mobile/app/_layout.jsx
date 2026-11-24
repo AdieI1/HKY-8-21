@@ -1,6 +1,8 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ThemeProvider, useTheme } from "../context/ThemeContext";
+import CustomerNotificationManager from "../components/CustomerNotificationManager";
 
 function StackNavigator() {
   const { isDark, colors } = useTheme();
@@ -24,14 +26,17 @@ function StackNavigator() {
         <Stack.Screen name="drafts" options={{ headerShown: false }} />
         <Stack.Screen name="settings" options={{ headerShown: false }} />
       </Stack>
+      <CustomerNotificationManager />
     </>
   );
 }
 
 export default function RootLayout() {
   return (
-    <ThemeProvider>
-      <StackNavigator />
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <StackNavigator />
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }

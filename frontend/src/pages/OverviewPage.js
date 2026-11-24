@@ -6,6 +6,7 @@ import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
 import TableSkeleton from '../components/TableSkeleton';
 import { validatePhoneNumber, formatPhoneInput } from '../utils/validation';
+import { getOverdueRequestConfig } from '../utils/systemRules';
 
 const ACTIVE_STATUSES = [
   'assigned',
@@ -372,6 +373,7 @@ function OverviewPage() {
       let vehData = [];
       let mntData = [];
       let incData = [];
+      let settingsData = null;
 
       try {
         const overviewRes = await api.get('/dashboard/overview', { skipCache: true });
@@ -385,9 +387,10 @@ function OverviewPage() {
           logsData = overviewRes.data.system_logs || [];
           usersData = overviewRes.data.users || [];
           rolesData = overviewRes.data.roles || [];
+          settingsData = overviewRes.data.system_settings || null;
         }
       } catch (_) {
-        const [deliveriesRes, logsRes, usersRes, rolesRes, reqRes, drvRes, vehRes, mntRes, incRes] = await Promise.all([
+        const [deliveriesRes, logsRes, usersRes, rolesRes, reqRes, drvRes, vehRes, mntRes, incRes, settingsRes] = await Promise.all([
           api.get('/deliveries', { skipCache: true }).catch(() => ({ data: [] })),
           api.get('/system-logs', { skipCache: true }).catch(() => ({ data: [] })),
           api.get('/users', { skipCache: true }).catch(() => ({ data: [] })),
@@ -397,6 +400,7 @@ function OverviewPage() {
           api.get('/vehicles', { skipCache: true }).catch(() => ({ data: [] })),
           api.get('/vehicle-maintenances', { skipCache: true }).catch(() => ({ data: [] })),
           api.get('/incident-reports', { skipCache: true }).catch(() => ({ data: [] })),
+          api.get('/system-settings', { skipCache: true }).catch(() => ({ data: null })),
         ]);
 
         delData = Array.isArray(deliveriesRes.data) ? deliveriesRes.data : [];
@@ -408,7 +412,10 @@ function OverviewPage() {
         vehData = Array.isArray(vehRes.data) ? vehRes.data : [];
         mntData = Array.isArray(mntRes.data) ? mntRes.data : [];
         incData = Array.isArray(incRes.data) ? incRes.data : [];
+        settingsData = settingsRes?.data || null;
       }
+
+      const overdueCfg = getOverdueRequestConfig(settingsData);
 
       setDeliveries(delData);
       setSystemLogs(logsData);
@@ -487,15 +494,15 @@ function OverviewPage() {
       reqData.forEach((r) => {
         const rawTime = r.created_at;
         const timeMs = rawTime ? new Date(rawTime).getTime() : 0;
-        const daysOld = (Date.now() - timeMs) / (1000 * 60 * 60 * 24);
-        if (r.status === 'pending' && daysOld >= 2) {
+        const ageMs = Date.now() - timeMs;
+        if (r.status === 'pending' && overdueCfg.reminderEnabled && ageMs >= overdueCfg.thresholdMs) {
           dynamicActivities.push({
             id: `req-ovd-${r.request_id}`,
             category: 'request',
             icon: 'fas fa-exclamation-triangle',
             color: '#E8B400',
             title: `REQ${String(r.request_id).padStart(4, '0')} Overdue!`,
-            sub: 'Exceeded expected processing time (2+ days).',
+            sub: `Exceeded expected processing time (${overdueCfg.label}).`,
             actor: r.customer?.full_name || 'Customer',
             role: 'Customer',
             time: timeAgo(rawTime),

@@ -542,45 +542,69 @@ body.dark-theme .or-document-shell {
   font-style: italic;
 }
 
-/* Print Isolation: prints ONLY the official document cleanly */
+/* Print Isolation: prints ONLY the official document cleanly across multiple pages */
 @media print {
-
-  body,
-  html {
+  html:has(.or-document-shell),
+  body:has(.or-document-shell) {
     background: #ffffff !important;
+    overflow: visible !important;
+    height: auto !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-  .sidebar,
-  .header,
-  .or-controls-bar,
-  .or-category-grid,
-  .or-doc-toolbar,
-  .or-no-print {
+  body:has(.or-document-shell) .sidebar,
+  body:has(.or-document-shell) .header,
+  body:has(.or-document-shell) .or-controls-bar,
+  body:has(.or-document-shell) .or-category-grid,
+  body:has(.or-document-shell) .or-doc-toolbar,
+  body:has(.or-document-shell) .or-pagination,
+  body:has(.or-document-shell) .or-no-print {
     display: none !important;
   }
 
-  .dashboard-container,
-  .main-content {
+  body:has(.or-document-shell) .dashboard-container,
+  body:has(.or-document-shell) .main-content,
+  body:has(.or-document-shell) .or-page {
     display: block !important;
+    position: static !important;
     margin: 0 !important;
     padding: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
     background: #ffffff !important;
   }
 
-  .or-document-shell {
+  body:has(.or-document-shell) .or-document-shell,
+  body:has(.or-document-shell) .or-document-shell * {
+    visibility: visible !important;
+  }
+
+  body:has(.or-document-shell) .or-document-shell {
     border: none !important;
     box-shadow: none !important;
     margin: 0 !important;
     border-radius: 0 !important;
+    overflow: visible !important;
   }
 
-  .or-paper {
+  body:has(.or-document-shell) .or-paper {
     padding: 8px 12px !important;
+    overflow: visible !important;
   }
 
-  .or-pagination {
-    display: none !important;
+  body:has(.or-document-shell) .or-table-wrap {
+    overflow: visible !important;
+  }
+
+  body:has(.or-document-shell) .or-table thead {
+    display: table-header-group;
+  }
+
+  body:has(.or-document-shell) .or-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import api from '../../api/api-client';
+import ExportMenu from '../ExportMenu';
 
 function renderStars(rating = 0) {
   const stars = [];
@@ -235,27 +236,44 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [], onReviewsUpdated 
 
   if (!isOpen) return null;
 
-  const handleExportCsv = () => {
-    const rows = [
-      ['Customer Name', 'Customer ID', 'Type', 'Overall Rating', 'Driver Rating', 'Date', 'Comments'],
-      ...dbReviews.map((r) => [
-        r.customer_name,
-        r.customer_code,
-        r.is_company_service ? 'Company Service' : 'Delivery Service',
-        r.overall_rating,
-        r.has_driver ? r.driver_rating : 'N/A',
-        r.date,
-        r.comments,
-      ]),
-    ];
-    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `customer-ratings-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const buildRatingsExportSpec = () => {
+    if (dbReviews.length === 0) return null;
+    const avgOverall = (
+      dbReviews.reduce((s, r) => s + Number(r.overall_rating || 0), 0) / dbReviews.length
+    ).toFixed(2);
+    return {
+      filename: `HJY-Customer-Ratings-${new Date().toISOString().split('T')[0]}`,
+      sheetName: 'Customer Ratings',
+      title: 'Customer Satisfaction & Service Ratings Report',
+      subtitle: `${dbReviews.length} review(s)`,
+      summary: [
+        { label: 'Total Reviews', value: dbReviews.length, format: 'integer' },
+        { label: 'Average Overall Rating', value: `${avgOverall} / 5.0` },
+      ],
+      tables: [
+        {
+          title: 'Customer Reviews Ledger',
+          columns: [
+            { header: 'Customer ID', align: 'center', bold: true, minWidth: 14 },
+            { header: 'Customer Name', align: 'left', minWidth: 22 },
+            { header: 'Service Type', align: 'center', minWidth: 18 },
+            { header: 'Overall Rating', align: 'center', minWidth: 15 },
+            { header: 'Driver Rating', align: 'center', minWidth: 15 },
+            { header: 'Date', align: 'center', minWidth: 15 },
+            { header: 'Comments', align: 'left', minWidth: 32, maxWidth: 44, wrap: true },
+          ],
+          rows: dbReviews.map((r) => [
+            r.customer_code || '—',
+            r.customer_name || 'Customer',
+            r.is_company_service ? 'Company Service' : 'Delivery Service',
+            `${Number(r.overall_rating || 0).toFixed(1)} / 5`,
+            r.has_driver ? `${Number(r.driver_rating || 0).toFixed(1)} / 5` : 'N/A',
+            r.date || '—',
+            r.comments || '—',
+          ]),
+        },
+      ],
+    };
   };
 
   return (
@@ -446,15 +464,14 @@ function CustomerRatingsModal({ isOpen, onClose, reviews = [], onReviewsUpdated 
                     </select>
                   </div>
 
-                  <button
-                    type="button"
+                  <ExportMenu
+                    getSpec={buildRatingsExportSpec}
+                    label="Export"
                     className="table-export-btn"
-                    onClick={handleExportCsv}
+                    iconClass="fas fa-arrow-up-from-bracket"
                     disabled={dbReviews.length === 0}
-                    title="Export customer reviews to CSV"
-                  >
-                    <i className="fas fa-arrow-up-from-bracket"></i> Export
-                  </button>
+                    title="Export customer reviews as Excel (.xlsx) or CSV (.csv)"
+                  />
                 </div>
               </div>
 
