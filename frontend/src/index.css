@@ -141,3 +141,230 @@ code {
   background: #f1f5f9;
 }
 
+/* ==========================================================================
+   Tablet & iPad Responsive Shell (Leaves Desktop >= 1181px untouched)
+   ========================================================================== */
+
+/* Prevent flex children / wide tables from forcing horizontal collapse */
+.main-content {
+  min-width: 0;
+}
+
+/* Desktop keeps hamburger/backdrop hidden */
+.mobile-nav-toggle,
+.sidebar-close-btn,
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 1180px) {
+  .adm-mid-row,
+  .adm-bottom-row,
+  .content-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Overlay slide-out panels instead of crushing .main-content on tablets */
+  body.panel-open .main-content {
+    margin-right: 0 !important;
+  }
+
+  .delivery-panel,
+  .pi-side-panel {
+    width: min(420px, 92vw) !important;
+    z-index: 1050 !important;
+    box-shadow: -8px 0 30px rgba(0, 0, 0, 0.25) !important;
+  }
+
+  .section-content,
+  .table-wrapper,
+  .adm-fleet-table-wrap,
+  .requests-table-wrap,
+  .drivers-table-wrap,
+  .vehicles-table-wrap,
+  .fuel-table-wrap,
+  .pi-table-wrap,
+  .customers-table-wrap,
+  .or-table-wrap {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 1024px) {
+  .dashboard-container {
+    height: auto !important;
+    min-height: 100vh;
+    min-height: 100dvh;
+    width: 100%;
+    overflow-x: clip;
+  }
+
+  .main-content {
+    margin-top: 0 !important;
+    padding: 18px 20px 30px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    overflow-y: visible !important;
+  }
+
+  .header {
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+    padding-left: 52px !important;
+    min-height: 52px;
+  }
+
+  .page-title {
+    font-size: clamp(20px, 3vw, 26px) !important;
+    line-height: 1.2;
+  }
+
+  .header-actions {
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+  }
+
+  .mobile-nav-toggle {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    color: #9e1e21;
+    font-size: 17px;
+    cursor: pointer;
+    z-index: 1020;
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.12);
+  }
+
+  body.dark-theme .mobile-nav-toggle {
+    background: #1e293b;
+    border-color: #334155;
+    color: #f87171;
+  }
+
+  .sidebar-backdrop {
+    display: block !important;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 1150;
+  }
+
+  .sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: 275px !important;
+    max-width: 82vw;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    transform: translateX(-108%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1200 !important;
+  }
+
+  .sidebar.open {
+    transform: translateX(0) !important;
+    box-shadow: 8px 0 32px rgba(0, 0, 0, 0.35);
+  }
+
+  .sidebar-close-btn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(0, 0, 0, 0.2);
+    color: #ffffff;
+    font-size: 14px;
+    cursor: pointer;
+    z-index: 2;
+  }
+
+  /* Tablet multi-column KPI cards & section grids */
+  .dashboard-cards,
+  .dispatch-stats,
+  .driver-stats,
+  .vehicle-stats,
+  .request-stats,
+  .analytics-stats-grid,
+  .monitoring-stats,
+  .adm-stat-row,
+  .customers-stats,
+  .fuel-stats,
+  .pi-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .overview-charts-grid,
+  .analytics-main-grid,
+  .analytics-bottom-grid,
+  .tt-grid-2,
+  .tt-grid-3,
+  .form-row,
+  .form-row.two-column,
+  .pf-bottom-grid,
+  .pf-field-grid,
+  .settings-grid,
+  .fuel-main-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .drivers-toolbar,
+  .vehicles-toolbar,
+  .delivery-toolbar,
+  .toolbar,
+  .section-header,
+  .requests-toolbar {
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+  }
+
+  .modal-content,
+  .vehicle-modal,
+  .driver-form-modal,
+  .create-request-modal-content,
+  .trip-ticket-modal,
+  .assign-panel {
+    max-width: min(94vw, 960px) !important;
+    max-height: 90dvh !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .main-content {
+    padding: 14px 12px 24px !important;
+  }
+
+  .dashboard-cards,
+  .dispatch-stats,
+  .driver-stats,
+  .vehicle-stats,
+  .request-stats,
+  .analytics-stats-grid,
+  .monitoring-stats,
+  .adm-stat-row,
+  .customers-stats,
+  .fuel-stats,
+  .pi-stats-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+

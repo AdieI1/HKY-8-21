@@ -1,9 +1,25 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/api-client';
 
 export default function Sidebar({ activePage }) {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [activePage]);
+
+  useEffect(() => {
+    if (!mobileOpen) return undefined;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setMobileOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mobileOpen]);
+
+  const closeMobileDrawer = () => setMobileOpen(false);
   const [inventoryOpen, setInventoryOpen] = useState(() => {
     if (activePage === 'fuel-inventory' || activePage === 'parts-inventory') return true;
     try {
@@ -48,12 +64,45 @@ export default function Sidebar({ activePage }) {
   };
 
   return (
-    <div className="sidebar">
-      <div className="logo">
-        <img src="/images/HJY LOGO 2 1.png" alt="HJY Trucking Services Logo" />
-      </div>
+    <>
+      <button
+        type="button"
+        className="mobile-nav-toggle"
+        aria-label="Open navigation menu"
+        aria-expanded={mobileOpen}
+        onClick={() => setMobileOpen(true)}
+      >
+        <i className="fas fa-bars"></i>
+      </button>
 
-      <nav className="navigation">
+      {mobileOpen && (
+        <div
+          className="sidebar-backdrop"
+          aria-hidden="true"
+          onClick={closeMobileDrawer}
+        />
+      )}
+
+      <div className={`sidebar${mobileOpen ? ' open' : ''}`}>
+        <button
+          type="button"
+          className="sidebar-close-btn"
+          aria-label="Close navigation menu"
+          onClick={closeMobileDrawer}
+        >
+          <i className="fas fa-times"></i>
+        </button>
+
+        <div className="logo">
+          <img src="/images/HJY LOGO 2 1.png" alt="HJY Trucking Services Logo" />
+        </div>
+
+        <nav
+          className="navigation"
+          onClick={(e) => {
+            if (e.target.closest('a')) closeMobileDrawer();
+          }}
+        >
         <ul>
           {isAdmin ? (
             <li className={activePage === 'overview' ? 'active' : ''}>
@@ -158,13 +207,13 @@ export default function Sidebar({ activePage }) {
 
         {profileMenuOpen && (
           <div className="profile-dropdown" onClick={(e) => e.stopPropagation()}>
-            <Link to="/profile" className={`dropdown-item ${activePage === 'profile' ? 'active' : ''}`}>
+            <Link to="/profile" onClick={closeMobileDrawer} className={`dropdown-item ${activePage === 'profile' ? 'active' : ''}`}>
               <i className="fas fa-user"></i>
               <span>Profile</span>
               <i className="fas fa-chevron-right dropdown-arrow"></i>
             </Link>
             {isAdmin && (
-              <Link to="/settings" className={`dropdown-item ${activePage === 'settings' ? 'active' : ''}`}>
+              <Link to="/settings" onClick={closeMobileDrawer} className={`dropdown-item ${activePage === 'settings' ? 'active' : ''}`}>
                 <i className="fas fa-cog"></i>
                 <span>Settings</span>
                 <i className="fas fa-chevron-right dropdown-arrow"></i>
@@ -184,6 +233,7 @@ export default function Sidebar({ activePage }) {
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
