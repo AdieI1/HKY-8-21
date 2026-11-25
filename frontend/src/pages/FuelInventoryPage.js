@@ -5,6 +5,7 @@ import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
 import TableSkeleton from '../components/TableSkeleton';
 import reverb from '../utils/reverb';
+import { getTodayIso } from '../utils/validation';
 
 function formatDate(dateString) {
   if (!dateString) return '—';
@@ -32,18 +33,9 @@ const EMPTY_RECEIVE_FORM = {
   supplier_name: '',
   unit_price: '',
   liters: '',
-  received_date: new Date().toISOString().split('T')[0],
+  received_date: getTodayIso(),
   unit: 'Liters',
   reorder_level: '500',
-};
-
-const EMPTY_ISSUE_FORM = {
-  vehicle_id: '',
-  driver_id: '',
-  liters: '',
-  purpose: 'Refueling Truck',
-  unit_price: '',
-  issue_date: new Date().toISOString().split('T')[0],
 };
 
 function FuelInventoryPage() {
@@ -52,8 +44,6 @@ function FuelInventoryPage() {
   const [pendingRequests, setPendingRequests] = useState([]);
   const [pendingOverrides, setPendingOverrides] = useState({});
   const [processingPendingId, setProcessingPendingId] = useState(null);
-  const [vehicles, setVehicles] = useState([]);
-  const [drivers, setDrivers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [currentDate, setCurrentDate] = useState('');
@@ -74,10 +64,6 @@ function FuelInventoryPage() {
   const [showReceiveModal, setShowReceiveModal] = useState(false);
   const [receiveTarget, setReceiveTarget] = useState(null);
   const [receiveForm, setReceiveForm] = useState(EMPTY_RECEIVE_FORM);
-
-  const [showIssueModal, setShowIssueModal] = useState(false);
-  const [issueTarget, setIssueTarget] = useState(null);
-  const [issueForm, setIssueForm] = useState(EMPTY_ISSUE_FORM);
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
@@ -117,18 +103,14 @@ function FuelInventoryPage() {
         setIssuances(issuancesRes.data);
         setPendingRequests(Array.isArray(pendingRes.data) ? pendingRes.data : []);
       } else {
-        const [fuelsRes, issuancesRes, pendingRes, vehiclesRes, driversRes] = await Promise.all([
+        const [fuelsRes, issuancesRes, pendingRes] = await Promise.all([
           api.get('/fuel-inventory', { skipCache: true }),
           api.get('/fuel-issuances', { skipCache: true }),
           api.get('/fuel-issuances/pending', { skipCache: true }).catch(() => ({ data: [] })),
-          api.get('/vehicles'),
-          api.get('/drivers'),
         ]);
         setFuels(fuelsRes.data);
         setIssuances(issuancesRes.data);
         setPendingRequests(Array.isArray(pendingRes.data) ? pendingRes.data : []);
-        setVehicles(vehiclesRes.data);
-        setDrivers(driversRes.data);
       }
     } catch (err) {
       if (!isSilent) {
@@ -344,7 +326,7 @@ function FuelInventoryPage() {
       supplier_name: fuel ? fuel.supplier_name || '' : '',
       unit_price: fuel ? fuel.unit_price : '',
       liters: '',
-      received_date: new Date().toISOString().split('T')[0],
+      received_date: getTodayIso(),
       unit: fuel ? fuel.unit || 'Liters' : 'Liters',
       reorder_level: fuel ? fuel.reorder_level : '500',
     });
@@ -408,61 +390,6 @@ function FuelInventoryPage() {
     } catch (err) {
       const msg = err.response?.data?.message || 'Could not record fuel receiving.';
       setFormError(msg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // ----- Issue Fuel (Fuel Out) -----
-  const openIssueModal = (fuel) => {
-    setIssueTarget(fuel);
-    setIssueForm({
-      vehicle_id: '',
-      driver_id: '',
-      liters: '',
-      purpose: 'Vehicle Refueling',
-      unit_price: fuel.unit_price,
-      issue_date: new Date().toISOString().split('T')[0],
-    });
-    setFormError('');
-    setShowIssueModal(true);
-  };
-
-  const calculatedIssueTotal = useMemo(() => {
-    const liters = parseFloat(issueForm.liters) || 0;
-    const price = parseFloat(issueForm.unit_price) || (issueTarget ? parseFloat(issueTarget.unit_price) : 0);
-    return (liters * price).toFixed(2);
-  }, [issueForm.liters, issueForm.unit_price, issueTarget]);
-
-  const submitIssue = async () => {
-    if (!issueForm.liters || parseFloat(issueForm.liters) <= 0) {
-      setFormError('Please enter a valid quantity of liters to issue.');
-      return;
-    }
-    const litersToIssue = parseFloat(issueForm.liters);
-    if (issueTarget && litersToIssue > Number(issueTarget.current_stock)) {
-      setFormError(`Insufficient stock! Available: ${issueTarget.current_stock} ${issueTarget.unit}, requested: ${litersToIssue}`);
-      return;
-    }
-
-    setSaving(true);
-    setFormError('');
-    try {
-      await api.post(`/fuel-inventory/${issueTarget.fuel_id}/issue`, {
-        liters: litersToIssue,
-        vehicle_id: issueForm.vehicle_id || null,
-        driver_id: issueForm.driver_id || null,
-        purpose: issueForm.purpose,
-        unit_price: issueForm.unit_price ? parseFloat(issueForm.unit_price) : undefined,
-        issue_date: issueForm.issue_date,
-      });
-      setShowIssueModal(false);
-      await loadData();
-      setToast({ message: `Successfully issued ${litersToIssue} L of ${issueTarget.fuel_type}.` });
-      setTimeout(() => setToast(null), 5000);
-    } catch (err) {
-      const message = err.response?.data?.message || 'Could not issue fuel.';
-      setFormError(message);
     } finally {
       setSaving(false);
     }
@@ -574,45 +501,47 @@ function FuelInventoryPage() {
           </section>
 
           {/* Pending Trip Fuel Confirmations Queue */}
-          {pendingRequests.length > 0 && (
-            <div
-              className="content-section"
-              style={{
-                marginBottom: 20,
-                border: '1.5px solid #fcd34d',
-                background: '#fffbeb',
-                borderRadius: 12,
-                padding: '16px 20px',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 8,
-                      background: '#f59e0b',
-                      color: '#fff',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 15,
-                    }}
-                  >
-                    <i className="fas fa-gas-pump"></i>
+          <div
+            className="content-section"
+            style={{
+              marginBottom: 20,
+              border: pendingRequests.length > 0 ? '1.5px solid #fcd34d' : '1px solid #e2e8f0',
+              background: pendingRequests.length > 0 ? '#fffbeb' : '#ffffff',
+              borderRadius: 12,
+              padding: '16px 20px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: pendingRequests.length > 0 ? 12 : 0, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 8,
+                    background: pendingRequests.length > 0 ? '#f59e0b' : '#e2e8f0',
+                    color: pendingRequests.length > 0 ? '#fff' : '#475569',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 15,
+                  }}
+                >
+                  <i className="fas fa-gas-pump"></i>
+                </span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 15.5, fontWeight: 800, color: pendingRequests.length > 0 ? '#92400e' : '#0f172a' }}>
+                    Pending Fuel Issuance Confirmations ({pendingRequests.length})
+                  </h3>
+                  <span style={{ fontSize: 12, color: pendingRequests.length > 0 ? '#a16207' : '#64748b' }}>
+                    {pendingRequests.length > 0
+                      ? 'Confirm fuel issuance to deduct stock, auto-generate the Fuel Receipt No., and release the truck for Pre-Trip Inspection.'
+                      : 'No pending trip fuel requests right now. Trip tickets dispatched from Dispatch Management will appear here for fuel confirmation.'}
                   </span>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: 15.5, fontWeight: 800, color: '#92400e' }}>
-                      Pending Fuel Issuance Confirmations ({pendingRequests.length})
-                    </h3>
-                    <span style={{ fontSize: 12, color: '#a16207' }}>
-                      Confirm fuel issuance to deduct stock, auto-generate the Fuel Receipt No., and release the truck for Pre-Trip Inspection.
-                    </span>
-                  </div>
                 </div>
               </div>
+            </div>
 
+            {pendingRequests.length > 0 && (
               <div style={{ overflowX: 'auto' }}>
                 <table className="data-table" style={{ background: '#ffffff', borderRadius: 8, overflow: 'hidden' }}>
                   <thead>
@@ -750,8 +679,8 @@ function FuelInventoryPage() {
                   </tbody>
                 </table>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Fuel Inventory Table Section */}
           <div className="content-section fuel-inventory-section">
@@ -835,12 +764,6 @@ function FuelInventoryPage() {
                                 style={{ background: '#16a34a', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
                               >
                                 Fuel In
-                              </button>
-                              <button
-                                onClick={() => openIssueModal(fuel)}
-                                style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
-                              >
-                                Fuel Out
                               </button>
                               <button
                                 onClick={() => openEditModal(fuel)}
@@ -1128,108 +1051,6 @@ function FuelInventoryPage() {
               <button type="button" onClick={() => setShowReceiveModal(false)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
               <button type="button" className="btn-save" onClick={submitReceive} disabled={saving} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: '#16a34a', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
                 {saving ? 'Receiving...' : 'Confirm Receipt'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* ISSUE FUEL MODAL (FUEL OUT)                                               */}
-      {/* ========================================================================= */}
-      {showIssueModal && issueTarget && (
-        <div className="modal" style={{ display: 'flex', position: 'fixed', inset: 0, alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', zIndex: 1100, padding: 16 }}>
-          <div className="modal-content" style={{ width: '100%', maxWidth: 520, background: '#fff', borderRadius: 12, overflow: 'hidden' }}>
-            <div className="modal-header" style={{ background: '#2563eb', color: '#fff', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ margin: 0, fontSize: 18, color: '#fff' }}><i className="fas fa-arrow-circle-up"></i> ISSUE FUEL (FUEL OUT)</h2>
-              <button onClick={() => setShowIssueModal(false)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer' }}><i className="fas fa-times"></i></button>
-            </div>
-            <div className="modal-body" style={{ padding: 24 }}>
-              {formError && <div style={{ background: '#fee2e2', color: '#dc2626', padding: '10px 14px', borderRadius: 6, marginBottom: 14 }}>{formError}</div>}
-
-              <div style={{ background: '#eff6ff', padding: 12, borderRadius: 8, border: '1px solid #bfdbfe', marginBottom: 14 }}>
-                <h4 style={{ margin: '0 0 4px', color: '#1e40af' }}>Fuel: {issueTarget.fuel_type}</h4>
-                <p style={{ margin: 0, fontSize: 13, color: '#2563eb' }}>
-                  Available in Tank: <strong>{Number(issueTarget.current_stock).toLocaleString()} {issueTarget.unit}</strong> · Price: <strong>₱{Number(issueTarget.unit_price).toFixed(2)}/L</strong>
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Vehicle (Optional)</label>
-                    <select
-                      value={issueForm.vehicle_id}
-                      onChange={(e) => setIssueForm({ ...issueForm, vehicle_id: e.target.value })}
-                      style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', boxSizing: 'border-box' }}
-                    >
-                      <option value="">-- Select Vehicle --</option>
-                      {vehicles.map((v) => (
-                        <option key={v.vehicle_id} value={v.vehicle_id}>{v.model} ({v.plate_number})</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Driver (Optional)</label>
-                    <select
-                      value={issueForm.driver_id}
-                      onChange={(e) => setIssueForm({ ...issueForm, driver_id: e.target.value })}
-                      style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', boxSizing: 'border-box' }}
-                    >
-                      <option value="">-- Select Driver --</option>
-                      {drivers.map((d) => (
-                        <option key={d.driver_id} value={d.driver_id}>{d.user?.full_name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Liters to Issue *</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      max={issueTarget.current_stock}
-                      placeholder={`Max: ${issueTarget.current_stock}`}
-                      value={issueForm.liters}
-                      onChange={(e) => setIssueForm({ ...issueForm, liters: e.target.value })}
-                      style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Date Issued</label>
-                    <input
-                      type="date"
-                      value={issueForm.issue_date}
-                      onChange={(e) => setIssueForm({ ...issueForm, issue_date: e.target.value })}
-                      style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
-                    />
-                  </div>
-                </div>
-
-                {/* Total Value Auto Calculation */}
-                <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: 8, border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Total Value of Issued Fuel:</span>
-                  <span style={{ fontSize: 18, fontWeight: 800, color: '#2563eb' }}>₱{Number(calculatedIssueTotal).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Purpose / Notes</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Refueling for Delivery to Malaybalay"
-                    value={issueForm.purpose}
-                    onChange={(e) => setIssueForm({ ...issueForm, purpose: e.target.value })}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="modal-footer" style={{ padding: '14px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <button type="button" onClick={() => setShowIssueModal(false)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-              <button type="button" className="btn-save" onClick={submitIssue} disabled={saving} style={{ padding: '8px 20px', borderRadius: 6, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
-                {saving ? 'Issuing...' : 'Confirm Issue'}
               </button>
             </div>
           </div>

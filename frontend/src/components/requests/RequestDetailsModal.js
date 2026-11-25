@@ -2,6 +2,7 @@ import React from 'react';
 
 export default function RequestDetailsModal({
   selectedRequest,
+  vipInfo = null,
   closeDetails,
   approveRequest,
   approving,
@@ -85,7 +86,27 @@ export default function RequestDetailsModal({
               </div>
               <div className="request-info-item">
                 <span className="request-label">Customer Name:</span>
-                <span className="request-value">{selectedRequest.customer?.full_name || '—'}</span>
+                <span className="request-value" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span>{selectedRequest.customer?.full_name || '—'}</span>
+                  {vipInfo && (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '2px 8px',
+                        borderRadius: 999,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        background: '#FEF3C7',
+                        color: '#B45309',
+                        border: '1px solid #FDE68A',
+                      }}
+                    >
+                      <i className="fas fa-crown" style={{ fontSize: 10 }}></i> VIP (Rank #{vipInfo.rank})
+                    </span>
+                  )}
+                </span>
               </div>
               <div className="receipt-section">
                 <span className="receipt-label">Receipt:</span>
@@ -198,9 +219,9 @@ export default function RequestDetailsModal({
               )}
               <div className="request-info-item">
                 <span className="request-label">Cargo Fragility:</span>
-                <span className={`request-value${selectedRequest.fragility === 'high' ? ' fragile' : ''}`}>
-                  {selectedRequest.fragility ? selectedRequest.fragility.charAt(0).toUpperCase() + selectedRequest.fragility.slice(1) : '—'}
-                  {selectedRequest.fragility === 'high' && <i className="fas fa-exclamation-triangle" style={{ marginLeft: 6 }}></i>}
+                <span className={`request-value${selectedRequest.fragility === 'high' || selectedRequest.fragility === 'perishable' ? ' fragile' : ''}`}>
+                  {({ low: 'Standard', medium: 'Fragile', high: 'Extremely Fragile', perishable: 'Perishable' })[selectedRequest.fragility] || (selectedRequest.fragility ? selectedRequest.fragility.charAt(0).toUpperCase() + selectedRequest.fragility.slice(1) : '—')}
+                  {(selectedRequest.fragility === 'high' || selectedRequest.fragility === 'perishable') && <i className="fas fa-exclamation-triangle" style={{ marginLeft: 6 }}></i>}
                 </span>
               </div>
               <div className="request-info-item"><span className="request-label">Cargo Weight:</span><span className="request-value">{selectedRequest.weight ? `${selectedRequest.weight} kg` : '—'}</span></div>
@@ -237,6 +258,15 @@ export default function RequestDetailsModal({
                 </span>
               </div>
               <div className="request-info-item"><span className="request-label">Distance:</span><span className="request-value">{selectedRequest.distance_km ? `${selectedRequest.distance_km} km` : '—'}</span></div>
+              {Number(selectedRequest.vip_voucher_amount || 0) > 0 && (
+                <div className="request-info-item">
+                  <span className="request-label">VIP Voucher:</span>
+                  <span className="request-value" style={{ color: '#047857', fontWeight: 700 }}>
+                    -{formatMoney(selectedRequest.vip_voucher_amount)}
+                    {selectedRequest.vip_voucher_code ? ` (${selectedRequest.vip_voucher_code})` : ''}
+                  </span>
+                </div>
+              )}
               <div className="request-info-item"><span className="request-label">Total Price:</span><span className="request-value price">{formatMoney(selectedRequest.total_price)}</span></div>
               {selectedRequest.payment_term === 'downpayment' ? (
                 <>

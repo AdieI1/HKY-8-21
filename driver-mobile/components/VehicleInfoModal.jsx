@@ -8,6 +8,7 @@ import {
   Image,
   StyleSheet,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 export default function VehicleInfoModal({
@@ -15,6 +16,7 @@ export default function VehicleInfoModal({
   onClose,
   vehicle = {},
 }) {
+  const insets = useSafeAreaInsets();
   if (!vehicle) return null;
 
   const model = vehicle.model || vehicle.vehicle_model || vehicle.name || "Assigned Truck";
@@ -22,7 +24,6 @@ export default function VehicleInfoModal({
   const yearModel = vehicle.year_model || "";
   const plateNumber = vehicle.plate_number || vehicle.plate_no || vehicle.license_plate || "N/A";
   const vehicleType = vehicle.vehicle_type || "Wing Van";
-  const capacity = vehicle.capacity ? `${Number(vehicle.capacity).toLocaleString()} kg` : "—";
   const fuelType = vehicle.fuel_type ? String(vehicle.fuel_type).toUpperCase() : "DIESEL";
   const odometer = vehicle.odometer_reading
     ? `${Number(vehicle.odometer_reading).toLocaleString()} km`
@@ -64,7 +65,8 @@ export default function VehicleInfoModal({
           </View>
 
           <ScrollView
-            showsVerticalScrollIndicator={false}
+            style={{ flexShrink: 1 }}
+            showsVerticalScrollIndicator={true}
             contentContainerStyle={styles.content}
           >
             {/* Vehicle Photo (if available) */}
@@ -105,11 +107,6 @@ export default function VehicleInfoModal({
                 value={odometer}
               />
               <SpecRow
-                icon="scale-outline"
-                label="Load Capacity"
-                value={capacity}
-              />
-              <SpecRow
                 icon="flame-outline"
                 label="Fuel Type"
                 value={fuelType}
@@ -139,17 +136,10 @@ export default function VehicleInfoModal({
                 />
               ) : null}
             </View>
+          </ScrollView>
 
-            {/* Dispatch Inspection Notice */}
-            <View style={styles.noticeBox}>
-              <Ionicons name="information-circle-outline" size={18} color="#0369A1" />
-              <Text style={styles.noticeText}>
-                Always perform the Pre-Trip Vehicle Checklist before departure.
-                Ensure tire pressure, fluid levels, and emergency kits are inspected.
-              </Text>
-            </View>
-
-            {/* Close Button */}
+          {/* Pinned Footer Close Button */}
+          <View style={[styles.footerContainer, { paddingBottom: Math.max(insets.bottom + 8, 16) }]}>
             <TouchableOpacity
               style={styles.bottomCloseButton}
               onPress={onClose}
@@ -157,7 +147,7 @@ export default function VehicleInfoModal({
             >
               <Text style={styles.bottomCloseText}>Done</Text>
             </TouchableOpacity>
-          </ScrollView>
+          </View>
         </View>
       </View>
     </Modal>
@@ -323,29 +313,19 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#1E293B",
   },
-  noticeBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    backgroundColor: "#F0F9FF",
-    borderWidth: 1,
-    borderColor: "#BAE6FD",
-    padding: 10,
-    borderRadius: 8,
-  },
-  noticeText: {
-    flex: 1,
-    fontSize: 11.5,
-    color: "#0369A1",
-    lineHeight: 16,
-  },
   bottomCloseButton: {
     backgroundColor: "#951F21",
-    paddingVertical: 12,
+    paddingVertical: 13,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 4,
+  },
+  footerContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    backgroundColor: "#F1F3F9",
+    borderTopWidth: 1,
+    borderTopColor: "#E2E8F0",
   },
   bottomCloseText: {
     color: "#FFFFFF",

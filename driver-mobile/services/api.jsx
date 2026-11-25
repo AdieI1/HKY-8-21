@@ -239,6 +239,10 @@ export const updateDriverDeliveryStatus = async (deliveryId, status) => {
     return postToDelivery(deliveryId, "driver-status", { status });
 };
 
+export const acceptDriverDelivery = async (deliveryId) => {
+    return postToDelivery(deliveryId, "accept", {});
+};
+
 export const submitProofOfDelivery = async (deliveryId, { photo, receivedBy, deliveryNotes, completeDelivery = true }) => {
     const token = await getToken();
     if (!token) throw new Error("Not authenticated.");
@@ -303,11 +307,59 @@ export const submitProofOfDelivery = async (deliveryId, { photo, receivedBy, del
 };
 
 export const saveDeliveryChecklist = async (deliveryId, checklist) => {
-    return postToDelivery(deliveryId, "checklist", checklist);
+    const filePhotos = Array.isArray(checklist?.photos)
+        ? checklist.photos.filter((p) => p && typeof p === "object" && p.uri)
+        : [];
+
+    if (filePhotos.length === 0) {
+        return postToDelivery(deliveryId, "checklist", checklist);
+    }
+
+    const token = await getToken();
+    if (!token) throw new Error("Not authenticated.");
+
+    const formData = new FormData();
+    formData.append("type", String(checklist.type || ""));
+    formData.append("items", JSON.stringify(checklist.items || {}));
+    if (checklist.remarks) {
+        formData.append("remarks", String(checklist.remarks));
+    }
+
+    filePhotos.forEach((photo, idx) => {
+        formData.append("photos[]", {
+            uri: photo.uri,
+            name: photo.fileName || `chk-${deliveryId}-${checklist.type}-${idx}-${Date.now()}.jpg`,
+            type: photo.mimeType || "image/jpeg",
+        });
+    });
+
+    const response = await fetch(`${API_URL}/deliveries/${deliveryId}/checklist`, {
+        method: "POST",
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+            "ngrok-skip-browser-warning": "true",
+        },
+        body: formData,
+    });
+
+    const data = await safeJson(response);
+    if (!response.ok) {
+        throw new Error(
+            data?.message ||
+            Object.values(data?.errors || {})?.[0]?.[0] ||
+            "Failed to save cargo checklist."
+        );
+    }
+    return data;
 };
 
 export const updateDeliveryLocation = async (deliveryId, latitude, longitude) => {
     return postToDelivery(deliveryId, "location", { latitude, longitude });
+};
+
+export const markDeliveryArrivedAtHq = async (deliveryId) => {
+    return postToDelivery(deliveryId, "arrived-hq", {});
 };
 
 export const submitIncidentReport = async (incidentData) => {
@@ -583,6 +635,126 @@ export const reportBug = async ({ category, description, deviceInfo }) => {
     const data = await safeJson(response);
     if (!response.ok) {
         throw new Error(data?.message || "Failed to submit bug report.");
+    }
+    return data;
+};
+
+export const getMyRewardStatus = async () => {
+    const token = await getToken();
+    if (!token) return null;
+
+    const response = await fetch(`${API_URL}/rewards/my-status`, {
+        method: "GET",
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+            "ngrok-skip-browser-warning": "true",
+        },
+    });
+
+    const data = await safeJson(response);
+    if (!response.ok) {
+        return null;
+    }
+    return data;
+};
+
+/* =========================================================
+   DRIVER DUTY STATUS & LEAVE / ABSENCE REQUESTS
+========================================================= */
+
+export const setDriverDutyStatus = async (availabilityStatus) => {
+    const token = await getToken();
+    if (!token) throw new Error("Not authenticated.");
+
+    const response = await fetch(`${API_URL}/driver/duty-status`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+            "ngrok-skip-browser-warning": "true",
+        },
+        body: JSON.stringify({ availability_status: availabilityStatus }),
+    });
+
+    const data = await safeJson(response);
+    if (!response.ok) {
+        throw new Error(data?.message || "Unable to update duty status.");
+    }
+    return data;
+};
+
+export const getMyLeaves = async () => {
+    const token = await getToken();
+    if (!token) return [];
+
+    const response = await fetch(`${API_URL}/driver-leaves`, {
+        method: "GET",
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+            "ngrok-skip-browser-warning": "true",
+        },
+    });
+
+    const data = await safeJson(response);
+    if (!response.ok) {
+        return [];
+    }
+    return Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+};
+
+export const submitDriverLeave = async ({ leaveType, startDate, endDate, reason, attachment }) => {
+    const token = await getToken();
+    if (!token) throw new Error("Not authenticated.");
+
+    const formData = new FormData();
+    formData.append("leave_type", leaveType);
+    formData.append("start_date", startDate);
+    formData.append("end_date", endDate || startDate);
+    formData.append("reason", reason);
+    if (attachment?.uri) {
+        formData.append("attachment", {
+            uri: attachment.uri,
+            name: attachment.fileName || "leave-attachment.jpg",
+            type: attachment.mimeType || "image/jpeg",
+        });
+    }
+
+    const response = await fetch(`${API_URL}/driver-leaves`, {
+        method: "POST",
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+            "ngrok-skip-browser-warning": "true",
+        },
+        body: formData,
+    });
+
+    const data = await safeJson(response);
+    if (!response.ok) {
+        throw new Error(data?.message || "Unable to submit leave request.");
+    }
+    return data;
+};
+
+export const cancelDriverLeave = async (leaveId) => {
+    const token = await getToken();
+    if (!token) throw new Error("Not authenticated.");
+
+    const response = await fetch(`${API_URL}/driver-leaves/${leaveId}/cancel`, {
+        method: "POST",
+        headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+            "ngrok-skip-browser-warning": "true",
+        },
+    });
+
+    const data = await safeJson(response);
+    if (!response.ok) {
+        throw new Error(data?.message || "Unable to cancel leave request.");
     }
     return data;
 };

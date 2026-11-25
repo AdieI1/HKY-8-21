@@ -9,6 +9,7 @@ import AnalyticsOverviewModal from '../components/analytics/AnalyticsOverviewMod
 import CustomerRatingsModal from '../components/analytics/CustomerRatingsModal';
 import ClaimsRefundsModal from '../components/analytics/ClaimsRefundsModal';
 import CompletionRateModal from '../components/analytics/CompletionRateModal';
+import { getTodayIso } from '../utils/validation';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -221,9 +222,13 @@ function AnalyticsPage() {
     return periodMaintenance.reduce((sum, m) => sum + Number(m.maintenance_cost || m.total_cost || 0), 0);
   }, [periodMaintenance]);
 
+  const totalFuelAllowance = useMemo(() => {
+    return statsPool.reduce((sum, d) => sum + Number(d.fuel_allowance || 0), 0);
+  }, [statsPool]);
+
   const totalLosses = useMemo(() => {
-    return totalClaimsAmount + totalMaintenanceCost;
-  }, [totalClaimsAmount, totalMaintenanceCost]);
+    return totalClaimsAmount + totalMaintenanceCost + totalFuelAllowance;
+  }, [totalClaimsAmount, totalMaintenanceCost, totalFuelAllowance]);
 
   const netRevenue = useMemo(() => {
     return Math.max(0, thisMonthRevenue - totalLosses);
@@ -346,17 +351,55 @@ function AnalyticsPage() {
     statsPool.forEach((d) => {
       if (!d.vehicle) return;
       const id = d.vehicle.vehicle_id;
-      const entry = map.get(id) || { vehicle: d.vehicle, trips: 0 };
+      const entry = map.get(id) || { vehicle: d.vehicle, trips: 0, distanceKm: 0 };
       if (d.status === 'completed') entry.trips += 1;
+      entry.distanceKm += Number(d.distance_travelled || d.request?.distance_km || 0);
       map.set(id, entry);
     });
-    const ranked = Array.from(map.values()).sort((a, b) => b.trips - a.trips);
+    const ranked = Array.from(map.values()).sort((a, b) => b.trips - a.trips || b.distanceKm - a.distanceKm);
     if (!ranked.length) return null;
+
     const top = ranked[0];
-    const needsMaint = maintenance.some(
-      (m) => m.vehicle_id === top.vehicle.vehicle_id && m.status !== 'completed'
+    const v = top.vehicle;
+    const todayIso = getTodayIso();
+
+    const vehicleMaint = (Array.isArray(maintenance) ? maintenance : []).filter(
+      (m) => Number(m.vehicle_id) === Number(v.vehicle_id)
     );
-    return { ...top, needsMaintenance: needsMaint };
+    const activeScheduled = vehicleMaint.find(
+      (m) => ['Scheduled', 'In Progress', 'Waiting for Part Confirmation'].includes(m.status) && (!m.next_maintenance_date || m.next_maintenance_date > todayIso)
+    );
+
+    const tripsSinceMaint = v.last_maintenance_date
+      ? statsPool.filter(
+          (d) =>
+            Number(d.vehicle_id) === Number(v.vehicle_id) &&
+            d.status === 'completed' &&
+            String(d.end_time || d.updated_at || d.created_at || '').slice(0, 10) > String(v.last_maintenance_date).slice(0, 10)
+        ).length
+      : top.trips;
+
+    const isBroken = v.status === 'broken' || v.condition === 'Needs Repair';
+    const isOverdue = Boolean(v.next_maintenance_date && String(v.next_maintenance_date).slice(0, 10) <= todayIso);
+    const suggestMaintenance = !activeScheduled;
+
+    let suggestionReason = 'Most-used truck — may wear down soon; schedule maintenance.';
+    if (isBroken) {
+      suggestionReason = 'Flagged broken — schedule urgent repair.';
+    } else if (isOverdue) {
+      suggestionReason = 'Maintenance overdue — schedule check-up soon.';
+    } else if (tripsSinceMaint >= 3) {
+      suggestionReason = `Most-used truck (${tripsSinceMaint} trips) — may wear down soon.`;
+    }
+
+    return {
+      ...top,
+      scheduledMaintenance: activeScheduled || null,
+      suggestMaintenance,
+      needsMaintenance: suggestMaintenance,
+      suggestionReason,
+      suggestedType: isBroken ? 'Emergency Maintenance' : 'Preventive Maintenance',
+    };
   }, [statsPool, maintenance]);
 
   const customerStats = useMemo(() => {
@@ -436,9 +479,10 @@ function AnalyticsPage() {
 
   const buildHistoryExportSpec = () => {
     const totalRevenue = filteredHistory.reduce((s, d) => s + Number(d.trip_cost || 0), 0);
+    const totalAllowances = filteredHistory.reduce((s, d) => s + Number(d.fuel_allowance || 0), 0);
     const completedCount = filteredHistory.filter((d) => d.status === 'completed').length;
     return {
-      filename: `HJY-Delivery-History-${new Date().toISOString().split('T')[0]}`,
+      filename: `HJY-Delivery-History-${getTodayIso()}`,
       sheetName: 'Delivery History',
       title: 'Delivery History & Revenue Ledger',
       subtitle: `${filteredHistory.length} delivery record(s)`,
@@ -446,6 +490,7 @@ function AnalyticsPage() {
         { label: 'Total Deliveries', value: filteredHistory.length, format: 'integer' },
         { label: 'Completed Deliveries', value: completedCount, format: 'integer' },
         { label: 'Total Revenue', value: totalRevenue, format: 'currency' },
+        { label: 'Total Trip Costs', value: totalAllowances, format: 'currency' },
       ],
       tables: [
         {
@@ -457,6 +502,7 @@ function AnalyticsPage() {
             { header: 'Driver', align: 'left', minWidth: 20 },
             { header: 'Vehicle', align: 'left', minWidth: 20 },
             { header: 'Status', align: 'center', minWidth: 16 },
+            { header: 'Trip Cost (PHP)', align: 'right', format: 'currency', minWidth: 18 },
             { header: 'Revenue (PHP)', align: 'right', format: 'currency', minWidth: 18 },
           ],
           rows: filteredHistory.map((d) => [
@@ -466,6 +512,7 @@ function AnalyticsPage() {
             d.driver?.user?.full_name || 'Unassigned',
             d.vehicle ? `${d.vehicle.model || 'Truck'}${d.vehicle.plate_number ? ` (${d.vehicle.plate_number})` : ''}` : 'Unassigned',
             String(d.status || '').replace(/_/g, ' ').toUpperCase(),
+            Number(d.fuel_allowance || 0),
             Number(d.trip_cost || 0),
           ]),
           totalsRow: [
@@ -475,6 +522,7 @@ function AnalyticsPage() {
             '',
             '',
             '',
+            totalAllowances,
             totalRevenue,
           ],
         },
@@ -589,7 +637,7 @@ function AnalyticsPage() {
                   </span>
                 </div>
                 <div className="stat-info-sub">
-                  {totalLosses > 0 ? `Net: ${formatMoney(netRevenue)} after losses & maint` : 'Gross verified revenue'}
+                  {totalLosses > 0 ? `Net: ${formatMoney(netRevenue)} (after claims, maint. & trip costs)` : 'Gross verified revenue'}
                 </div>
                 <div className="stat-view-details">
                   View Details <i className="fas fa-chevron-right" style={{ fontSize: 9 }}></i>
@@ -731,7 +779,27 @@ function AnalyticsPage() {
                     onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
                   />
                   <div className="leader-details">
-                    <h4 className="leader-name">{topDriver.driver.user?.full_name || '—'}</h4>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <h4 className="leader-name" style={{ margin: 0 }}>{topDriver.driver.user?.full_name || '—'}</h4>
+                      {topDriver.completed > 0 && (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '2px 8px',
+                            borderRadius: 999,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            background: '#FEF3C7',
+                            color: '#B45309',
+                            border: '1px solid #FDE68A',
+                          }}
+                        >
+                          <i className="fas fa-medal" style={{ fontSize: 10 }}></i> #1 Top Driver
+                        </span>
+                      )}
+                    </div>
                     <p className="leader-metric-p"><i className="fas fa-circle-check"></i> <strong>{topDriver.completed}</strong> Completed Deliveries</p>
                     <p className="leader-metric-p">
                       <i className="fas fa-star" style={{ color: '#f59e0b' }}></i>{' '}
@@ -747,6 +815,25 @@ function AnalyticsPage() {
                       )}
                     </p>
                     <p className="leader-metric-p" style={{ color: '#64748b', fontSize: 12 }}>License: {topDriver.driver?.license_number || '—'}</p>
+                    {topDriver.completed > 0 && (
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          marginTop: 4,
+                          padding: '4px 10px',
+                          borderRadius: 8,
+                          background: '#ECFDF5',
+                          color: '#047857',
+                          border: '1px solid #A7F3D0',
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}
+                      >
+                        <i className="fas fa-gift"></i> Reward: ₱1,000 Performance Bonus
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -761,23 +848,49 @@ function AnalyticsPage() {
                 <span className="badge">{periodLabel}</span>
               </div>
               {topVehicle ? (
-                <div className="leader-hero-row">
-                  <img
-                    src={topVehicle.vehicle?.photo_url || '/images/default-truck.png'}
-                    alt="Most Used Vehicle"
-                    className="leader-avatar"
-                    onError={(e) => { e.currentTarget.src = '/images/default-truck.png'; }}
-                  />
-                  <div className="leader-details">
-                    <h4 className="leader-name">{topVehicle.vehicle.model} <span style={{ color: '#64748b', fontSize: 14 }}>(Plate: {topVehicle.vehicle.plate_number})</span></h4>
-                    <p className="leader-metric-p"><i className="fas fa-circle-check"></i> <strong>{topVehicle.trips}</strong> Completed Trips</p>
-                    <p className="leader-metric-p"><i className="fas fa-truck-pickup"></i> Type: {topVehicle.vehicle.vehicle_type || 'Truck'}</p>
-                    {topVehicle.needsMaintenance ? (
-                      <p className="leader-metric-p warning"><i className="fas fa-triangle-exclamation"></i> Maintenance check-up recommended</p>
-                    ) : (
-                      <p className="leader-metric-p"><i className="fas fa-shield-heart"></i> Vehicle in Optimal Condition</p>
-                    )}
+                <div>
+                  <div className="leader-hero-row">
+                    <img
+                      src={topVehicle.vehicle?.photo_url || '/images/default-truck.png'}
+                      alt="Most Used Vehicle"
+                      className="leader-avatar"
+                      onError={(e) => { e.currentTarget.src = '/images/default-truck.png'; }}
+                    />
+                    <div className="leader-details">
+                      <h4 className="leader-name">{topVehicle.vehicle.model} <span style={{ color: '#64748b', fontSize: 14 }}>(Plate: {topVehicle.vehicle.plate_number})</span></h4>
+                      <p className="leader-metric-p"><i className="fas fa-circle-check"></i> <strong>{topVehicle.trips}</strong> Completed Trips</p>
+                      <p className="leader-metric-p"><i className="fas fa-truck-pickup"></i> Type: {topVehicle.vehicle.vehicle_type || 'Truck'}</p>
+                      {topVehicle.scheduledMaintenance ? (
+                        <p className="leader-metric-p" style={{ color: '#0369a1' }}>
+                          <i className="fas fa-calendar-check"></i> Scheduled: <strong>{formatFullDate(topVehicle.scheduledMaintenance.maintenance_date)}</strong> ({topVehicle.scheduledMaintenance.maintenance_type})
+                        </p>
+                      ) : (
+                        <p className="leader-metric-p warning">
+                          <i className="fas fa-triangle-exclamation"></i> {topVehicle.suggestionReason}
+                        </p>
+                      )}
+                    </div>
                   </div>
+                  <Link
+                    to={`/vehicles?scheduleMaintenance=1&vehicleId=${topVehicle.vehicle.vehicle_id}&suggestedType=${encodeURIComponent(topVehicle.suggestedType)}`}
+                    style={{ textDecoration: 'none' }}
+                  >
+                    <button
+                      type="button"
+                      className="btn-profile-link"
+                      style={
+                        topVehicle.suggestMaintenance
+                          ? { background: '#FEF3C7', color: '#B45309', borderColor: '#FCD34D' }
+                          : undefined
+                      }
+                    >
+                      <i className="fas fa-wrench"></i>{' '}
+                      {topVehicle.scheduledMaintenance
+                        ? 'Manage Maintenance'
+                        : 'Schedule Maintenance'}{' '}
+                      <i className="fas fa-arrow-right"></i>
+                    </button>
+                  </Link>
                 </div>
               ) : (
                 <p style={{ color: '#94a3b8', fontSize: 13 }}>No vehicle trips recorded yet.</p>
@@ -800,7 +913,25 @@ function AnalyticsPage() {
                       onError={(e) => { e.currentTarget.src = '/images/brucednegrow.png'; }}
                     />
                     <div className="leader-details">
-                      <h4 className="leader-name">{topCustomer.customer.full_name}</h4>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <h4 className="leader-name" style={{ margin: 0 }}>{topCustomer.customer.full_name}</h4>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '2px 8px',
+                            borderRadius: 999,
+                            fontSize: 11,
+                            fontWeight: 800,
+                            background: '#FEF3C7',
+                            color: '#B45309',
+                            border: '1px solid #FDE68A',
+                          }}
+                        >
+                          <i className="fas fa-crown" style={{ fontSize: 10 }}></i> VIP
+                        </span>
+                      </div>
                       <p className="leader-metric-p"><i className="fas fa-box"></i> <strong>{topCustomer.requests}</strong> Transport Requests</p>
                       <p className="leader-metric-p">
                         <i className="fas fa-star" style={{ color: '#f59e0b' }}></i>{' '}
@@ -816,8 +947,29 @@ function AnalyticsPage() {
                         )}
                       </p>
                       <p className="leader-metric-p" style={{ color: '#64748b', fontSize: 12 }}>Last active: {topCustomerLastRequest ? formatDate(topCustomerLastRequest) : 'Recent'}</p>
-                      <div className="leader-spend-badge">
-                        <i className="fas fa-coins"></i> Cumulative Spend: <strong>{formatMoney(topCustomer.spend)}</strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                        <div className="leader-spend-badge" style={{ marginTop: 0 }}>
+                          <i className="fas fa-coins"></i> Cumulative Spend: <strong>{formatMoney(topCustomer.spend)}</strong>
+                        </div>
+                        {topCustomer.spend > 0 && (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '4px 9px',
+                              borderRadius: 8,
+                              fontSize: 11.5,
+                              fontWeight: 700,
+                              background: '#ECFDF5',
+                              color: '#047857',
+                              border: '1px solid #A7F3D0',
+                            }}
+                            title="Redeemable 1x/month on bookings ₱1,500+ (standard equal dispatch queue)"
+                          >
+                            <i className="fas fa-ticket"></i> ₱300/mo Voucher
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -856,20 +1008,44 @@ function AnalyticsPage() {
                       </td>
                     </tr>
                   ) : (
-                    customerStats.slice(0, 4).map((c, i) => (
-                      <tr key={c.customer.user_id}>
-                        <td style={{ fontWeight: 600, color: '#0f172a' }}>
-                          <span className={`rank-badge ${i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : 'rank-other'}`}>
-                            {i + 1}
-                          </span>
-                          {c.customer.full_name}
-                        </td>
-                        <td>{c.requests} orders</td>
-                        <td style={{ textAlign: 'right', fontWeight: 800, color: '#10b981' }}>
-                          {formatMoney(c.spend)}
-                        </td>
-                      </tr>
-                    ))
+                    customerStats.slice(0, 5).map((c, i) => {
+                      const voucherAmt = c.spend > 0 ? (i === 0 ? 300 : 200) : 0;
+                      return (
+                        <tr key={c.customer.user_id}>
+                          <td style={{ fontWeight: 600, color: '#0f172a' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span className={`rank-badge ${i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : 'rank-other'}`}>
+                                {i + 1}
+                              </span>
+                              <span>{c.customer.full_name}</span>
+                              {voucherAmt > 0 && (
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    padding: '1px 7px',
+                                    borderRadius: 999,
+                                    fontSize: 10.5,
+                                    fontWeight: 700,
+                                    background: i === 0 ? '#FEF3C7' : '#EEF2FF',
+                                    color: i === 0 ? '#B45309' : '#4338CA',
+                                    border: i === 0 ? '1px solid #FDE68A' : '1px solid #C7D2FE',
+                                  }}
+                                  title="Top 5 VIP Loyalty Voucher (₱1,500+ min. trip, equal dispatch queue)"
+                                >
+                                  VIP • ₱{voucherAmt}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td>{c.requests} orders</td>
+                          <td style={{ textAlign: 'right', fontWeight: 800, color: '#10b981' }}>
+                            {formatMoney(c.spend)}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -920,14 +1096,15 @@ function AnalyticsPage() {
                   <th>Vehicle</th>
                   <th>Status</th>
                   <th>Date</th>
+                  <th style={{ textAlign: 'right' }}>Trip Cost</th>
                   <th style={{ textAlign: 'right' }}>Revenue</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <TableSkeleton rows={5} columns={7} />
+                  <TableSkeleton rows={5} columns={8} />
                 ) : pagedHistory.length === 0 ? (
-                  <tr><td colSpan="7" style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>No deliveries found.</td></tr>
+                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>No deliveries found.</td></tr>
                 ) : (
                   pagedHistory.map((d) => (
                     <tr
@@ -956,6 +1133,7 @@ function AnalyticsPage() {
                         </span>
                       </td>
                       <td>{formatDate(d.created_at)}</td>
+                      <td style={{ fontWeight: 700, color: '#0f766e', textAlign: 'right' }}>{formatMoney(d.fuel_allowance || 0)}</td>
                       <td style={{ fontWeight: 800, color: '#10b981', textAlign: 'right' }}>{formatMoney(d.trip_cost)}</td>
                     </tr>
                   ))
@@ -1066,7 +1244,7 @@ function AnalyticsPage() {
                   </strong>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: 12, color: '#64748b', display: 'block' }}>Trip Revenue / Cost</span>
+                  <span style={{ fontSize: 12, color: '#64748b', display: 'block' }}>Trip Revenue</span>
                   <strong style={{ fontSize: 18, color: '#16a34a' }}>{formatMoney(selectedDelivery.trip_cost)}</strong>
                 </div>
               </div>
@@ -1150,6 +1328,12 @@ function AnalyticsPage() {
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <i className="fas fa-gas-pump" style={{ color: '#16a34a' }}></i> Fuel Readings
                   </div>
+                  <p style={{ margin: '4px 0', fontSize: 13 }}>
+                    <strong>Fuel Issued:</strong> {selectedDelivery.fuel_issued != null && selectedDelivery.fuel_issued !== '' ? (Number(selectedDelivery.fuel_issued) === 0 ? '0 Liters (Existing Tank)' : `${selectedDelivery.fuel_issued} ${selectedDelivery.fuel_unit || 'Liters'}`) : '—'}
+                  </p>
+                  <p style={{ margin: '4px 0', fontSize: 13 }}>
+                    <strong>Trip Cost:</strong> <span style={{ color: '#0f766e', fontWeight: 700 }}>{formatMoney(selectedDelivery.fuel_allowance || 0)}</span>
+                  </p>
                   <p style={{ margin: '4px 0', fontSize: 13 }}>
                     <strong>Starting Fuel:</strong> {selectedDelivery.starting_fuel !== null && selectedDelivery.starting_fuel !== undefined ? `${selectedDelivery.starting_fuel} ${selectedDelivery.fuel_unit || 'Liters'}` : '85.0 Liters'}
                   </p>
@@ -1239,7 +1423,9 @@ function AnalyticsPage() {
                 <div className="report-kpi-item">
                   <div className="report-kpi-item-label">Gross Revenue</div>
                   <div className="report-kpi-item-val">{formatMoney(periodRevenue)}</div>
-                  <div className="report-kpi-item-sub">Approved client billing</div>
+                  <div className="report-kpi-item-sub">
+                    {totalFuelAllowance > 0 ? `Trip costs: ${formatMoney(totalFuelAllowance)}` : 'Approved client billing'}
+                  </div>
                 </div>
                 <div className="report-kpi-item">
                   <div className="report-kpi-item-label">Client Satisfaction</div>
@@ -1275,7 +1461,7 @@ function AnalyticsPage() {
                     <td><strong>Most Active Vehicle</strong></td>
                     <td>{topVehicle ? `${topVehicle.vehicle?.model} (${topVehicle.vehicle?.plate_number})` : 'No vehicle recorded'}</td>
                     <td>{topVehicle ? `${topVehicle.trips} trips completed` : '—'}</td>
-                    <td><span style={{ color: topVehicle?.needsMaintenance ? '#d97706' : '#059669', fontWeight: 700 }}>{topVehicle?.needsMaintenance ? 'Maintenance Due' : 'Operational'}</span></td>
+                    <td><span style={{ color: topVehicle?.scheduledMaintenance ? '#0369a1' : topVehicle?.suggestMaintenance ? '#d97706' : '#059669', fontWeight: 700 }}>{topVehicle?.scheduledMaintenance ? 'Maintenance Scheduled' : topVehicle?.suggestMaintenance ? 'Maintenance Suggested' : 'Operational'}</span></td>
                   </tr>
                   <tr>
                     <td><strong>#1 Ranked Customer</strong></td>
@@ -1296,6 +1482,7 @@ function AnalyticsPage() {
                     <th>Vehicle</th>
                     <th>Driver</th>
                     <th>Trip Cost</th>
+                    <th>Trip Revenue</th>
                     <th>Payment</th>
                   </tr>
                 </thead>
@@ -1306,6 +1493,7 @@ function AnalyticsPage() {
                       <td>{formatDate(del.trip_date || del.created_at)}</td>
                       <td>{del.vehicle?.model || 'Truck'} ({del.vehicle?.plate_number || '—'})</td>
                       <td>{del.driver?.user?.full_name || 'Assigned Driver'}</td>
+                      <td>{formatMoney(del.fuel_allowance || 0)}</td>
                       <td>{formatMoney(del.trip_cost)}</td>
                       <td>
                         <span style={{

@@ -35,7 +35,8 @@ export default function PreInspection() {
   const [submitting, setSubmitting] = useState(false);
   const [itemStates, setItemStates] = useState({});
   const [odometer, setOdometer] = useState("");
-  const [endingFuel, setEndingFuel] = useState("");
+  const [fuel, setFuel] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({ odometer: null, fuel: null });
   const [photos, setPhotos] = useState([]);
   const [progress, setProgress] = useState({ completed: 0, total: 21, defects: 0 });
 
@@ -56,14 +57,20 @@ export default function PreInspection() {
       if (targetDeliveryId) {
         const data = await getDelivery(targetDeliveryId);
         setDelivery(data);
-        if (data?.vehicle?.odometer_reading) {
-          setOdometer(String(data.vehicle.odometer_reading));
+        if (!isPost) {
+          if (data?.vehicle?.odometer_reading != null) {
+            setOdometer(String(data.vehicle.odometer_reading));
+          }
+          setFuel("");
+        } else {
+          setOdometer("");
+          setFuel("");
         }
       }
     } catch (error) {
       console.log("LOAD INSPECTION DETAILS ERROR:", error);
     }
-  }, [params?.deliveryId]);
+  }, [params?.deliveryId, isPost]);
 
   useEffect(() => {
     loadDetails();
@@ -91,10 +98,29 @@ export default function PreInspection() {
     return allItems.filter((it) => itemStates[it.id] === "defect").map((it) => it.label);
   }, [itemStates]);
 
+  const preTripChecklist = useMemo(
+    () => (delivery?.checklists || []).find((c) => c.type === "pre_trip"),
+    [delivery]
+  );
+  const startOdometerVal =
+    delivery?.starting_odometer ??
+    preTripChecklist?.starting_odometer ??
+    (isPost ? (delivery?.vehicle?.odometer_reading ?? null) : null);
+  const startFuelVal =
+    delivery?.starting_fuel ??
+    preTripChecklist?.starting_fuel ??
+    delivery?.fuel_issued ??
+    null;
+
+  const parsedOdometer = odometer.trim().length > 0 ? Number(odometer) : NaN;
+  const parsedFuel = fuel.trim().length > 0 ? Number(fuel) : NaN;
+
   const isAllAnswered = progress.completed === progress.total;
-  const hasOdometer = odometer.trim().length > 0 && !isNaN(Number(odometer));
-  const hasEndingFuel = !isPost || (endingFuel.trim().length > 0 && !isNaN(Number(endingFuel)));
-  const canComplete = isAllAnswered && hasOdometer && hasEndingFuel && !submitting;
+  const hasOdometer = !Number.isNaN(parsedOdometer) && parsedOdometer >= 0;
+  const hasValidEndingOdometer =
+    !isPost || startOdometerVal == null || parsedOdometer >= Number(startOdometerVal);
+  const hasFuel = !isPost || (!Number.isNaN(parsedFuel) && parsedFuel >= 0);
+  const canComplete = isAllAnswered && hasOdometer && hasValidEndingOdometer && hasFuel && !submitting;
   const hasDefects = progress.defects > 0;
   const canReport = hasDefects && !submitting;
 
@@ -102,7 +128,7 @@ export default function PreInspection() {
   let brandModel = [vehicle?.brand, vehicle?.model].filter(Boolean).join(" ").replace(/^(\w+)\s+\1/i, "$1").trim();
   const plateText = vehicle?.plate_number || "ABC - 1234";
   const typeText = brandModel || (vehicle?.type ? `${vehicle.type}` : "10 Wheeler - FUSO");
-  const odoText = vehicle?.odometer_reading ? `${Number(vehicle.odometer_reading).toLocaleString()} km` : "67,000 km";
+  const odoText = vehicle?.odometer_reading != null ? `${Number(vehicle.odometer_reading).toLocaleString()} km` : "Not recorded yet";
   const resolvedUrl = resolveImageUrl(vehicle?.photo_url || vehicle?.photo);
   const imageSource = resolvedUrl ? { uri: resolvedUrl } : DEFAULT_TRUCK_IMAGE;
 
@@ -123,18 +149,7 @@ export default function PreInspection() {
     });
   };
 
-  const handleCompleteInspection = async () => {
-    if (!canComplete) {
-      if (!isAllAnswered) {
-        Alert.alert("Checklist Incomplete", `Please answer all checklist items (${progress.completed}/${progress.total}) before completing.`);
-      } else if (!hasOdometer) {
-        Alert.alert("Odometer Required", `Please enter the ${isPost ? "ending" : "starting"} odometer reading.`);
-      } else if (isPost && !hasEndingFuel) {
-        Alert.alert("Ending Fuel Required", "Please enter the ending fuel reading (in liters) before completing Post-Trip Inspection.");
-      }
-      return;
-    }
-
+  const submitInspection = async () => {
     const deliveryId = delivery?.delivery_id || params?.deliveryId;
     if (!deliveryId) {
       Alert.alert("Error", "No active delivery selected for inspection.");
@@ -156,10 +171,10 @@ export default function PreInspection() {
       };
 
       if (!isPost) {
-        payload.starting_odometer = Number(odometer) || 0;
+        payload.starting_odometer = parsedOdometer;
       } else {
-        payload.ending_odometer = Number(odometer) || 0;
-        payload.ending_fuel = Number(endingFuel);
+        payload.ending_odometer = parsedOdometer;
+        payload.ending_fuel = parsedFuel;
       }
 
       await saveChecklist(deliveryId, payload);
@@ -175,6 +190,65 @@ export default function PreInspection() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleCompleteInspection = async () => {
+    const nextErrors = { odometer: null, fuel: null };
+
+    if (Number.isNaN(parsedOdometer)) {
+      nextErrors.odometer = isPost ? "Ending odometer is required." : "Starting odometer is required.";
+    } else if (parsedOdometer < 0) {
+      nextErrors.odometer = "Odometer cannot be negative.";
+    } else if (isPost && startOdometerVal != null && parsedOdometer < Number(startOdometerVal)) {
+      nextErrors.odometer = `Must be at least ${Number(startOdometerVal).toLocaleString()} km.`;
+    }
+
+    if (isPost) {
+      if (Number.isNaN(parsedFuel)) {
+        nextErrors.fuel = "Ending fuel is required.";
+      } else if (parsedFuel < 0) {
+        nextErrors.fuel = "Fuel reading cannot be negative.";
+      }
+    }
+
+    setFieldErrors(nextErrors);
+
+    if (!isAllAnswered) {
+      Alert.alert("Checklist Incomplete", `Please answer all checklist items (${progress.completed}/${progress.total}) before completing.`);
+      return;
+    }
+
+    if (nextErrors.odometer) {
+      const title =
+        isPost && startOdometerVal != null && !Number.isNaN(parsedOdometer) && parsedOdometer < Number(startOdometerVal)
+          ? "Invalid Ending Odometer"
+          : "Odometer Required";
+      const message =
+        isPost && startOdometerVal != null && !Number.isNaN(parsedOdometer) && parsedOdometer < Number(startOdometerVal)
+          ? `Ending odometer (${parsedOdometer.toLocaleString()} km) cannot be less than starting odometer (${Number(startOdometerVal).toLocaleString()} km).`
+          : nextErrors.odometer;
+      Alert.alert(title, message);
+      return;
+    }
+
+    if (isPost && nextErrors.fuel) {
+      Alert.alert("Ending Fuel Required", nextErrors.fuel);
+      return;
+    }
+
+    if (isPost && startFuelVal != null && parsedFuel > Number(startFuelVal)) {
+      Alert.alert(
+        "Confirm Fuel Reading",
+        `Ending fuel (${parsedFuel} L) is higher than starting/issued fuel (${Number(startFuelVal)} L). Continue anyway?`,
+        [
+          { text: "Fix Reading", style: "cancel" },
+          { text: "Continue", onPress: () => submitInspection() },
+        ]
+      );
+      return;
+    }
+
+    await submitInspection();
   };
 
   return (
@@ -203,10 +277,22 @@ export default function PreInspection() {
           itemStates={itemStates}
           onItemChange={handleItemChange}
           odometer={odometer}
-          onOdometerChange={setOdometer}
-          endingFuel={endingFuel}
-          onEndingFuelChange={setEndingFuel}
-          startingFuel={delivery?.starting_fuel ?? delivery?.fuel_issued ?? null}
+          onOdometerChange={(text) => {
+            setOdometer(text);
+            if (fieldErrors.odometer) {
+              setFieldErrors((prev) => ({ ...prev, odometer: null }));
+            }
+          }}
+          startingOdometer={startOdometerVal}
+          fuel={fuel}
+          onFuelChange={(text) => {
+            setFuel(text);
+            if (fieldErrors.fuel) {
+              setFieldErrors((prev) => ({ ...prev, fuel: null }));
+            }
+          }}
+          fuelReference={startFuelVal}
+          fieldErrors={fieldErrors}
           photos={photos}
           onPhotosChange={setPhotos}
           onProgressChange={handleProgressChange}
@@ -235,7 +321,7 @@ export default function PreInspection() {
             canComplete && (pressed || submitting) && styles.buttonPressed,
           ]}
           onPress={handleCompleteInspection}
-          disabled={!canComplete}
+          disabled={submitting}
         >
           {submitting ? (
             <ActivityIndicator size="small" color="#FFFFFF" />

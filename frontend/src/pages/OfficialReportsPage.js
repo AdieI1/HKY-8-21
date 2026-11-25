@@ -301,6 +301,7 @@ export default function OfficialReportsPage() {
       .reduce((s, d) => s + getAmount(d), 0);
     const pending = Math.max(0, gross - approved);
     const avg = billable.length > 0 ? gross / billable.length : 0;
+    const fuelAllowanceTotal = billable.reduce((s, d) => s + Number(d.fuel_allowance || 0), 0);
 
     const customerMap = new Map();
     billable.forEach((d) => {
@@ -314,7 +315,7 @@ export default function OfficialReportsPage() {
     });
     const topCustomers = Array.from(customerMap.values()).sort((a, b) => b.revenue - a.revenue);
 
-    return { billable, gross, approved, pending, avg, topCustomers, getAmount };
+    return { billable, gross, approved, pending, avg, fuelAllowanceTotal, topCustomers, getAmount };
   }, [periodDeliveries]);
 
   // 2. Company Performance Metrics
@@ -453,6 +454,7 @@ export default function OfficialReportsPage() {
           { label: 'Approved / Paid', value: revenueData.approved, format: 'currency' },
           { label: 'Pending Verification', value: revenueData.pending, format: 'currency' },
           { label: 'Average Revenue per Trip', value: revenueData.avg, format: 'currency' },
+          { label: 'Driver Trip Costs', value: revenueData.fuelAllowanceTotal, format: 'currency' },
           { label: 'Total Billable Deliveries', value: revenueData.billable.length, format: 'integer' },
         ],
         tables: [
@@ -464,6 +466,7 @@ export default function OfficialReportsPage() {
               { header: 'Customer', align: 'left', minWidth: 22 },
               { header: 'Cargo', align: 'left', minWidth: 24 },
               { header: 'Driver', align: 'left', minWidth: 20 },
+              { header: 'Trip Cost (PHP)', align: 'right', format: 'currency', minWidth: 18 },
               { header: 'Amount (PHP)', align: 'right', format: 'currency', minWidth: 18 },
               { header: 'Payment Status', align: 'center', minWidth: 16 },
             ],
@@ -473,6 +476,7 @@ export default function OfficialReportsPage() {
               d.request?.customer?.full_name || d.request?.receiver_name || 'Customer',
               d.request?.item_name || d.request?.cargo_type || 'Cargo',
               d.driver?.user?.full_name || 'Unassigned',
+              Number(d.fuel_allowance || 0),
               revenueData.getAmount(d),
               (d.payment_verification || 'pending').toUpperCase(),
             ]),
@@ -482,6 +486,7 @@ export default function OfficialReportsPage() {
               `${revenueData.billable.length} deliveries`,
               '',
               '',
+              revenueData.fuelAllowanceTotal,
               revenueData.gross,
               '',
             ],
@@ -940,9 +945,9 @@ export default function OfficialReportsPage() {
                         <div className="or-kpi-sub">Awaiting verification</div>
                       </div>
                       <div className="or-kpi-box">
-                        <div className="or-kpi-label">Average Trip Value</div>
-                        <div className="or-kpi-val">{formatMoney(revenueData.avg)}</div>
-                        <div className="or-kpi-sub">Mean revenue per delivery</div>
+                        <div className="or-kpi-label">Total Trip Costs</div>
+                        <div className="or-kpi-val" style={{ color: '#0f766e' }}>{formatMoney(revenueData.fuelAllowanceTotal)}</div>
+                        <div className="or-kpi-sub">Avg trip fee: {formatMoney(revenueData.avg)}</div>
                       </div>
                     </div>
 
@@ -983,13 +988,14 @@ export default function OfficialReportsPage() {
                             <th>Date</th>
                             <th>Customer</th>
                             <th>Cargo</th>
+                            <th>Trip Cost</th>
                             <th>Amount</th>
                             <th>Payment</th>
                           </tr>
                         </thead>
                         <tbody>
                           {revenueData.billable.length === 0 ? (
-                            <tr><td colSpan="6" className="or-empty-cell">No delivery revenue recorded for this period.</td></tr>
+                            <tr><td colSpan="7" className="or-empty-cell">No delivery revenue recorded for this period.</td></tr>
                           ) : (
                             paginateRows(revenueData.billable, 'revenue_ledger').map((d) => (
                               <tr key={d.delivery_id}>
@@ -997,6 +1003,7 @@ export default function OfficialReportsPage() {
                                 <td>{formatDate(d.trip_date || d.created_at)}</td>
                                 <td>{d.request?.customer?.full_name || 'Customer'}</td>
                                 <td>{d.request?.item_name || d.request?.cargo_type || 'Cargo'}</td>
+                                <td style={{ color: '#0f766e', fontWeight: 600 }}>{formatMoney(d.fuel_allowance || 0)}</td>
                                 <td><strong>{formatMoney(revenueData.getAmount(d))}</strong></td>
                                 <td>
                                   <span className={`or-pill ${d.payment_verification === 'approved' ? 'green' : 'amber'}`}>

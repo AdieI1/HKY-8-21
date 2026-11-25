@@ -533,8 +533,8 @@ export default function NavigationMap({
         {/* HQ Depot Marker */}
         <Marker
           coordinate={DEFAULT_HQ_COORDINATES}
-          title="HJY Trucking HQ"
-          description="Puntod, Cagayan de Oro City"
+          title="HJY Headquarters"
+          description="8.504390, 124.646337 • Depot"
         >
           <View style={styles.depotMarker}>
             <Ionicons name="business" size={16} color="#FFFFFF" />
@@ -793,44 +793,45 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // Floating Controls
+  // Floating Controls (sits on top-right below NavigationRoutePreview so it never overlaps the bottom sheet)
   recenterButton: {
     position: "absolute",
-    bottom: 24,
-    right: 18,
+    top: 94,
+    right: 14,
     backgroundColor: "#1E293B",
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 24,
+    paddingVertical: 8,
+    paddingHorizontal: 13,
+    borderRadius: 22,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.28,
+    shadowRadius: 5,
+    elevation: 7,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.15)",
-    zIndex: 10,
+    zIndex: 20,
   },
   recenterText: {
     color: "#FFFFFF",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
-    marginLeft: 6,
+    marginLeft: 5,
   },
 
   lockedPill: {
     position: "absolute",
-    top: 14,
-    alignSelf: "center",
-    backgroundColor: "rgba(15, 23, 42, 0.85)",
+    top: 94,
+    right: 14,
+    backgroundColor: "rgba(15, 23, 42, 0.88)",
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 6,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     borderRadius: 20,
-    zIndex: 10,
+    zIndex: 20,
+    elevation: 6,
   },
   lockedPillDot: {
     width: 8,

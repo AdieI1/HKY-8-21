@@ -1,11 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Dimensions,
   Image,
   Modal,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,6 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import AppHeader from "../../components/AppHeader";
 import DeliveryCard from "../../components/DeliveryCard";
 import ReviewModal from "../../components/ReviewModal";
+import { DeliveryListSkeleton } from "../../components/SkeletonLoader";
 import {
   acceptDeliveryReschedule,
   cancelDeliveryOnAccident,
@@ -32,11 +34,22 @@ const { width, height } = Dimensions.get("window");
 
 export default function Deliveries() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { isDark, colors } = useTheme();
-  const [selectedTab, setSelectedTab] = useState("active");
+  const [selectedTab, setSelectedTab] = useState(params?.tab === "completed" ? "history" : "active");
+
+  useEffect(() => {
+    if (params?.tab === "active") {
+      setSelectedTab("active");
+    } else if (params?.tab === "completed" || params?.tab === "history") {
+      setSelectedTab("history");
+    }
+  }, [params?.tab]);
   const [showSort, setShowSort] = useState(false);
   const [sortOption, setSortOption] = useState("Sort");
   const [deliveries, setDeliveries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
   const [selectedDelivery, setSelectedDelivery] = useState(null);
 
@@ -75,8 +88,16 @@ export default function Deliveries() {
         return;
       }
       console.log("Failed to load customer deliveries:", error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, [router]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadDeliveries();
+  }, [loadDeliveries]);
 
   const handleAcceptReschedule = async (delivery) => {
     if (!delivery.deliveryId) return;
@@ -158,19 +179,19 @@ export default function Deliveries() {
   );
 
   const activeDeliveries = deliveries.filter(isActiveDelivery);
-  const historyDeliveries = deliveries.filter(
-    (item) => ["delivered", "rejected", "cancelled"].includes(item.status) || item.backendStatus === "cancelled"
+  const completedDeliveries = deliveries.filter(
+    (item) => ["delivered", "completed", "rejected", "cancelled"].includes(item.status) || item.backendStatus === "cancelled"
   );
 
   const displayedDeliveries = useMemo(() => {
-    const source = selectedTab === "active" ? activeDeliveries : historyDeliveries;
+    const source = selectedTab === "active" ? activeDeliveries : completedDeliveries;
     const sorted = [...source];
     if (sortOption === "A-Z") sorted.sort((a, b) => a.cargoName.localeCompare(b.cargoName));
     if (sortOption === "Fragility") sorted.sort((a, b) => String(a.fragility).localeCompare(String(b.fragility)));
     if (sortOption === "Distance (Short - Long)") sorted.sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
     if (sortOption === "Distance (Long - Short)") sorted.sort((a, b) => parseFloat(b.distance) - parseFloat(a.distance));
     return sorted;
-  }, [activeDeliveries, historyDeliveries, selectedTab, sortOption]);
+  }, [activeDeliveries, completedDeliveries, selectedTab, sortOption]);
 
   const handleOpenReview = (delivery) => {
     setSelectedDelivery(delivery);
@@ -260,7 +281,7 @@ export default function Deliveries() {
                     selectedTab === "history" && styles.tabTextActive,
                   ]}
                 >
-                  History
+                  Completed Deliveries
                 </Text>
               </TouchableOpacity>
             </View>
@@ -272,8 +293,18 @@ export default function Deliveries() {
           style={[styles.deliveryList, { backgroundColor: colors.bg }]}
           contentContainerStyle={[styles.deliveryContent, { backgroundColor: colors.bg }]}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={["#E53935"]}
+              tintColor="#E53935"
+            />
+          }
         >
-          {displayedDeliveries.length > 0 ? (
+          {loading && deliveries.length === 0 ? (
+            <DeliveryListSkeleton count={3} />
+          ) : displayedDeliveries.length > 0 ? (
             displayedDeliveries.map((delivery) => (
               <DeliveryCard
                 key={delivery.id}
@@ -289,7 +320,7 @@ export default function Deliveries() {
               <Text style={styles.message}>
                 {selectedTab === "active"
                   ? "You have no active deliveries yet"
-                  : "You don’t have any deliveries in your history"}
+                  : "You don’t have any completed deliveries yet"}
               </Text>
             </View>
           )}
@@ -486,11 +517,12 @@ const styles = StyleSheet.create({
   },
   tabRow: {
     flexDirection: "row",
-    gap: width * 0.03,
+    flexWrap: "wrap",
+    gap: width * 0.025,
   },
   tabButton: {
     paddingVertical: height * 0.01,
-    paddingHorizontal: width * 0.05,
+    paddingHorizontal: width * 0.045,
     borderRadius: 20,
     backgroundColor: "#E0E0E0",
   },
@@ -498,7 +530,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#34B352",
   },
   tabText: {
-    fontSize: width * 0.04,
+    fontSize: width * 0.037,
     color: "#666",
     fontWeight: "500",
   },

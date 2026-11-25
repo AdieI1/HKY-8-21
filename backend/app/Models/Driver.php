@@ -13,11 +13,13 @@ class Driver extends Model
         'license_number',
         'license_type',
         'restriction_code',
+        'agency_code',
         'license_date_issued',
         'license_expiry_date',
         'authorized_by',
         'license_file',
         'availability_status',
+        'last_duty_date',
         'experience_years',
         'health_condition',
         'birthdate',
@@ -126,5 +128,106 @@ class Driver extends Model
             'driver_id',
             'driver_id'
         );
+    }
+
+    public function leaves()
+    {
+        return $this->hasMany(
+            DriverLeave::class,
+            'driver_id',
+            'driver_id'
+        )->orderByDesc('leave_id');
+    }
+
+    public function hasActiveDelivery(): bool
+    {
+        return $this->deliveries()
+            ->where(function ($q) {
+                $q->whereNotIn('status', ['completed', 'delivered', 'rejected', 'cancelled', 'returning_to_hq'])
+                  ->orWhere(function ($sub) {
+                      $sub->where('status', 'returning_to_hq')
+                          ->whereNull('hq_arrived_at');
+                  });
+            })
+            ->exists();
+    }
+
+    /**
+     * Synchronize leave status, midnight shift reset, and availability status for this driver.
+     */
+    public function syncLeaveAndDutyStatus(): self
+    {
+        $today = now()->toDateString();
+
+        // 1. Auto-complete elapsed approved leaves
+        DriverLeave::where('driver_id', $this->driver_id)
+            ->where('status', 'approved')
+            ->whereDate('end_date', '<', $today)
+            ->update(['status' => 'completed']);
+
+        if ($this->hasActiveDelivery()) {
+            return $this->fresh();
+        }
+
+        // 2. Active approved leave covering today OR same-day pending sick/emergency leave locks driver
+        $blockingLeave = DriverLeave::where('driver_id', $this->driver_id)
+            ->whereDate('start_date', '<=', $today)
+            ->whereDate('end_date', '>=', $today)
+            ->where(function ($q) {
+                $q->where('status', 'approved')
+                  ->orWhere(function ($sub) {
+                      $sub->where('status', 'pending')
+                          ->whereIn('leave_type', ['sick_leave', 'emergency_absence']);
+                  });
+            })
+            ->orderByRaw("CASE WHEN status = 'approved' THEN 0 ELSE 1 END")
+            ->first();
+
+        if ($blockingLeave) {
+            $target = $blockingLeave->status === 'approved' ? 'on_leave' : 'pending_leave';
+            if ($this->availability_status !== $target) {
+                $this->update(['availability_status' => $target]);
+            }
+            return $this->fresh();
+        }
+
+        // 3. Release driver from on_leave / pending_leave back to off_duty once leave ends or is rejected/cancelled
+        if (in_array($this->availability_status, ['on_leave', 'pending_leave'], true)) {
+            $this->update(['availability_status' => 'off_duty']);
+            return $this->fresh();
+        }
+
+        // 4. Midnight shift auto-reset: On-Duty drivers from a previous day clock out to off_duty at midnight
+        if (
+            $this->availability_status === 'available'
+            && !empty($this->last_duty_date)
+            && (string) $this->last_duty_date < $today
+        ) {
+            $this->update(['availability_status' => 'off_duty']);
+            return $this->fresh();
+        }
+
+        // 5. Release stuck 'busy' drivers when no active delivery remains
+        if ($this->availability_status === 'busy') {
+            $nextStatus = (!empty($this->last_duty_date) && (string) $this->last_duty_date < $today)
+                ? 'off_duty'
+                : 'available';
+            $this->update(['availability_status' => $nextStatus]);
+        }
+
+        return $this->fresh();
+    }
+
+    public static function syncAllStatuses(): void
+    {
+        $today = now()->toDateString();
+
+        DriverLeave::where('status', 'approved')
+            ->whereDate('end_date', '<', $today)
+            ->update(['status' => 'completed']);
+
+        static::with('user')->get()->each(function ($driver) {
+            $driver->syncLeaveAndDutyStatus();
+        });
     }
 }

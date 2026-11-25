@@ -24,6 +24,8 @@ class DeliveryRequest extends Model
         'receiver_phone',
         'distance_km',
         'total_price',
+        'vip_voucher_amount',
+        'vip_voucher_code',
         'payment_term',
         'payment_method',
         'payment_receipt_path',
@@ -49,6 +51,7 @@ class DeliveryRequest extends Model
 
     protected $casts = [
         'is_scheduled' => 'boolean',
+        'vip_voucher_amount' => 'float',
         'scheduled_date' => 'date:Y-m-d',
         'reschedule_proposed_date' => 'date:Y-m-d',
         'approved_at' => 'datetime',

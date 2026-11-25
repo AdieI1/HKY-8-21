@@ -29,6 +29,8 @@ use App\Http\Controllers\RouteElevationController;
 use App\Http\Controllers\FleetAvailabilityController;
 use App\Http\Controllers\WeatherController;
 use App\Http\Controllers\BugReportController;
+use App\Http\Controllers\RewardController;
+use App\Http\Controllers\DriverLeaveController;
 
 
 /*
@@ -109,6 +111,16 @@ Route::middleware('auth:sanctum')->group(function () {
         'dispatchOverview'
     ]);
 
+    Route::get('/rewards/summary', [
+        RewardController::class,
+        'summary'
+    ]);
+
+    Route::get('/rewards/my-status', [
+        RewardController::class,
+        'myStatus'
+    ]);
+
     /*
     |--------------------------------------------------------------------------
     | Authentication
@@ -167,6 +179,32 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post(
         'drivers/{driver}/resend-credentials',
         [DriverController::class, 'resendCredentials']
+    );
+
+    Route::post(
+        'driver/duty-status',
+        [DriverController::class, 'toggleDutyStatus']
+    );
+
+    Route::get(
+        'driver-leaves',
+        [DriverLeaveController::class, 'index']
+    );
+    Route::post(
+        'driver-leaves',
+        [DriverLeaveController::class, 'store']
+    );
+    Route::post(
+        'driver-leaves/{driverLeave}/approve',
+        [DriverLeaveController::class, 'approve']
+    );
+    Route::post(
+        'driver-leaves/{driverLeave}/reject',
+        [DriverLeaveController::class, 'reject']
+    );
+    Route::post(
+        'driver-leaves/{driverLeave}/cancel',
+        [DriverLeaveController::class, 'cancel']
     );
 
     Route::apiResource(
@@ -324,10 +362,26 @@ Route::middleware('auth:sanctum')->group(function () {
     );
 
     Route::post(
+        'deliveries/{delivery}/accept',
+        [
+            DeliveryController::class,
+            'acceptDelivery'
+        ]
+    );
+
+    Route::post(
         'deliveries/{delivery}/proof-of-delivery',
         [
             DeliveryController::class,
             'submitProofOfDelivery'
+        ]
+    );
+
+    Route::post(
+        'deliveries/{delivery}/arrived-hq',
+        [
+            DeliveryController::class,
+            'markArrivedAtHq'
         ]
     );
 
@@ -506,6 +560,14 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
 
+    Route::post(
+        'vehicle-maintenance/{vehicleMaintenance}/cancel',
+        [
+            VehicleMaintenanceController::class,
+            'cancel'
+        ]
+    );
+
     Route::apiResource(
         'vehicle-maintenance',
         VehicleMaintenanceController::class
@@ -553,6 +615,30 @@ Route::middleware('auth:sanctum')->group(function () {
     | Spare Parts Usage
     |--------------------------------------------------------------------------
     */
+
+    Route::get(
+        'spare-parts-usage/pending',
+        [
+            SparePartsUsageController::class,
+            'pending'
+        ]
+    );
+
+    Route::post(
+        'spare-parts-usage/{sparePartsUsage}/confirm',
+        [
+            SparePartsUsageController::class,
+            'confirm'
+        ]
+    );
+
+    Route::post(
+        'spare-parts-usage/{sparePartsUsage}/use-external',
+        [
+            SparePartsUsageController::class,
+            'useExternal'
+        ]
+    );
 
     Route::apiResource(
         'spare-parts-usage',
@@ -653,6 +739,14 @@ Route::middleware('auth:sanctum')->group(function () {
         [
             SystemSettingController::class,
             'update'
+        ]
+    );
+
+    Route::post(
+        'system-settings/reset',
+        [
+            SystemSettingController::class,
+            'reset'
         ]
     );
 

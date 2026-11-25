@@ -13,11 +13,13 @@ import { useTheme } from "../../context/ThemeContext";
 
 const { width, height } = Dimensions.get("window");
 
+const normalizeFragility = (val) => (val === "Normal" ? "Standard" : val || null);
+
 export default function CargoSection({ value, onChange }) {
   const { isDark, colors } = useTheme();
   const [cargoName, setCargoName] = useState(value?.cargoName || "");
   const [cargoType, setCargoType] = useState(value?.cargoType || null);
-  const [fragility, setFragility] = useState(value?.fragility || null);
+  const [fragility, setFragility] = useState(normalizeFragility(value?.fragility));
   const [weight, setWeight] = useState(value?.weight ? String(value.weight) : "");
   const [serviceType, setServiceType] = useState(value?.serviceType || "standard");
   const [containerNumber, setContainerNumber] = useState(value?.containerNumber || "");
@@ -35,8 +37,11 @@ export default function CargoSection({ value, onChange }) {
     if (value.cargoType !== undefined && value.cargoType !== cargoType) {
       setCargoType(value.cargoType || null);
     }
-    if (value.fragility !== undefined && value.fragility !== fragility) {
-      setFragility(value.fragility || null);
+    if (value.fragility !== undefined) {
+      const normalized = normalizeFragility(value.fragility);
+      if (normalized !== fragility) {
+        setFragility(normalized);
+      }
     }
     if (value.serviceType !== undefined && value.serviceType !== serviceType) {
       setServiceType(value.serviceType || "standard");
@@ -77,20 +82,29 @@ export default function CargoSection({ value, onChange }) {
 
   const cargoOptions = [
     "Construction Materials & Parts",
-    "Electronics & Devices",
-    "Food & Perishables",
-    "Vehicles & Automotive Parts",
     "Hardware & Industrial Tools",
-    "Fitness & Gym Equipment",
-    "Glassware & Ceramics",
-    "Chemicals & Hazardous Goods",
+    "Industrial Machinery & Heavy Equipment",
+    "Agricultural Produce & Grains",
+    "Food & Perishables",
+    "Frozen & Chilled Goods (Cold Chain)",
+    "Livestock, Feeds & Agri-Supplies",
+    "FMCG, Groceries & Beverages",
+    "Lumber, Wood & Forestry Products",
+    "Vehicles & Automotive Parts",
+    "Electronics & Devices",
+    "Appliances & Office Equipment",
     "Furniture & Household Goods",
+    "Glassware & Ceramics",
+    "Medical & Pharmaceutical Supplies",
+    "Chemicals & Hazardous Goods",
+    "Containerized / Palletized Freight",
     "General Cargo / Other",
   ];
 
   const fragilityOptions = [
+    "Standard",
     "Fragile",
-    "Normal",
+    "Extremely Fragile",
     "Perishable",
   ];
 

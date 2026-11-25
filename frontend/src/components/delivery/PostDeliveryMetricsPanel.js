@@ -160,12 +160,19 @@ function PostDeliveryMetricsPanel({ delivery, speedMetrics, onViewRouteMap, hide
 
       {delivery.trip_cost && (
         <div className="panel-detail">
-          <span className="panel-detail-label">Trip Cost:</span>
+          <span className="panel-detail-label">Trip Revenue (Fee):</span>
           <span className="panel-detail-value font-mono">
-            ₱{Number(delivery.trip_cost).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+            ₱{Number(delivery.trip_cost).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         </div>
       )}
+
+      <div className="panel-detail">
+        <span className="panel-detail-label">Trip Cost:</span>
+        <span className="panel-detail-value font-mono" style={{ color: Number(delivery.fuel_allowance || 0) > 0 ? '#5EEAD4' : '#CBD5E1' }}>
+          ₱{Number(delivery.fuel_allowance || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </span>
+      </div>
 
       {delivery.remarks && (
         <div className="panel-detail">

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
-import { validatePhoneNumber, formatPhoneInput } from '../utils/validation';
+import { validatePhoneNumber, formatPhoneInput, formatNameInput } from '../utils/validation';
 
 function ProfilePage() {
   const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('auth_user') || '{}'));
@@ -215,8 +215,8 @@ function ProfilePage() {
               <h3 className="pf-panel-title"><i className="fas fa-user-circle pf-panel-icon"></i> Account Information</h3>
               <div className="pf-panel-body">
                 <div className="pf-field-grid">
-                  <div className="pf-field"><label className="pf-label">First Name</label><input className="pf-input" type="text" value={formData.firstName} readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} /></div>
-                  <div className="pf-field"><label className="pf-label">Last Name</label><input className="pf-input" type="text" value={formData.lastName} readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} /></div>
+                  <div className="pf-field"><label className="pf-label">First Name</label><input className="pf-input" type="text" value={formData.firstName} readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, firstName: formatNameInput(e.target.value) })} /></div>
+                  <div className="pf-field"><label className="pf-label">Last Name</label><input className="pf-input" type="text" value={formData.lastName} readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, lastName: formatNameInput(e.target.value) })} /></div>
                   <div className="pf-field pf-full"><label className="pf-label">Email Address</label><input className="pf-input" type="email" value={formData.email} readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, email: e.target.value })} /></div>
                   <div className="pf-field"><label className="pf-label">Contact Number</label><input className="pf-input" type="text" value={formData.phone} maxLength={11} placeholder="09XXXXXXXXX" readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, phone: formatPhoneInput(e.target.value) })} /></div>
                   <div className="pf-field"><label className="pf-label">Username</label><input className="pf-input" type="text" value={formData.username} readOnly={!isEditing} onChange={(e) => setFormData({ ...formData, username: e.target.value })} /></div>

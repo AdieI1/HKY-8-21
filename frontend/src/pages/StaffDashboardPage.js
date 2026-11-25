@@ -468,16 +468,17 @@ function StaffDashboardPage() {
         // Check if there is a maintenance record whose date range covers this day
         const dayMaintenance = (maintenancesList || []).find((m) => {
           if (Number(m.vehicle_id) !== Number(v.vehicle_id)) return false;
-          if (m.status === 'cancelled') return false;
+          const mStatus = String(m.status || '').toLowerCase();
+          if (mStatus === 'cancelled') return false;
           const start = m.maintenance_date ? String(m.maintenance_date).slice(0, 10) : '';
           const end = m.next_maintenance_date ? String(m.next_maintenance_date).slice(0, 10) : (m.end_date ? String(m.end_date).slice(0, 10) : start);
           if (start && day.iso >= start && day.iso <= (end || start)) return true;
-          if (['in_progress', 'scheduled', 'pending'].includes(m.status) && day.highlight && v.status === 'maintenance') return true;
+          if (['in_progress', 'in progress', 'scheduled', 'pending', 'waiting for part confirmation'].includes(mStatus) && day.highlight && ['maintenance', 'waiting_part_confirmation'].includes(v.status)) return true;
           return false;
         });
 
-        let cellType = 'available';
-        let statusText = 'Available';
+        let cellType = 'empty';
+        let statusText = '–';
         let driverName = '';
         let routeText = '';
         let extraText = '';
@@ -586,12 +587,9 @@ function StaffDashboardPage() {
           cellType = 'break';
           statusText = 'Under Maintenance';
           routeText = dayMaintenance.maintenance_type || dayMaintenance.service_type || 'Preventive Service';
-        } else if (day.key === 'sat' || day.key === 'sun') {
+        } else {
           cellType = 'empty';
           statusText = '–';
-        } else {
-          cellType = 'available';
-          statusText = 'Available';
         }
 
         let cellLabel = statusText;
@@ -1389,7 +1387,6 @@ function StaffDashboardPage() {
               <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot returning-hq"></span> Returning to HQ</span>
               <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot complete"></span> Complete</span>
               <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot delayed adm-alert-pulse-dot" style={{ verticalAlign: 'middle' }}></span> Delayed / Overdue</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot available"></span> Available</span>
               <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot maintenance"></span> Under Maintenance</span>
               <span style={{ display: 'inline-flex', alignItems: 'center' }}><span className="adm-legend-dot accident"></span> Accident Reported</span>
             </div>

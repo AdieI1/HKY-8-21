@@ -5,7 +5,6 @@ import reverb from '../utils/reverb';
 
 const MAX_VISIBLE_POPUPS = 3;
 const AUTO_DISMISS_MS = 7000;
-const DESKTOP_PREF_KEY = 'hjy_desktop_popups_enabled';
 
 function getSessionSeenKey() {
   try {
@@ -35,23 +34,6 @@ function saveSeenIds(set) {
     sessionStorage.setItem(getSessionSeenKey(), JSON.stringify(arr));
   } catch {
     // Ignore storage quota errors
-  }
-}
-
-export function isDesktopPopupsEnabled() {
-  try {
-    return localStorage.getItem(DESKTOP_PREF_KEY) !== 'false';
-  } catch {
-    return true;
-  }
-}
-
-export function setDesktopPopupsEnabled(enabled) {
-  try {
-    localStorage.setItem(DESKTOP_PREF_KEY, enabled ? 'true' : 'false');
-    window.dispatchEvent(new CustomEvent('hjy:desktop-popup-pref-changed', { detail: { enabled } }));
-  } catch {
-    // Ignore storage errors
   }
 }
 
@@ -88,36 +70,6 @@ export default function WebNotificationManager() {
       timersRef.current.set(id, timer);
     },
     [dismissPopup]
-  );
-
-  const showNativeOsNotification = useCallback(
-    (notif) => {
-      if (typeof window === 'undefined' || !('Notification' in window)) return;
-      if (window.Notification.permission !== 'granted') return;
-      if (!isDesktopPopupsEnabled()) return;
-
-      try {
-        const osNotif = new window.Notification(notif.title || 'HJY Trucking Notification', {
-          body: notif.message || '',
-          icon: '/images/HJY%20LOGO%202%201.png',
-          badge: '/images/HJY%20LOGO%202%201.png',
-          tag: `hjy-notif-${notif.id}`,
-          silent: true, // Sounds intentionally halted per Batch 4 step 1
-        });
-
-        osNotif.onclick = () => {
-          window.focus();
-          osNotif.close();
-          if (notif.link && notif.link !== '#') {
-            navigate(notif.link);
-          }
-          api.post(`/notifications/${notif.id}/read`).catch(() => {});
-        };
-      } catch {
-        // Ignore browser Notification API errors
-      }
-    },
-    [navigate]
   );
 
   const processNotifications = useCallback(
@@ -158,10 +110,6 @@ export default function WebNotificationManager() {
       // Show up to 3 most recent new notifications
       const batch = newlyArrived.slice(0, MAX_VISIBLE_POPUPS);
 
-      batch.forEach((n) => {
-        showNativeOsNotification(n);
-      });
-
       setPopups((prev) => {
         const existingIds = new Set(prev.map((p) => p.id));
         const additions = batch.filter((n) => !existingIds.has(n.id));
@@ -170,7 +118,7 @@ export default function WebNotificationManager() {
         return [...additions, ...prev].slice(0, MAX_VISIBLE_POPUPS);
       });
     },
-    [scheduleAutoDismiss, showNativeOsNotification]
+    [scheduleAutoDismiss]
   );
 
   // Reset baseline on logout / login switch

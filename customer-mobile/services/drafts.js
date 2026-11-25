@@ -117,7 +117,7 @@ export const saveDraft = async (draftData) => {
       id,
       title: cargoTitle,
       date: `${mm}/${dd}/${yy}`,
-      type: draftData.cargo?.fragility || "Normal",
+      type: draftData.cargo?.fragility === "Normal" ? "Standard" : (draftData.cargo?.fragility || "Standard"),
       pickup: pickupTitle,
       destination: destTitle,
       savedAt: now.toISOString(),

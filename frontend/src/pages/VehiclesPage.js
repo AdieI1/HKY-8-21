@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
 import TableSkeleton from '../components/TableSkeleton';
 import PrintableIncidentModal from '../components/driver/PrintableIncidentModal';
+import InspectionActivitiesSection from '../components/delivery/InspectionActivitiesSection';
 import reverb from '../utils/reverb';
 import {
   validatePlateNumber,
   formatPlateInput,
+  formatNameInput,
   validateEngineNumber,
   formatEngineNumberInput,
   getEngineNumberFeedback,
@@ -26,6 +29,8 @@ import {
   validateCrNumber,
   formatCrNumberInput,
   getCrNumberFeedback,
+  formatLocalDateIso,
+  getTodayIso,
   getTomorrowIso,
   isStrictlyFutureDate,
 } from '../utils/validation';
@@ -95,6 +100,7 @@ function statusLabel(status) {
     available: 'Available',
     in_use: 'In Use',
     maintenance: 'Under Maintenance',
+    waiting_part_confirmation: 'Waiting for Part Confirmation',
     broken: 'Broken',
     decommissioned: 'Decommissioned',
   };
@@ -102,7 +108,7 @@ function statusLabel(status) {
 }
 
 function statusClass(status) {
-  const map = { available: 'available', in_use: 'in-use', maintenance: 'maintenance', broken: 'broken', decommissioned: 'decommissioned' };
+  const map = { available: 'available', in_use: 'in-use', maintenance: 'maintenance', waiting_part_confirmation: 'maintenance', broken: 'broken', decommissioned: 'decommissioned' };
   return map[status] || '';
 }
 
@@ -212,6 +218,7 @@ function isColorDark(hex) {
 const EMPTY_FORM = {
   model: '',
   brand: '',
+  year_model: '',
   plate_number: '',
   engine_number: '',
   chassis_number: '',
@@ -220,10 +227,11 @@ const EMPTY_FORM = {
   classification: 'Private (PVT)',
   vehicle_category: 'N2',
   body_type: 'Truck Tractor Head',
+  piston_displacement: '',
   fuel_type: 'diesel',
-  capacity: '',
+  gross_weight: '',
+  net_weight: '',
   passenger_capacity: '',
-  mileage: '',
   odometer_reading: '',
   registration_valid_from: '',
   registration_valid_until: '',
@@ -267,6 +275,8 @@ function VehiclesPage() {
   const [incidentSeverityFilter, setIncidentSeverityFilter] = useState('All');
   const [incidentPage, setIncidentPage] = useState(1);
   const [selectedIncident, setSelectedIncident] = useState(null);
+  const [incidentSubTab, setIncidentSubTab] = useState('inspections'); // 'inspections' | 'incidents'
+  const [selectedInspectionDelivery, setSelectedInspectionDelivery] = useState(null);
 
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [vehicleDetailsData, setVehicleDetailsData] = useState(null);
@@ -301,7 +311,7 @@ function VehiclesPage() {
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [schedulingVehicle, setSchedulingVehicle] = useState(null);
   const [scheduleForm, setScheduleForm] = useState({
-    maintenance_date: new Date().toISOString().split('T')[0],
+    maintenance_date: getTodayIso(),
     maintenance_type: 'Preventive Maintenance',
     maintenance_cost: '',
     maintained_by_name: '',
@@ -353,6 +363,8 @@ function VehiclesPage() {
     if (lower.includes('or number') || lower.includes('official receipt')) return 'Invalid OR Number';
     if (lower.includes('cr number') || lower.includes('certificate of registration')) return 'Invalid CR Number';
     if (lower.includes('date') || lower.includes('expiry') || lower.includes('expiration')) return 'Invalid Date Sequence';
+    if (lower.includes('weight')) return 'Invalid Weight';
+    if (lower.includes('displacement')) return 'Invalid Piston Displacement';
     if (lower.includes('capacity')) return 'Invalid Capacity';
     return 'Validation Notice';
   };
@@ -472,11 +484,68 @@ function VehiclesPage() {
     () => ({
       available: listedVehicles.filter((v) => v.status === 'available').length,
       inUse: listedVehicles.filter((v) => v.status === 'in_use').length,
-      maintenance: listedVehicles.filter((v) => v.status === 'maintenance').length,
+      maintenance: listedVehicles.filter((v) => v.status === 'maintenance' || v.status === 'waiting_part_confirmation').length,
       broken: archivedVehicles.length,
     }),
     [listedVehicles, archivedVehicles]
   );
+
+  const inspectionLogs = useMemo(() => {
+    const safeDeliveries = Array.isArray(deliveries) ? deliveries : [];
+    const safeVehicles = Array.isArray(vehicles) ? vehicles : [];
+    const logs = [];
+
+    safeDeliveries.forEach((del) => {
+      const chks = Array.isArray(del.checklists) ? del.checklists : [];
+      if (chks.length === 0) return;
+      const veh = del.vehicle || safeVehicles.find((v) => v.vehicle_id === del.vehicle_id);
+      chks.forEach((chk) => {
+        const entries = chk.items && typeof chk.items === 'object' ? Object.entries(chk.items) : [];
+        const passed = entries.filter(([, v]) => Boolean(v)).length;
+        const defects = entries.length - passed;
+        const photos = Array.isArray(chk.photo_urls) && chk.photo_urls.length > 0
+          ? chk.photo_urls
+          : (Array.isArray(chk.photos) ? chk.photos : []);
+
+        logs.push({
+          ...chk,
+          resolvedVehicle: veh,
+          resolvedDelivery: del,
+          passedCount: passed,
+          totalCount: entries.length,
+          defectCount: defects,
+          photoCount: photos.length,
+        });
+      });
+    });
+
+    return logs.sort((a, b) => {
+      const tA = new Date(a.completed_at || a.created_at || 0).getTime();
+      const tB = new Date(b.completed_at || b.created_at || 0).getTime();
+      return tB - tA;
+    });
+  }, [deliveries, vehicles]);
+
+  const filteredInspectionLogs = useMemo(() => {
+    const term = incidentSearch.toLowerCase().trim();
+    if (!term) return inspectionLogs;
+    return inspectionLogs.filter((log) => {
+      const v = log.resolvedVehicle;
+      const hay = [
+        v?.model,
+        v?.plate_number,
+        v?.vehicle_id ? `VCL${String(v.vehicle_id).padStart(3, '0')}` : '',
+        log.delivery_id ? `DLV${String(log.delivery_id).padStart(4, '0')}` : '',
+        log.inspector_name || log.inspector?.full_name,
+        log.type,
+        log.remarks,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(term);
+    });
+  }, [inspectionLogs, incidentSearch]);
 
   const vehicleIncidents = useMemo(() => {
     const safeIncidents = Array.isArray(incidents) ? incidents : [];
@@ -675,12 +744,19 @@ function VehiclesPage() {
     setFormError('');
   };
 
-  const handleViewDocFile = (title, url, vehicle = null) => {
+  const handleViewDocFile = (title, urlOrItems, vehicle = null) => {
     const targetVehicle = vehicle || vehicleDetailsData || selectedVehicle;
+    const docs = Array.isArray(urlOrItems)
+      ? urlOrItems.filter((item) => Boolean(item?.url))
+      : urlOrItems
+      ? [{ label: title, url: urlOrItems }]
+      : [];
     setDocModal({
       isOpen: true,
       title,
-      url: url || null,
+      docs,
+      activeIndex: 0,
+      url: docs[0]?.url || null,
       vehicle: targetVehicle,
     });
   };
@@ -704,6 +780,7 @@ function VehiclesPage() {
     setForm({
       model: vehicle.model || '',
       brand: vehicle.brand || '',
+      year_model: vehicle.year_model != null ? String(vehicle.year_model) : '',
       plate_number: vehicle.plate_number || '',
       engine_number: vehicle.engine_number || '',
       chassis_number: vehicle.chassis_number || '',
@@ -712,10 +789,11 @@ function VehiclesPage() {
       classification: vehicle.classification || 'Private (PVT)',
       vehicle_category: vehicle.vehicle_category || 'N2',
       body_type: vehicle.body_type || 'Truck Tractor Head',
+      piston_displacement: vehicle.piston_displacement != null ? String(vehicle.piston_displacement) : '',
       fuel_type: vehicle.fuel_type || 'diesel',
-      capacity: vehicle.capacity || '',
+      gross_weight: vehicle.gross_weight != null ? String(vehicle.gross_weight) : '',
+      net_weight: vehicle.net_weight != null ? String(vehicle.net_weight) : '',
       passenger_capacity: vehicle.passenger_capacity != null ? vehicle.passenger_capacity : '',
-      mileage: vehicle.mileage || '',
       odometer_reading: vehicle.odometer_reading || '',
       registration_valid_from: vehicle.registration_valid_from || '',
       registration_valid_until: vehicle.registration_valid_until || '',
@@ -758,10 +836,17 @@ function VehiclesPage() {
     if (!form.brand || !form.brand.trim()) {
       errors.brand = 'Brand / Make is required';
     }
+    if (form.year_model !== '' && form.year_model != null) {
+      const yr = Number(form.year_model);
+      const maxYear = new Date().getFullYear() + 1;
+      if (!/^\d{4}$/.test(String(form.year_model).trim()) || yr < 1901 || yr > maxYear) {
+        errors.year_model = `Model Year must be between 1901 and ${maxYear}`;
+      }
+    }
     if (!form.plate_number || !form.plate_number.trim()) {
       errors.plate_number = 'Plate Number is required';
     } else if (!validatePlateNumber(form.plate_number)) {
-      errors.plate_number = 'Format must be ABC-1234 (3 letters, hyphen, 4 numbers)';
+      errors.plate_number = 'Format must be ABC-1234 or legacy ABC-123';
     }
     if (!editingVehicle && (!form.engine_number || !form.engine_number.trim())) {
       errors.engine_number = 'Engine Number is required';
@@ -784,10 +869,19 @@ function VehiclesPage() {
     }
 
     // Section 2: Specifications & Vehicle Photo
-    if (form.capacity === '' || form.capacity == null) {
-      errors.capacity = 'Load Capacity is required';
-    } else if (!validatePositiveNumber(form.capacity)) {
-      errors.capacity = 'Capacity must be a positive number';
+    const grossValid = form.gross_weight !== '' && form.gross_weight != null && validatePositiveNumber(form.gross_weight);
+    const netValid = form.net_weight !== '' && form.net_weight != null && validatePositiveNumber(form.net_weight);
+    if (form.gross_weight === '' || form.gross_weight == null) {
+      errors.gross_weight = 'Gross Weight is required';
+    } else if (!validatePositiveNumber(form.gross_weight)) {
+      errors.gross_weight = 'Gross Weight must be a positive number';
+    }
+    if (form.net_weight === '' || form.net_weight == null) {
+      errors.net_weight = 'Net Weight is required';
+    } else if (!validatePositiveNumber(form.net_weight)) {
+      errors.net_weight = 'Net Weight must be a positive number';
+    } else if (grossValid && netValid && Number(form.net_weight) > Number(form.gross_weight)) {
+      errors.net_weight = 'Net Weight cannot exceed Gross Weight';
     }
     if (form.passenger_capacity !== '' && form.passenger_capacity != null) {
       const pax = Number(form.passenger_capacity);
@@ -795,10 +889,10 @@ function VehiclesPage() {
         errors.passenger_capacity = 'Passenger capacity must be a whole number (1–60)';
       }
     }
-    if (form.mileage === '' || form.mileage == null) {
-      errors.mileage = 'Mileage is required';
-    } else if (!validatePositiveNumber(form.mileage)) {
-      errors.mileage = 'Mileage must be a positive number';
+    if (form.piston_displacement !== '' && form.piston_displacement != null) {
+      if (!validatePositiveNumber(form.piston_displacement)) {
+        errors.piston_displacement = 'Piston Displacement must be a positive number';
+      }
     }
     if (!form.status) {
       errors.status = 'Status is required';
@@ -847,13 +941,6 @@ function VehiclesPage() {
     if (!form.registration_date) {
       errors.registration_date = 'Registration Date is required';
     }
-    if (!form.expiration_date) {
-      errors.expiration_date = 'Expiration Date is required';
-    } else if (!isStrictlyFutureDate(form.expiration_date)) {
-      errors.expiration_date = 'Expiration Date must be strictly after today (tomorrow onward)';
-    } else if (form.registration_date && !validateDateSequence(form.registration_date, form.expiration_date)) {
-      errors.expiration_date = 'Expiration date must be on or after registration date';
-    }
     if (!form.last_maintenance_date) {
       errors.last_maintenance_date = 'Last Maintenance Date is required';
     }
@@ -887,6 +974,11 @@ function VehiclesPage() {
       const formData = new FormData();
       formData.append('model', form.model);
       if (form.brand) formData.append('brand', form.brand);
+      if (form.year_model !== '' && form.year_model != null) {
+        formData.append('year_model', String(form.year_model).trim());
+      } else if (editingVehicle) {
+        formData.append('year_model', '');
+      }
       formData.append('plate_number', form.plate_number);
       if (form.engine_number) formData.append('engine_number', form.engine_number);
       if (form.chassis_number) formData.append('chassis_number', form.chassis_number);
@@ -895,15 +987,19 @@ function VehiclesPage() {
       if (form.classification) formData.append('classification', form.classification);
       if (form.vehicle_category) formData.append('vehicle_category', form.vehicle_category);
       if (form.body_type) formData.append('body_type', form.body_type);
+      if (form.piston_displacement !== '' && form.piston_displacement != null) {
+        formData.append('piston_displacement', form.piston_displacement);
+      } else if (editingVehicle) {
+        formData.append('piston_displacement', '');
+      }
       formData.append('fuel_type', form.fuel_type);
-      if (form.capacity) formData.append('capacity', form.capacity);
+      if (form.gross_weight !== '' && form.gross_weight != null) formData.append('gross_weight', form.gross_weight);
+      if (form.net_weight !== '' && form.net_weight != null) formData.append('net_weight', form.net_weight);
       if (form.passenger_capacity !== '' && form.passenger_capacity != null) {
         formData.append('passenger_capacity', form.passenger_capacity);
       }
-      if (form.mileage) formData.append('mileage', form.mileage);
       if (form.odometer_reading) formData.append('odometer_reading', form.odometer_reading);
       if (form.registration_valid_from) formData.append('registration_valid_from', form.registration_valid_from);
-      if (form.registration_valid_until) formData.append('registration_valid_until', form.registration_valid_until);
       if (form.status) formData.append('status', form.status);
       if (form.condition) formData.append('condition', form.condition);
       if (form.last_maintenance_date) formData.append('last_maintenance_date', form.last_maintenance_date);
@@ -920,7 +1016,6 @@ function VehiclesPage() {
       if (form.or_number) formData.append('or_number', form.or_number);
       if (form.cr_number) formData.append('cr_number', form.cr_number);
       if (form.registration_date) formData.append('registration_date', form.registration_date);
-      if (form.expiration_date) formData.append('expiration_date', form.expiration_date);
 
       // Emission date
       if (form.emission_date) formData.append('emission_date', form.emission_date);
@@ -967,25 +1062,52 @@ function VehiclesPage() {
     }
   };
 
+  const location = useLocation();
+  const navigate = useNavigate();
+  const handledScheduleQueryRef = useRef(false);
+
   // ----- Schedule Maintenance Modal (Matches Reference Image) -----
-  const openScheduleMaintenanceModal = (vehicle, e) => {
+  const openScheduleMaintenanceModal = useCallback((vehicle, e, suggestedTypeOverride = null) => {
     e?.stopPropagation();
-    const today = new Date().toISOString().split('T')[0];
-    const defaultCompletion = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const isInUse = vehicle?.status === 'in_use';
+    const startDate = isInUse ? getTomorrowIso() : getTodayIso();
+    const completionDateObj = new Date();
+    completionDateObj.setDate(completionDateObj.getDate() + (isInUse ? 3 : 2));
+    const defaultCompletion = formatLocalDateIso(completionDateObj);
     setSchedulingVehicle(vehicle);
     setScheduleForm({
-      maintenance_date: today,
+      maintenance_date: startDate,
       next_maintenance_date: defaultCompletion,
-      maintenance_type: vehicle.status === 'broken' ? 'Emergency Maintenance' : 'Preventive Maintenance',
+      maintenance_type: suggestedTypeOverride || (vehicle.status === 'broken' ? 'Emergency Maintenance' : 'Preventive Maintenance'),
       maintenance_cost: '',
       maintained_by_name: '',
       part_id: '',
       quantity_used: '',
       status: 'Scheduled',
     });
-    setScheduleError('');
+    setScheduleError(
+      isInUse
+        ? 'Note: This vehicle is currently in use on a delivery, so the suggested start date defaults to tomorrow.'
+        : ''
+    );
     setShowScheduleModal(true);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (loading || !vehicles.length || handledScheduleQueryRef.current) return;
+    const params = new URLSearchParams(location.search);
+    if (params.get('scheduleMaintenance') !== '1') return;
+
+    const targetId = params.get('vehicleId');
+    const suggestedType = params.get('suggestedType');
+    const targetVehicle = vehicles.find((v) => String(v.vehicle_id) === String(targetId));
+    handledScheduleQueryRef.current = true;
+
+    if (targetVehicle) {
+      openScheduleMaintenanceModal(targetVehicle, null, suggestedType || null);
+    }
+    navigate('/vehicles', { replace: true });
+  }, [loading, vehicles, location.search, navigate, openScheduleMaintenanceModal]);
 
   const selectedPart = useMemo(() => {
     if (!scheduleForm.part_id) return null;
@@ -1026,13 +1148,38 @@ function VehiclesPage() {
       if (selectedVehicle && selectedVehicle.vehicle_id === schedulingVehicle.vehicle_id) {
         await openVehicleDetails(schedulingVehicle);
       }
-      setToast({ message: `Maintenance scheduled for ${schedulingVehicle.model} (${vehicleCode(schedulingVehicle.vehicle_id)}).` });
+      const hadParts = Boolean(scheduleForm.part_id && scheduleForm.quantity_used);
+      setToast({
+        message: hadParts
+          ? `Maintenance scheduled for ${schedulingVehicle.model} (${vehicleCode(schedulingVehicle.vehicle_id)}) — Waiting for Part Confirmation in Parts Inventory.`
+          : `Maintenance started for ${schedulingVehicle.model} (${vehicleCode(schedulingVehicle.vehicle_id)}) — vehicle is now Under Maintenance.`,
+      });
       setTimeout(() => setToast(null), 5000);
     } catch (err) {
       const msg = err.response?.data?.message || 'Failed to schedule maintenance.';
       setScheduleError(msg);
     } finally {
       setScheduling(false);
+    }
+  };
+
+  const handleCancelPendingMaintenance = async (maintenanceRecord) => {
+    if (!maintenanceRecord?.maintenance_id) return;
+    try {
+      await api.post(`/vehicle-maintenance/${maintenanceRecord.maintenance_id}/cancel`);
+      await loadData();
+      if (selectedVehicle) {
+        await openVehicleDetails(selectedVehicle);
+      }
+      setToast({
+        message: `Cancelled pending maintenance (${maintenanceRecord.maintenance_type}). History kept for audit and vehicle returned to Available.`,
+      });
+      setTimeout(() => setToast(null), 5000);
+    } catch (err) {
+      setToast({
+        message: err.response?.data?.message || 'Could not cancel pending maintenance.',
+      });
+      setTimeout(() => setToast(null), 5000);
     }
   };
 
@@ -1179,6 +1326,7 @@ function VehiclesPage() {
                       <option value="available">Available</option>
                       <option value="in_use">In Use</option>
                       <option value="maintenance">Under Maintenance</option>
+                      <option value="waiting_part_confirmation">Waiting for Part Confirmation</option>
                       <option value="broken">Broken</option>
                     </select>
                   </div>
@@ -1275,7 +1423,8 @@ function VehiclesPage() {
                               const isAvailable = vehicle.status === 'available';
                               const isBroken = vehicle.status === 'broken';
                               const isInUse = vehicle.status === 'in_use';
-                              const isMaintenance = vehicle.status === 'maintenance';
+                              const isWaitingParts = vehicle.status === 'waiting_part_confirmation';
+                              const isMaintenance = vehicle.status === 'maintenance' || isWaitingParts;
                               const canSchedule = isAvailable || isBroken;
                               const canDecommission = isAvailable;
                               const canEdit = isAvailable;
@@ -1289,6 +1438,8 @@ function VehiclesPage() {
                                     title={
                                       isInUse
                                         ? 'Cannot schedule maintenance: vehicle is currently active in a delivery trip.'
+                                        : isWaitingParts
+                                        ? 'Locked: vehicle is waiting for maintenance parts confirmation.'
                                         : isMaintenance
                                         ? 'Vehicle is already under active maintenance.'
                                         : isBroken
@@ -1481,13 +1632,57 @@ function VehiclesPage() {
                 </button>
               </div>
 
-              {/* Incidents Search & Filter Bar */}
+              {/* Sub-tab Switcher: Inspections vs Incident Reports */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => setIncidentSubTab('inspections')}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: 8,
+                    border: incidentSubTab === 'inspections' ? '1.5px solid #0284C7' : '1px solid #CBD5E1',
+                    background: incidentSubTab === 'inspections' ? '#0284C7' : '#FFFFFF',
+                    color: incidentSubTab === 'inspections' ? '#FFFFFF' : '#334155',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <i className="fas fa-clipboard-check"></i>
+                  <span>Inspection Checklists &amp; Photos ({inspectionLogs.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIncidentSubTab('incidents')}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: 8,
+                    border: incidentSubTab === 'incidents' ? '1.5px solid #B91C1C' : '1px solid #CBD5E1',
+                    background: incidentSubTab === 'incidents' ? '#B91C1C' : '#FFFFFF',
+                    color: incidentSubTab === 'incidents' ? '#FFFFFF' : '#334155',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <i className="fas fa-triangle-exclamation"></i>
+                  <span>Incident Reports ({vehicleIncidents.length})</span>
+                </button>
+              </div>
+
+              {/* Incidents / Inspections Search & Filter Bar */}
               <div className="incidents-controls" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', margin: '14px 0', alignItems: 'center' }}>
                 <div className="search-bar" style={{ width: 300 }}>
                   <i className="fas fa-search"></i>
                   <input
                     type="text"
-                    placeholder="Search vehicle, plate, inspector, defect..."
+                    placeholder="Search vehicle, plate, inspector, delivery..."
                     value={incidentSearch}
                     onChange={(e) => {
                       setIncidentSearch(e.target.value);
@@ -1495,6 +1690,9 @@ function VehiclesPage() {
                     }}
                   />
                 </div>
+
+                {incidentSubTab === 'incidents' && (
+                  <>
 
                 {/* Filter Pills */}
                 <div className="incident-tabs" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -1550,8 +1748,131 @@ function VehiclesPage() {
                     <option value="low">Low Severity</option>
                   </select>
                 </div>
+                  </>
+                )}
               </div>
 
+              {incidentSubTab === 'inspections' ? (
+                <>
+                  <p style={{ fontSize: 13, color: '#64748b', fontWeight: 600, margin: '8px 0 14px' }}>
+                    Showing {filteredInspectionLogs.length} of {inspectionLogs.length} recorded inspection activities.
+                  </p>
+                  <div className="section-content vehicles-table-wrap">
+                    <table className="data-table vehicles-table">
+                      <thead>
+                        <tr>
+                          <th>Delivery #</th>
+                          <th>Vehicle</th>
+                          <th>Inspection Type</th>
+                          <th>Inspected By</th>
+                          <th>Date &amp; Time</th>
+                          <th>Checklist &amp; Photos</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loading ? (
+                          <TableSkeleton rows={4} columns={7} />
+                        ) : filteredInspectionLogs.length === 0 ? (
+                          <tr>
+                            <td colSpan="7" style={{ textAlign: 'center', padding: 28, color: '#6B7280' }}>
+                              No completed inspection checklists found yet.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredInspectionLogs.map((log) => {
+                            const veh = log.resolvedVehicle;
+                            const delCode = `DLV${String(log.delivery_id).padStart(4, '0')}`;
+                            const inspectorName = log.inspector_name || log.inspector?.full_name || 'Staff Inspector';
+                            const inspectorPhoto = log.inspector?.profile_photo_url || '/images/defaultavatar.png';
+                            return (
+                              <tr key={`${log.delivery_id}-${log.checklist_id || log.type}`}>
+                                <td style={{ fontWeight: 800, color: '#2563EB', fontFamily: 'monospace' }}>{delCode}</td>
+                                <td>
+                                  <div style={{ fontWeight: 700, fontSize: 13.5, color: '#0F172A' }}>{formatVehicleName(veh)}</div>
+                                  <div style={{ fontSize: 12, color: '#64748B' }}>{veh?.plate_number || '—'}</div>
+                                </td>
+                                <td>
+                                  <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 6, background: '#E0F2FE', color: '#0369A1', textTransform: 'capitalize' }}>
+                                    {String(log.type || '').replace(/_/g, ' ')}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <img
+                                      src={inspectorPhoto}
+                                      alt=""
+                                      style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', border: '1px solid #cbd5e1' }}
+                                      onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
+                                    />
+                                    <span style={{ fontWeight: 600, fontSize: 13, color: '#1E293B' }}>{inspectorName}</span>
+                                  </div>
+                                </td>
+                                <td style={{ fontSize: 12.5, color: '#475569' }}>
+                                  {formatDateTime(log.completed_at || log.created_at)}
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                    <span
+                                      style={{
+                                        fontSize: 11.5,
+                                        fontWeight: 700,
+                                        padding: '2px 7px',
+                                        borderRadius: 10,
+                                        background: log.defectCount > 0 ? '#FEF2F2' : '#DCFCE7',
+                                        color: log.defectCount > 0 ? '#DC2626' : '#15803D',
+                                      }}
+                                    >
+                                      {log.passedCount}/{log.totalCount} Passed
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontSize: 11.5,
+                                        fontWeight: 700,
+                                        padding: '2px 7px',
+                                        borderRadius: 10,
+                                        background: log.photoCount > 0 ? '#EFF6FF' : '#F1F5F9',
+                                        color: log.photoCount > 0 ? '#1D4ED8' : '#64748B',
+                                      }}
+                                    >
+                                      <i className="fas fa-camera" style={{ marginRight: 4 }}></i>
+                                      {log.photoCount} Photo{log.photoCount === 1 ? '' : 's'}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedInspectionDelivery(log.resolvedDelivery)}
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 6,
+                                      background: '#0284C7',
+                                      color: '#fff',
+                                      border: 'none',
+                                      padding: '7px 12px',
+                                      borderRadius: 6,
+                                      fontSize: 12,
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    <i className="fas fa-images"></i>
+                                    <span>View Inspection</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <>
               <p style={{ fontSize: 13, color: '#64748b', fontWeight: 600, margin: '8px 0 14px' }}>
                 Showing {filteredVehicleIncidents.length} of {vehicleIncidents.length} vehicle incident reports.
               </p>
@@ -1765,6 +2086,8 @@ function VehiclesPage() {
                   showAlways={true}
                 />
               </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -2113,9 +2436,13 @@ function VehiclesPage() {
                         }}
                       />
                     </div>
-                    {selectedPart && (
-                      <p style={{ margin: '6px 0 0', fontSize: 11, color: selectedPart.quantity_in_stock <= 0 ? '#ef4444' : '#16a34a' }}>
-                        Current available stock: <strong>{selectedPart.quantity_in_stock} {selectedPart.unit || 'pcs'}</strong>
+                    {selectedPart ? (
+                      <p style={{ margin: '6px 0 0', fontSize: 11.5, color: selectedPart.quantity_in_stock <= 0 ? '#ef4444' : '#b45309', fontWeight: 600 }}>
+                        Stock: <strong>{selectedPart.quantity_in_stock} {selectedPart.unit || 'pcs'}</strong> — vehicle will move to <strong>Waiting for Part Confirmation</strong> until confirmed in Parts Inventory.
+                      </p>
+                    ) : (
+                      <p style={{ margin: '6px 0 0', fontSize: 11, color: '#64748b' }}>
+                        Leave blank to start maintenance right away (<strong>Under Maintenance</strong>), or pick a part to require Parts Inventory confirmation first.
                       </p>
                     )}
                   </div>
@@ -2233,26 +2560,40 @@ function VehiclesPage() {
                 {/* Card 1: Vehicle Identity & Action Buttons */}
                 <div style={{ background: '#f8fafc', padding: 16, borderRadius: 10, border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                   <div>
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+                    <div
+                      onClick={() => handleViewDocFile(`${selectedVehicle.model || 'Vehicle'} Photo`, selectedVehicle.photo_url || '/images/default-truck.png', selectedVehicle)}
+                      title="Click to enlarge vehicle photo"
+                      style={{
+                        width: '100%',
+                        height: 196,
+                        borderRadius: 8,
+                        overflow: 'hidden',
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        marginBottom: 12,
+                        cursor: 'pointer',
+                        position: 'relative',
+                      }}
+                    >
                       <img
                         src={selectedVehicle.photo_url || '/images/default-truck.png'}
                         alt={selectedVehicle.model}
-                        style={{ width: 70, height: 52, objectFit: 'cover', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', flexShrink: 0 }}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                         onError={(e) => { e.currentTarget.src = '/images/default-truck.png'; }}
                       />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {selectedVehicle.model}
-                          </h3>
-                          <span className={`vehicle-status ${statusClass(selectedVehicle.status)}`} style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                            ● {statusLabel(selectedVehicle.status)}
-                          </span>
-                        </div>
-                        <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 12 }}>
-                          <strong>{vehicleCode(selectedVehicle.vehicle_id)}</strong> · Plate: <strong>{selectedVehicle.plate_number}</strong>
-                        </p>
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {selectedVehicle.model}
+                        </h3>
+                        <span className={`vehicle-status ${statusClass(selectedVehicle.status)}`} style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                          ● {statusLabel(selectedVehicle.status)}
+                        </span>
                       </div>
+                      <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: 12 }}>
+                        <strong>{vehicleCode(selectedVehicle.vehicle_id)}</strong> · Plate: <strong>{selectedVehicle.plate_number}</strong>
+                      </p>
                     </div>
                   </div>
 
@@ -2261,7 +2602,8 @@ function VehiclesPage() {
                     const isAvailable = selectedVehicle.status === 'available';
                     const isBroken = selectedVehicle.status === 'broken';
                     const isInUse = selectedVehicle.status === 'in_use';
-                    const isMaintenance = selectedVehicle.status === 'maintenance';
+                    const isWaitingParts = selectedVehicle.status === 'waiting_part_confirmation';
+                    const isMaintenance = selectedVehicle.status === 'maintenance' || isWaitingParts;
                     const canSchedule = isAvailable || isBroken;
                     const canDecommission = isAvailable;
                     const canEdit = isAvailable;
@@ -2274,6 +2616,8 @@ function VehiclesPage() {
                           title={
                             isInUse
                               ? 'Cannot schedule maintenance: vehicle is currently active in a delivery trip.'
+                              : isWaitingParts
+                              ? 'Locked: vehicle is waiting for maintenance parts confirmation.'
                               : isMaintenance
                               ? 'Vehicle is already under active maintenance.'
                               : isBroken
@@ -2384,13 +2728,16 @@ function VehiclesPage() {
                     Vehicle Specs
                   </h4>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Vehicle Type:</strong> {selectedVehicle.vehicle_type || '—'}</p>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Model Year:</strong> {selectedVehicle.year_model || '—'}</p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Body Type:</strong> {selectedVehicle.body_type || '—'}</p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Classification:</strong> {selectedVehicle.classification || '—'}</p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Vehicle Category:</strong> {selectedVehicle.vehicle_category || '—'}</p>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Piston Displacement:</strong> {selectedVehicle.piston_displacement ? `${Number(selectedVehicle.piston_displacement).toLocaleString()} cc` : '—'}</p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Engine No.:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{selectedVehicle.engine_number || '—'}</span></p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Chassis No.:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{selectedVehicle.chassis_number || '—'}</span></p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Fuel Type:</strong> <span style={{ textTransform: 'capitalize' }}>{selectedVehicle.fuel_type || 'diesel'}</span></p>
-                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Load Capacity:</strong> {selectedVehicle.capacity ? `${selectedVehicle.capacity} kg` : '—'}</p>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Gross Weight:</strong> {selectedVehicle.gross_weight ? `${selectedVehicle.gross_weight} kg` : '—'}</p>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Net Weight:</strong> {selectedVehicle.net_weight ? `${selectedVehicle.net_weight} kg` : '—'}</p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Passenger Capacity:</strong> {selectedVehicle.passenger_capacity ? `${selectedVehicle.passenger_capacity} pax` : '—'}</p>
                   <p style={{ margin: '6px 0', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <strong>Color:</strong>
@@ -2409,7 +2756,7 @@ function VehiclesPage() {
                     <span>{selectedVehicle.color || '—'}</span>
                   </p>
                   <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Condition:</strong> {selectedVehicle.condition || 'Good'}</p>
-                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Registration Valid:</strong> {formatDate(selectedVehicle.registration_valid_from)} to {formatDate(selectedVehicle.registration_valid_until)}</p>
+                  <p style={{ margin: '6px 0', fontSize: 13 }}><strong>Registration Date:</strong> {formatDate(selectedVehicle.registration_date || selectedVehicle.registration_valid_from)}</p>
                 </div>
 
                 {/* Card 3: Assigned Driver & Usage */}
@@ -2431,21 +2778,41 @@ function VehiclesPage() {
                     );
                   })()}
                   {(() => {
-                    const todayIso = new Date().toISOString().split('T')[0];
+                    const todayIso = getTodayIso();
                     const maintenancesList = vehicleDetailsData?.maintenances || selectedVehicle?.maintenances || [];
-                    
-                    // Future scheduled maintenance (strictly in the future: > today)
-                    const futureScheduled = maintenancesList.find((m) => (m.status === 'Scheduled' || m.status === 'In Progress') && m.maintenance_date > todayIso);
-                    const nextDate = (selectedVehicle.next_maintenance_date && selectedVehicle.next_maintenance_date > todayIso)
-                      ? selectedVehicle.next_maintenance_date
-                      : (futureScheduled ? futureScheduled.maintenance_date : null);
 
-                    // Past maintenance (completed OR any maintenance whose date <= today)
-                    const pastMaintenances = maintenancesList.filter((m) => m.status === 'Completed' || (m.maintenance_date && m.maintenance_date <= todayIso));
+                    // Active maintenance (currently in shop / waiting parts / scheduled)
+                    const activeMaint = maintenancesList.find((m) =>
+                      ['In Progress', 'Waiting for Part Confirmation', 'Scheduled'].includes(m.status)
+                    );
+                    const scheduledDate = activeMaint
+                      ? (activeMaint.next_maintenance_date || activeMaint.maintenance_date)
+                      : (selectedVehicle.next_maintenance_date && selectedVehicle.next_maintenance_date > todayIso
+                        ? selectedVehicle.next_maintenance_date
+                        : null);
+
+                    // Past completed / elapsed maintenance
+                    const pastMaintenances = maintenancesList.filter(
+                      (m) => m.status === 'Completed' || (!['Cancelled', 'Waiting for Part Confirmation'].includes(m.status) && m.maintenance_date && m.maintenance_date <= todayIso)
+                    );
                     const latestPastM = pastMaintenances[0];
-                    const lastDate = latestPastM?.maintenance_date 
-                      || (selectedVehicle.last_maintenance_date && selectedVehicle.last_maintenance_date <= todayIso ? selectedVehicle.last_maintenance_date : null)
-                      || (selectedVehicle.next_maintenance_date && selectedVehicle.next_maintenance_date <= todayIso ? selectedVehicle.next_maintenance_date : null);
+                    const lastDate = latestPastM?.maintenance_date
+                      || (selectedVehicle.last_maintenance_date && selectedVehicle.last_maintenance_date <= todayIso ? selectedVehicle.last_maintenance_date : null);
+
+                    // If available with no active/scheduled entry, compute standard 3-month PM due date from Last Maintenance
+                    let estimatedDueDate = null;
+                    if (!scheduledDate && lastDate) {
+                      const d = new Date(lastDate);
+                      if (!isNaN(d.getTime())) {
+                        d.setMonth(d.getMonth() + 3);
+                        estimatedDueDate = formatLocalDateIso(d);
+                      }
+                    }
+
+                    const displayDueDate = scheduledDate || estimatedDueDate;
+                    const dueLabel = activeMaint && ['In Progress', 'Waiting for Part Confirmation'].includes(activeMaint.status)
+                      ? 'Maintenance Due (Completion):'
+                      : 'Maintenance Due:';
 
                     return (
                       <>
@@ -2453,9 +2820,14 @@ function VehiclesPage() {
                           <strong>Last Maintenance:</strong> {lastDate ? formatDate(lastDate) : '—'}
                         </p>
                         <p style={{ margin: '6px 0', fontSize: 13 }}>
-                          <strong>Next Maintenance:</strong> {nextDate ? (
-                            <span style={{ color: '#d97706', fontWeight: 700 }}>
-                              {formatDate(nextDate)} {futureScheduled ? `(${futureScheduled.status})` : ''}
+                          <strong>{dueLabel}</strong> {displayDueDate ? (
+                            <span style={{ color: scheduledDate ? '#d97706' : '#0369a1', fontWeight: 700 }}>
+                              {formatDate(displayDueDate)}{' '}
+                              {activeMaint
+                                ? `(${activeMaint.status})`
+                                : scheduledDate
+                                ? '(Scheduled)'
+                                : '(Est. 3-mo PM)'}
                             </span>
                           ) : '—'}
                         </p>
@@ -2543,15 +2915,20 @@ function VehiclesPage() {
                             <span style={{ fontWeight: 600, color: '#1e293b' }}>Registration Date</span>
                             <span style={{ color: '#64748b' }}>{formatDate(dv.registration_date || dv.registration_valid_from)}</span>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ fontWeight: 600, color: '#1e293b' }}>Expiration Date</span>
-                            <span style={{ color: '#64748b' }}>{formatDate(dv.expiration_date || dv.registration_valid_until)}</span>
-                          </div>
                         </div>
                       </div>
                       <button
                         type="button"
-                        onClick={() => handleViewDocFile('Official Receipt & Registration (OR/CR)', dv.official_receipt_url || dv.certificate_of_registration_url, dv)}
+                        onClick={() =>
+                          handleViewDocFile(
+                            'Official Receipt & Registration (OR/CR)',
+                            [
+                              { label: 'Official Receipt (OR)', url: dv.official_receipt_url },
+                              { label: 'Certificate of Registration (CR)', url: dv.certificate_of_registration_url },
+                            ],
+                            dv
+                          )
+                        }
                         style={{
                           marginTop: 18,
                           width: '100%',
@@ -2689,13 +3066,25 @@ function VehiclesPage() {
                     </thead>
                     <tbody>
                       {(() => {
-                        const todayIso = new Date().toISOString().split('T')[0];
+                        const todayIso = getTodayIso();
                         const list = vehicleDetailsData?.maintenances || [];
                         const startIndex = (maintenancePage - 1) * 5;
                         const pageItems = list.slice(startIndex, startIndex + 5);
                         return pageItems.map((m) => {
                           const isPast = m.maintenance_date <= todayIso;
-                          const displayStatus = m.status === 'Completed' ? 'Completed' : (isPast ? 'Completed' : (m.status || 'Scheduled'));
+                          const isWaitingPartsRow = m.status === 'Waiting for Part Confirmation';
+                          const isCancelledRow = m.status === 'Cancelled';
+                          const displayStatus = isCancelledRow
+                            ? 'Cancelled'
+                            : isWaitingPartsRow
+                            ? 'Waiting for Part Confirmation'
+                            : m.status === 'Completed'
+                            ? 'Completed'
+                            : m.status === 'In Progress'
+                            ? 'In Progress'
+                            : isPast
+                            ? 'Completed'
+                            : m.status || 'Scheduled';
                           const isCompleted = displayStatus === 'Completed';
 
                           return (
@@ -2707,9 +3096,31 @@ function VehiclesPage() {
                               <td style={{ padding: '12px 14px', fontSize: 13, color: '#334155' }}>
                                 {m.parts_usages && m.parts_usages.length > 0 ? (
                                   m.parts_usages.map((pu, i) => (
-                                    <span key={i} style={{ display: 'block', fontSize: 12 }}>
-                                      {pu.part?.part_name} ({pu.quantity_used} {pu.part?.unit || 'pcs'})
-                                    </span>
+                                    <div key={i} style={{ marginBottom: 2 }}>
+                                      <span style={{ display: 'block', fontSize: 12, fontWeight: 600 }}>
+                                        {pu.part?.part_name} ({pu.quantity_used} {pu.part?.unit || 'pcs'})
+                                      </span>
+                                      {pu.status === 'confirmed' && (pu.transaction_no || m.parts_transaction_no) && (
+                                        <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#047857', fontWeight: 700 }}>
+                                          Issued · {pu.transaction_no || m.parts_transaction_no}
+                                        </span>
+                                      )}
+                                      {pu.status === 'pending' && (
+                                        <span style={{ fontSize: 11, color: '#b45309', fontWeight: 700 }}>
+                                          Pending Parts Inventory confirmation
+                                        </span>
+                                      )}
+                                      {pu.status === 'external' && (
+                                        <span style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>
+                                          External parts (no stock deducted)
+                                        </span>
+                                      )}
+                                      {pu.status === 'cancelled' && (
+                                        <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                                          Cancelled (stock not deducted)
+                                        </span>
+                                      )}
+                                    </div>
                                   ))
                                 ) : m.part ? (
                                   <span style={{ fontSize: 12 }}>{m.part.part_name}</span>
@@ -2718,16 +3129,37 @@ function VehiclesPage() {
                                 )}
                               </td>
                               <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                                <span style={{
-                                  padding: '3px 10px',
-                                  borderRadius: 4,
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  background: isCompleted ? '#dcfce7' : '#fef3c7',
-                                  color: isCompleted ? '#16a34a' : '#d97706',
-                                }}>
-                                  {displayStatus}
-                                </span>
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                  <span style={{
+                                    padding: '3px 10px',
+                                    borderRadius: 4,
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    background: isCompleted ? '#dcfce7' : isCancelledRow ? '#f1f5f9' : isWaitingPartsRow ? '#fef3c7' : '#dbeafe',
+                                    color: isCompleted ? '#16a34a' : isCancelledRow ? '#64748b' : isWaitingPartsRow ? '#b45309' : '#1d4ed8',
+                                  }}>
+                                    {displayStatus}
+                                  </span>
+                                  {isWaitingPartsRow && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCancelPendingMaintenance(m)}
+                                      title="Cancel pending maintenance (preserves record in history and unlocks vehicle)"
+                                      style={{
+                                        padding: '3px 8px',
+                                        borderRadius: 4,
+                                        border: '1px solid #fecaca',
+                                        background: '#fff',
+                                        color: '#b91c1c',
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           );
@@ -2803,7 +3235,7 @@ function VehiclesPage() {
                         type="text"
                         placeholder="e.g. Super Great / FJ 2823R"
                         value={form.model}
-                        onChange={(e) => handleFormFieldChange('model', e.target.value)}
+                        onChange={(e) => handleFormFieldChange('model', formatNameInput(e.target.value))}
                         style={getFieldStyle('model')}
                       />
                       {formErrors.model && (
@@ -2818,12 +3250,29 @@ function VehiclesPage() {
                         type="text"
                         placeholder="e.g. Mitsubishi Fuso / Isuzu / Hino"
                         value={form.brand}
-                        onChange={(e) => handleFormFieldChange('brand', e.target.value)}
+                        onChange={(e) => handleFormFieldChange('brand', formatNameInput(e.target.value))}
                         style={getFieldStyle('brand')}
                       />
                       {formErrors.brand && (
                         <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                           <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.brand}
+                        </span>
+                      )}
+                    </div>
+                    <div className="form-group">
+                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.year_model ? '#dc2626' : '#334155', marginBottom: 4 }}>Model Year</label>
+                      <input
+                        type="number"
+                        min={1901}
+                        max={new Date().getFullYear() + 1}
+                        placeholder="e.g. 2023"
+                        value={form.year_model}
+                        onChange={(e) => handleFormFieldChange('year_model', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                        style={getFieldStyle('year_model')}
+                      />
+                      {formErrors.year_model && (
+                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.year_model}
                         </span>
                       )}
                     </div>
@@ -3069,17 +3518,24 @@ function VehiclesPage() {
                       <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                         <div className="form-group">
                           <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Vehicle Category</label>
-                          <select
+                          <input
+                            type="text"
+                            list="lto-vehicle-category-list"
+                            placeholder="e.g. N2, N3, Truck, Tractor Head"
                             value={form.vehicle_category}
-                            onChange={(e) => handleFormFieldChange('vehicle_category', e.target.value)}
+                            onChange={(e) => handleFormFieldChange('vehicle_category', e.target.value.toUpperCase())}
                             style={getFieldStyle('vehicle_category')}
-                          >
+                          />
+                          <datalist id="lto-vehicle-category-list">
                             <option value="N1">N1 — Light Truck (≤3,500 kg)</option>
                             <option value="N2">N2 — Medium Truck (3,501–12,000 kg)</option>
                             <option value="N3">N3 — Heavy Truck (&gt;12,000 kg)</option>
                             <option value="O3">O3 — Medium Trailer</option>
                             <option value="O4">O4 — Heavy Trailer</option>
-                          </select>
+                            <option value="TRUCK">Truck</option>
+                            <option value="TRACTOR HEAD">Tractor Head</option>
+                            <option value="UTILITY VEHICLE">Utility Vehicle</option>
+                          </datalist>
                         </div>
                         <div className="form-group">
                           <label style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4 }}>Body Type</label>
@@ -3093,6 +3549,7 @@ function VehiclesPage() {
                             <option value="Closed Van">Closed Van</option>
                             <option value="Dropside">Dropside</option>
                             <option value="Flatbed">Flatbed</option>
+                            <option value="Stake">Stake</option>
                             <option value="Cargo Truck">Cargo Truck</option>
                             <option value="Dump Truck">Dump Truck</option>
                             <option value="Trailer">Trailer</option>
@@ -3102,20 +3559,38 @@ function VehiclesPage() {
                           </select>
                         </div>
                       </div>
-                      <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 14 }}>
+                      <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 14 }}>
                         <div className="form-group">
-                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.capacity ? '#dc2626' : '#334155', marginBottom: 4 }}>Load Capacity (kg) <span style={{ color: '#dc2626' }}>*</span></label>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.gross_weight ? '#dc2626' : '#334155', marginBottom: 4 }}>Gross Weight (kg) <span style={{ color: '#dc2626' }}>*</span></label>
                           <input
                             type="number"
                             min="0"
+                            step="0.01"
                             placeholder="e.g. 15000"
-                            value={form.capacity}
-                            onChange={(e) => handleFormFieldChange('capacity', e.target.value)}
-                            style={getFieldStyle('capacity')}
+                            value={form.gross_weight}
+                            onChange={(e) => handleFormFieldChange('gross_weight', e.target.value)}
+                            style={getFieldStyle('gross_weight')}
                           />
-                          {formErrors.capacity && (
+                          {formErrors.gross_weight && (
                             <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.capacity}
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.gross_weight}
+                            </span>
+                          )}
+                        </div>
+                        <div className="form-group">
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.net_weight ? '#dc2626' : '#334155', marginBottom: 4 }}>Net Weight (kg) <span style={{ color: '#dc2626' }}>*</span></label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="e.g. 6500"
+                            value={form.net_weight}
+                            onChange={(e) => handleFormFieldChange('net_weight', e.target.value)}
+                            style={getFieldStyle('net_weight')}
+                          />
+                          {formErrors.net_weight && (
+                            <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.net_weight}
                             </span>
                           )}
                         </div>
@@ -3137,18 +3612,19 @@ function VehiclesPage() {
                           )}
                         </div>
                         <div className="form-group">
-                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.mileage ? '#dc2626' : '#334155', marginBottom: 4 }}>Mileage (km) <span style={{ color: '#dc2626' }}>*</span></label>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.piston_displacement ? '#dc2626' : '#334155', marginBottom: 4 }}>Piston Displacement (cc)</label>
                           <input
                             type="number"
                             min="0"
-                            placeholder="e.g. 45000"
-                            value={form.mileage}
-                            onChange={(e) => handleFormFieldChange('mileage', e.target.value)}
-                            style={getFieldStyle('mileage')}
+                            step="1"
+                            placeholder="e.g. 12882"
+                            value={form.piston_displacement}
+                            onChange={(e) => handleFormFieldChange('piston_displacement', e.target.value)}
+                            style={getFieldStyle('piston_displacement')}
                           />
-                          {formErrors.mileage && (
+                          {formErrors.piston_displacement && (
                             <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.mileage}
+                              <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.piston_displacement}
                             </span>
                           )}
                         </div>
@@ -3446,24 +3922,6 @@ function VehiclesPage() {
                       {formErrors.registration_date && (
                         <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                           <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.registration_date}
-                        </span>
-                      )}
-                    </div>
-                    <div className="form-group">
-                      <label style={{ fontSize: 12, fontWeight: 600, color: formErrors.expiration_date ? '#dc2626' : '#334155', marginBottom: 4 }}>Expiration Date <span style={{ color: '#dc2626' }}>*</span></label>
-                      <input
-                        type="date"
-                        min={[getTomorrowIso(), form.registration_date || form.registration_valid_from].filter(Boolean).sort().pop()}
-                        value={form.expiration_date || form.registration_valid_until || ''}
-                        onChange={(e) => {
-                          handleFormFieldChange('expiration_date', e.target.value);
-                          setForm((prev) => ({ ...prev, registration_valid_until: e.target.value }));
-                        }}
-                        style={getFieldStyle('expiration_date')}
-                      />
-                      {formErrors.expiration_date && (
-                        <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <i className="fas fa-exclamation-circle" style={{ fontSize: 10 }}></i> {formErrors.expiration_date}
                         </span>
                       )}
                     </div>
@@ -3912,7 +4370,23 @@ function VehiclesPage() {
           }}
           onClick={() => setDocModal(null)}
         >
-          {!docModal.url ? (
+          {(() => {
+            const activeDocs =
+              docModal.docs && docModal.docs.length > 0
+                ? docModal.docs
+                : docModal.url
+                ? [{ label: docModal.title, url: docModal.url }]
+                : [];
+            const activeIdx = Math.min(docModal.activeIndex || 0, Math.max(0, activeDocs.length - 1));
+            const activeDoc = activeDocs[activeIdx] || null;
+            const totalDocs = activeDocs.length;
+            const setActiveDocIndex = (nextIdx) =>
+              setDocModal((prev) =>
+                prev ? { ...prev, activeIndex: (nextIdx + totalDocs) % totalDocs } : prev
+              );
+
+            if (!activeDoc) {
+              return (
             /* Missing Document Modal */
             <div
               style={{
@@ -4077,7 +4551,10 @@ function VehiclesPage() {
                 </button>
               </div>
             </div>
-          ) : (
+              );
+            }
+
+            return (
             /* Document Previewer Modal */
             <div
               style={{
@@ -4121,9 +4598,25 @@ function VehiclesPage() {
                     <i className="fas fa-file-alt"></i>
                   </div>
                   <div>
-                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
-                      {docModal.title}
-                    </h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+                        {totalDocs > 1 ? activeDoc.label : docModal.title}
+                      </h3>
+                      {totalDocs > 1 && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: 999,
+                            background: '#fee2e2',
+                            color: '#b91c1c',
+                          }}
+                        >
+                          {activeIdx + 1} / {totalDocs}
+                        </span>
+                      )}
+                    </div>
                     {docModal.vehicle && (
                       <span style={{ fontSize: 12, color: '#64748b' }}>
                         {docModal.vehicle.model} • Plate: {docModal.vehicle.plate_number}
@@ -4134,7 +4627,7 @@ function VehiclesPage() {
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <a
-                    href={docModal.url}
+                    href={activeDoc.url}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{
@@ -4182,6 +4675,83 @@ function VehiclesPage() {
                 </div>
               </div>
 
+              {totalDocs > 1 && (
+                <div
+                  style={{
+                    padding: '8px 24px',
+                    background: '#ffffff',
+                    borderBottom: '1px solid #e2e8f0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {activeDocs.map((docItem, idx) => (
+                      <button
+                        key={docItem.label}
+                        type="button"
+                        onClick={() => setActiveDocIndex(idx)}
+                        style={{
+                          padding: '5px 12px',
+                          borderRadius: 999,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          border: idx === activeIdx ? '1.5px solid #dc2626' : '1px solid #cbd5e1',
+                          background: idx === activeIdx ? '#fef2f2' : '#f8fafc',
+                          color: idx === activeIdx ? '#dc2626' : '#475569',
+                        }}
+                      >
+                        {idx + 1}. {docItem.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setActiveDocIndex(activeIdx - 1)}
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: 6,
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        color: '#334155',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                      }}
+                    >
+                      <i className="fas fa-chevron-left"></i> Prev
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveDocIndex(activeIdx + 1)}
+                      style={{
+                        padding: '5px 12px',
+                        borderRadius: 6,
+                        border: 'none',
+                        background: '#dc2626',
+                        color: '#ffffff',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                      }}
+                    >
+                      Next Photo <i className="fas fa-chevron-right"></i>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Body: Embedded PDF or Image */}
               <div
                 style={{
@@ -4194,16 +4764,16 @@ function VehiclesPage() {
                   padding: 12,
                 }}
               >
-                {docModal.url.toLowerCase().includes('.pdf') ? (
+                {activeDoc.url.toLowerCase().includes('.pdf') ? (
                   <iframe
-                    src={docModal.url}
-                    title={docModal.title}
+                    src={activeDoc.url}
+                    title={activeDoc.label || docModal.title}
                     style={{ width: '100%', height: '100%', border: 'none', borderRadius: 8, background: '#ffffff' }}
                   />
                 ) : (
                   <img
-                    src={docModal.url}
-                    alt={docModal.title}
+                    src={activeDoc.url}
+                    alt={activeDoc.label || docModal.title}
                     style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8 }}
                   />
                 )}
@@ -4216,13 +4786,19 @@ function VehiclesPage() {
                   borderTop: '1px solid #e2e8f0',
                   background: '#ffffff',
                   display: 'flex',
-                  justifyContent: 'flex-end',
+                  justifyContent: totalDocs > 1 ? 'space-between' : 'flex-end',
                   alignItems: 'center',
                   gap: 12,
                 }}
               >
+                {totalDocs > 1 && (
+                  <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                    Viewing <strong>{activeDoc.label}</strong> ({activeIdx + 1} of {totalDocs})
+                  </span>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <a
-                  href={docModal.url}
+                  href={activeDoc.url}
                   download
                   target="_blank"
                   rel="noopener noreferrer"
@@ -4263,9 +4839,11 @@ function VehiclesPage() {
                 >
                   Close
                 </button>
+                </div>
               </div>
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
@@ -4274,6 +4852,61 @@ function VehiclesPage() {
           incident={selectedIncident}
           onClose={() => setSelectedIncident(null)}
         />
+      )}
+
+      {selectedInspectionDelivery && (
+        <div
+          className="modal"
+          style={{
+            display: 'flex',
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.55)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1300,
+            padding: 20,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedInspectionDelivery(null);
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              maxWidth: 780,
+              maxHeight: '88vh',
+              overflowY: 'auto',
+              background: '#FFFFFF',
+              borderRadius: 12,
+              padding: 24,
+              borderTop: '4px solid #0284C7',
+              boxShadow: '0 20px 45px rgba(0,0,0,0.28)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 12, marginBottom: 12, borderBottom: '1px solid #E2E8F0' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0F172A' }}>
+                  Inspection Report &bull; {`DLV${String(selectedInspectionDelivery.delivery_id).padStart(4, '0')}`}
+                </h3>
+                <div style={{ fontSize: 12.5, color: '#64748B', marginTop: 2 }}>
+                  Vehicle: {formatVehicleName(selectedInspectionDelivery.vehicle)} ({selectedInspectionDelivery.vehicle?.plate_number || '—'})
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedInspectionDelivery(null)}
+                style={{ background: 'none', border: 'none', fontSize: 24, color: '#64748B', cursor: 'pointer', lineHeight: 1 }}
+              >
+                &times;
+              </button>
+            </div>
+            <InspectionActivitiesSection
+              checklists={selectedInspectionDelivery.checklists}
+              deliveryCode={`DLV${String(selectedInspectionDelivery.delivery_id).padStart(4, '0')}`}
+            />
+          </div>
+        </div>
       )}
     </>
   );

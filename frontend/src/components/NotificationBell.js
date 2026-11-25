@@ -2,17 +2,12 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api/api-client';
 import reverb from '../utils/reverb';
-import { isDesktopPopupsEnabled, setDesktopPopupsEnabled } from './WebNotificationManager';
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [sessionUnreadIds, setSessionUnreadIds] = useState(new Set());
-  const [osPermission, setOsPermission] = useState(() =>
-    typeof window !== 'undefined' && 'Notification' in window ? window.Notification.permission : 'unsupported'
-  );
-  const [desktopEnabled, setDesktopEnabled] = useState(() => isDesktopPopupsEnabled());
+  const [markingRead, setMarkingRead] = useState(false);
   const panelRef = useRef(null);
 
   const loadNotifications = useCallback(async () => {
@@ -26,36 +21,6 @@ export default function NotificationBell() {
       // Fallback silently if unauthenticated or network issue
     }
   }, []);
-
-  const handleToggleDesktopPopups = async (e) => {
-    e?.stopPropagation();
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
-
-    if (window.Notification.permission === 'default') {
-      try {
-        const result = await window.Notification.requestPermission();
-        setOsPermission(result);
-        if (result === 'granted') {
-          setDesktopPopupsEnabled(true);
-          setDesktopEnabled(true);
-          new window.Notification('Desktop Notifications Enabled', {
-            body: 'You will now receive live pop-up alerts from HJY Trucking Services.',
-            icon: '/images/HJY%20LOGO%202%201.png',
-            silent: true,
-          });
-        }
-      } catch {
-        // Ignore permission dialog cancellation
-      }
-      return;
-    }
-
-    if (window.Notification.permission === 'granted') {
-      const next = !desktopEnabled;
-      setDesktopPopupsEnabled(next);
-      setDesktopEnabled(next);
-    }
-  };
 
   useEffect(() => {
     loadNotifications();
@@ -101,12 +66,11 @@ export default function NotificationBell() {
     };
   }, [loadNotifications]);
 
-  // Close when clicking outside and clear session highlighted unreads
+  // Close when clicking outside
   useEffect(() => {
     function handleClickOutside(e) {
       if (panelRef.current && !panelRef.current.contains(e.target)) {
         setOpen(false);
-        setSessionUnreadIds(new Set());
       }
     }
     if (open) {
@@ -117,58 +81,36 @@ export default function NotificationBell() {
 
   const handleMarkAsRead = async (id, e) => {
     e?.stopPropagation();
+    const target = notifications.find((n) => n.id === id);
+    if (target?.is_read) return;
     try {
       await api.post(`/notifications/${id}/read`);
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
       );
-      setSessionUnreadIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
       setUnreadCount((c) => Math.max(0, c - 1));
     } catch (err) {
       console.error('Mark as read error:', err);
     }
   };
 
-  const handleMarkAllRead = async () => {
+  const handleMarkAllRead = async (e) => {
+    e?.stopPropagation();
+    if (unreadCount === 0 || markingRead) return;
+    setMarkingRead(true);
     try {
       await api.post('/notifications/mark-all-read');
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-      setSessionUnreadIds(new Set());
       setUnreadCount(0);
     } catch (err) {
       console.error('Mark all read error:', err);
+    } finally {
+      setMarkingRead(false);
     }
   };
 
-  const handleToggleBell = async () => {
-    if (!open) {
-      // Collect IDs of current unread items to keep them highlighted while dropdown is open
-      const unreadIds = new Set(
-        notifications.filter((n) => !n.is_read).map((n) => n.id)
-      );
-      setSessionUnreadIds(unreadIds);
-      setOpen(true);
-
-      // Automatically mark all as read on the backend & clear red bell counter
-      if (unreadCount > 0 || unreadIds.size > 0) {
-        setUnreadCount(0);
-        try {
-          await api.post('/notifications/mark-all-read');
-          setNotifications((prev) =>
-            prev.map((n) => ({ ...n, is_read: true }))
-          );
-        } catch (err) {
-          console.error('Auto mark all read error:', err);
-        }
-      }
-    } else {
-      setOpen(false);
-      setSessionUnreadIds(new Set());
-    }
+  const handleToggleBell = () => {
+    setOpen((prev) => !prev);
   };
 
   const formatTime = (timeStr) => {
@@ -266,7 +208,7 @@ export default function NotificationBell() {
               <span style={{ fontWeight: 700, fontSize: '15px', color: '#1e293b' }}>
                 Notifications
               </span>
-              {sessionUnreadIds.size > 0 && (
+              {unreadCount > 0 && (
                 <span
                   style={{
                     background: '#e0f2fe',
@@ -277,60 +219,32 @@ export default function NotificationBell() {
                     borderRadius: '12px',
                   }}
                 >
-                  {sessionUnreadIds.size} new
+                  {unreadCount} new
                 </span>
               )}
             </div>
-            {osPermission !== 'unsupported' && (
-              <button
-                type="button"
-                onClick={handleToggleDesktopPopups}
-                title={
-                  osPermission === 'denied'
-                    ? 'Desktop pop-ups are blocked in your browser site settings.'
-                    : osPermission === 'granted'
-                    ? (desktopEnabled ? 'Click to pause Windows/OS desktop pop-ups' : 'Click to resume Windows/OS desktop pop-ups')
-                    : 'Enable native Windows/OS desktop pop-up alerts'
-                }
-                style={{
-                  border: osPermission === 'granted' && desktopEnabled ? '1px solid #bbf7d0' : '1px solid #cbd5e1',
-                  background: osPermission === 'granted' && desktopEnabled
-                    ? '#f0fdf4'
-                    : osPermission === 'denied'
-                    ? '#f8fafc'
-                    : '#eff6ff',
-                  color: osPermission === 'granted' && desktopEnabled
-                    ? '#15803d'
-                    : osPermission === 'denied'
-                    ? '#94a3b8'
-                    : '#1d4ed8',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  padding: '4px 9px',
-                  borderRadius: '999px',
-                  cursor: osPermission === 'denied' ? 'not-allowed' : 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                }}
-              >
-                <i
-                  className={
-                    osPermission === 'granted' && desktopEnabled
-                      ? 'fas fa-desktop'
-                      : osPermission === 'denied'
-                      ? 'fas fa-ban'
-                      : 'far fa-bell'
-                  }
-                  style={{ fontSize: '10px' }}
-                ></i>
-                {osPermission === 'granted'
-                  ? (desktopEnabled ? 'OS Pop-ups On' : 'OS Pop-ups Off')
-                  : osPermission === 'denied'
-                  ? 'Blocked'
-                  : 'Enable OS Pop-ups'}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleMarkAllRead}
+              disabled={unreadCount === 0 || markingRead}
+              title="Mark all notifications as read"
+              style={{
+                border: unreadCount === 0 ? '1px solid #e2e8f0' : '1px solid #bfdbfe',
+                background: unreadCount === 0 ? '#f8fafc' : '#eff6ff',
+                color: unreadCount === 0 ? '#94a3b8' : '#1d4ed8',
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '4px 10px',
+                borderRadius: '999px',
+                cursor: unreadCount === 0 || markingRead ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+            >
+              <i className="fas fa-check-double" style={{ fontSize: '10px' }}></i>
+              {markingRead ? 'Updating...' : 'Mark as Read'}
+            </button>
           </div>
 
           {/* List */}
@@ -355,7 +269,7 @@ export default function NotificationBell() {
               </div>
             ) : (
               notifications.map((n) => {
-                const isNew = sessionUnreadIds.has(n.id);
+                const isNew = !n.is_read;
                 return (
                   <Link
                     key={n.id}

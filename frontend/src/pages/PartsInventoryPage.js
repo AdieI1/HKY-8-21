@@ -3,11 +3,44 @@ import Sidebar from '../components/Sidebar';
 import api from '../api/api-client';
 import NotificationBell from '../components/NotificationBell';
 import TableSkeleton from '../components/TableSkeleton';
+import { formatNameInput, getTodayIso } from '../utils/validation';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 function partCode(partId) {
   return `PT-${String(partId).padStart(5, '0')}`;
 }
+function txCode(usage) {
+  return usage?.transaction_no || `PTX-${String(usage?.usage_id || 0).padStart(5, '0')}`;
+}
+
+const PART_CATEGORIES = [
+  'Engine',
+  'Electrical',
+  'Braking System',
+  'Transmission',
+  'Suspension',
+  'Tires & Wheels',
+  'Filters & Lubricants',
+  'Cooling System',
+  'Body, Chassis & Trailer',
+  'Safety & Accessories',
+  'Others',
+];
+
+const PART_UNITS = [
+  'pcs',
+  'pair',
+  'set',
+  'box',
+  'pack',
+  'liter',
+  'gallon',
+  'pail',
+  'drum',
+  'roll',
+  'meter',
+  'kg',
+];
 
 const CATEGORY_COLORS = {
   Engine: '#3b82f6',
@@ -15,6 +48,12 @@ const CATEGORY_COLORS = {
   'Braking System': '#f97316',
   Transmission: '#eab308',
   Suspension: '#22c55e',
+  'Tires & Wheels': '#0f172a',
+  'Filters & Lubricants': '#06b6d4',
+  'Cooling System': '#0ea5e9',
+  'Body, Chassis & Trailer': '#8b5cf6',
+  'Safety & Accessories': '#ef4444',
+  Others: '#9ca3af',
 };
 const FALLBACK_CATEGORY_COLOR = '#9ca3af';
 const colorForCategory = (name) => CATEGORY_COLORS[name] || FALLBACK_CATEGORY_COLOR;
@@ -103,11 +142,12 @@ function PartPanel({ part, onClose, onEdit, onStockIn, onStockOut }) {
           <div className="pi-side-panel-content">
             <div className="pi-panel-hero">
               <div className="pi-panel-part-icon" style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {part.image_url ? (
-                  <img src={part.image_url} alt={part.part_name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 10 }} />
-                ) : (
-                  <i className="fas fa-cog"></i>
-                )}
+                <img
+                  src={part.image_url || '/images/vehicle-icon.jpg'}
+                  alt={part.part_name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 10 }}
+                  onError={(e) => { e.currentTarget.src = '/images/vehicle-icon.jpg'; }}
+                />
               </div>
               <div className="pi-panel-hero-info">
                 <div className="pi-panel-part-name">{part.part_name}</div>
@@ -161,7 +201,10 @@ function PartPanel({ part, onClose, onEdit, onStockIn, onStockOut }) {
 
             <div className="pi-panel-section-title dark">ADDITIONAL INFORMATION</div>
             <div className="pi-panel-detail"><span className="pi-panel-detail-label">Brand</span><span className="pi-panel-detail-value">{part.brand || '—'}</span></div>
+            <div className="pi-panel-detail"><span className="pi-panel-detail-label">Condition</span><span className="pi-panel-detail-value">{part.part_condition || '—'}</span></div>
             <div className="pi-panel-detail"><span className="pi-panel-detail-label">Model / Part Code</span><span className="pi-panel-detail-value">{part.model_part_code || '—'}</span></div>
+            <div className="pi-panel-detail"><span className="pi-panel-detail-label">Compatible Trucks</span><span className="pi-panel-detail-value">{part.compatible_models || '—'}</span></div>
+            <div className="pi-panel-detail"><span className="pi-panel-detail-label">Shelf / Bin Location</span><span className="pi-panel-detail-value">{part.storage_location || '—'}</span></div>
             <div className="pi-panel-detail"><span className="pi-panel-detail-label">Warranty</span><span className="pi-panel-detail-value">{part.warranty || '—'}</span></div>
             <div className="pi-panel-detail"><span className="pi-panel-detail-label">Supplier Contact</span><span className="pi-panel-detail-value">{part.supplier_contact || '—'}</span></div>
             <div className="pi-panel-detail"><span className="pi-panel-detail-label">Supplier Address</span><span className="pi-panel-detail-value">{part.supplier_address || '—'}</span></div>
@@ -288,16 +331,12 @@ function TransactionDetailModal({ usage, onClose }) {
                 boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
               }}
             >
-              {part.image_url ? (
-                <img
-                  src={part.image_url}
-                  alt={part.part_name}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                />
-              ) : (
-                <i className="fas fa-cog" style={{ fontSize: 42, color: '#94a3b8' }}></i>
-              )}
+              <img
+                src={part.image_url || '/images/vehicle-icon.jpg'}
+                alt={part.part_name}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                onError={(e) => { e.currentTarget.src = '/images/vehicle-icon.jpg'; }}
+              />
             </div>
 
             {/* Part Main Info */}
@@ -374,10 +413,10 @@ function TransactionDetailModal({ usage, onClose }) {
                 <strong>Date &amp; Time:</strong> {formatDateTime(usage.used_date || usage.created_at)}
               </p>
               <p style={{ margin: '4px 0', fontSize: 13 }}>
-                <strong>Logged By:</strong> {usage.user?.full_name || 'System / Admin'}
+                <strong>Confirmed / Logged By:</strong> {usage.confirmer?.full_name || usage.user?.full_name || 'System / Admin'}
               </p>
               <p style={{ margin: '4px 0', fontSize: 13 }}>
-                <strong>Ref ID:</strong> <span style={{ fontFamily: 'monospace', color: '#64748b' }}>TX-PRT-{String(usage.usage_id).padStart(5, '0')}</span>
+                <strong>Transaction ID:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0f172a' }}>{txCode(usage)}</span>
               </p>
             </div>
           </div>
@@ -527,13 +566,14 @@ function RecentUsageModal({ usages, onClose, onSelectTransaction }) {
             <table className="data-table ru-table">
               <thead>
                 <tr>
+                  <th>Transaction ID</th>
                   <th>Date &amp; Time</th>
                   <th>Type</th>
                   <th>Part</th>
                   <th>Part Number</th>
                   <th>Quantity</th>
                   <th>Vehicle / Supplier</th>
-                  <th>Person Responsible</th>
+                  <th>Confirmed By</th>
                   <th>Purpose</th>
                 </tr>
               </thead>
@@ -547,7 +587,10 @@ function RecentUsageModal({ usages, onClose, onSelectTransaction }) {
                       onClick={() => onSelectTransaction && onSelectTransaction(r)}
                       title="Click to view full transaction & part details"
                     >
-                      <td>{formatDateTime(r.created_at || r.used_date)}</td>
+                      <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0f172a', fontSize: 12 }}>
+                        {txCode(r)}
+                      </td>
+                      <td>{formatDateTime(r.confirmed_at || r.created_at || r.used_date)}</td>
 
                       <td>
                         <span style={{
@@ -567,13 +610,13 @@ function RecentUsageModal({ usages, onClose, onSelectTransaction }) {
                         {isIn ? `+${r.quantity_used}` : `-${r.quantity_used}`} {r.part?.unit || 'pcs'}
                       </td>
                       <td>{isIn ? (r.supplier_name || r.part?.supplier_name || 'Supplier') : (r.vehicle ? `${r.vehicle.model} (${r.vehicle.plate_number})` : r.permit?.vehicle?.plate_number || 'General')}</td>
-                      <td>{r.user?.full_name || r.permit?.issuer?.full_name || 'Staff'}</td>
+                      <td>{r.confirmer?.full_name || r.user?.full_name || r.permit?.issuer?.full_name || 'Staff'}</td>
                       <td style={{ fontSize: 13, color: '#64748b' }}>{r.purpose || '—'}</td>
                     </tr>
                   );
                 })}
                 {rows.length === 0 && (
-                  <tr><td colSpan="8" style={{ textAlign: 'center', padding: 20 }}>No transaction records found.</td></tr>
+                  <tr><td colSpan="9" style={{ textAlign: 'center', padding: 20 }}>No transaction records found.</td></tr>
                 )}
               </tbody>
             </table>
@@ -680,7 +723,7 @@ function LowStockModal({ parts, onClose }) {
 }
 
 /* ── Add / Edit Part Modal ──────────────────────────────── */
-function PartFormModal({ part, suppliers, onClose, onSaved }) {
+function PartFormModal({ part, suppliers, vehicles = [], onClose, onSaved }) {
   const isEdit = !!part;
 
   const [form, setForm] = useState({
@@ -688,12 +731,15 @@ function PartFormModal({ part, suppliers, onClose, onSaved }) {
     category: part?.category || '',
     description: part?.description || '',
     brand: part?.brand || '',
+    part_condition: part?.part_condition || '',
     model_part_code: part?.model_part_code || '',
+    compatible_models: part?.compatible_models || '',
+    storage_location: part?.storage_location || '',
     warranty: part?.warranty || '',
     unit: part?.unit || 'pcs',
     unit_price: part?.unit_price ?? '',
     quantity_in_stock: part?.quantity_in_stock ?? '',
-    reorder_level: part?.reorder_level ?? '10',
+    reorder_level: part?.reorder_level ?? '5',
     supplier_name: part?.supplier_name || '',
     supplier_contact: part?.supplier_contact || '',
     supplier_address: part?.supplier_address || '',
@@ -702,6 +748,13 @@ function PartFormModal({ part, suppliers, onClose, onSaved }) {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const vehicleSuggestions = useMemo(() => {
+    const models = vehicles
+      .map((v) => [v.brand, v.model].filter(Boolean).join(' ').trim())
+      .filter(Boolean);
+    return Array.from(new Set(['Universal', ...models]));
+  }, [vehicles]);
 
   useEffect(() => {
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
@@ -720,9 +773,19 @@ function PartFormModal({ part, suppliers, onClose, onSaved }) {
   })();
 
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+  const setFormatted = (field, formatter) => (e) => setForm((f) => ({ ...f, [field]: formatter(e.target.value) }));
 
   const applyImageFile = (file) => {
     if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/jpg', 'image/webp'].includes(file.type)) {
+      setError('Part image must be a JPG, PNG, or WEBP file.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Part image size exceeds the 5MB limit.');
+      return;
+    }
+    setError('');
     const preview = URL.createObjectURL(file);
     setForm((f) => ({ ...f, image: file, imagePreview: preview }));
   };
@@ -739,7 +802,10 @@ function PartFormModal({ part, suppliers, onClose, onSaved }) {
       category: form.category,
       description: form.description,
       brand: form.brand,
-      model_part_code: form.model_part_code,
+      part_condition: form.part_condition,
+      model_part_code: form.model_part_code ? form.model_part_code.trim().toUpperCase() : '',
+      compatible_models: form.compatible_models,
+      storage_location: form.storage_location,
       warranty: form.warranty,
       unit: form.unit,
       unit_price: form.unit_price,
@@ -794,43 +860,64 @@ function PartFormModal({ part, suppliers, onClose, onSaved }) {
 
               <div className="ap-field">
                 <label>Part Name <span className="ap-req">*</span></label>
-                <input type="text" placeholder="Enter part name" value={form.part_name} onChange={set('part_name')} required />
+                <input type="text" placeholder="e.g. Fuel Filter, Brake Shoe Lining" value={form.part_name} onChange={setFormatted('part_name', formatNameInput)} required />
               </div>
               <div className="ap-field">
                 <label>Category <span className="ap-req">*</span></label>
                 <select value={form.category} onChange={set('category')} required>
                   <option value="">Select category</option>
-                  <option>Engine</option>
-                  <option>Electrical</option>
-                  <option>Braking System</option>
-                  <option>Transmission</option>
-                  <option>Suspension</option>
-                  <option>Others</option>
+                  {PART_CATEGORIES.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
                 </select>
               </div>
               <div className="ap-field">
                 <label>Description</label>
-                <textarea placeholder="Enter part description..." value={form.description} onChange={set('description')} rows={3} />
+                <textarea placeholder="Enter part notes or specifications..." value={form.description} onChange={set('description')} rows={3} />
               </div>
 
               <div className="ap-section-title ap-section-title--gap">SPECIFICATIONS</div>
               <div className="ap-field">
                 <label>Brand</label>
-                <input type="text" placeholder="Enter brand" value={form.brand} onChange={set('brand')} />
+                <input type="text" placeholder="e.g. Isuzu Genuine, Vic, Bendix" value={form.brand} onChange={setFormatted('brand', formatNameInput)} />
+              </div>
+              <div className="ap-field">
+                <label>Condition / Type</label>
+                <select value={form.part_condition} onChange={set('part_condition')}>
+                  <option value="">Select condition</option>
+                  <option value="Original / OEM">Original / OEM</option>
+                  <option value="Replacement / Aftermarket">Replacement / Aftermarket</option>
+                  <option value="Surplus / Reconditioned">Surplus / Reconditioned</option>
+                </select>
               </div>
               <div className="ap-field">
                 <label>Model / Part Code</label>
-                <input type="text" placeholder="Enter model or part code" value={form.model_part_code} onChange={set('model_part_code')} />
+                <input type="text" placeholder="e.g. 1-13240-232-0" value={form.model_part_code} onChange={setFormatted('model_part_code', (v) => v.toUpperCase())} />
+              </div>
+              <div className="ap-field">
+                <label>Compatible Truck Model</label>
+                <input
+                  list="pi-compatible-models-list"
+                  type="text"
+                  placeholder="e.g. Isuzu Giga / Universal"
+                  value={form.compatible_models}
+                  onChange={set('compatible_models')}
+                />
+                <datalist id="pi-compatible-models-list">
+                  {vehicleSuggestions.map((m) => <option key={m} value={m} />)}
+                </datalist>
               </div>
               <div className="ap-field">
                 <label>Warranty</label>
                 <select value={form.warranty} onChange={set('warranty')}>
                   <option value="">Select warranty</option>
-                  <option>3 months</option>
-                  <option>6 months</option>
-                  <option>12 months</option>
-                  <option>24 months</option>
-                  <option>No warranty</option>
+                  <option value="7 days replacement">7 days replacement</option>
+                  <option value="1 month">1 month</option>
+                  <option value="3 months">3 months</option>
+                  <option value="6 months">6 months</option>
+                  <option value="12 months">12 months</option>
+                  <option value="24 months">24 months</option>
+                  <option value="No warranty">No warranty</option>
                 </select>
               </div>
             </div>
@@ -841,11 +928,9 @@ function PartFormModal({ part, suppliers, onClose, onSaved }) {
               <div className="ap-field">
                 <label>Unit <span className="ap-req">*</span></label>
                 <select value={form.unit} onChange={set('unit')} required>
-                  <option value="pcs">pcs</option>
-                  <option value="set">set</option>
-                  <option value="box">box</option>
-                  <option value="liter">liter</option>
-                  <option value="kg">kg</option>
+                  {PART_UNITS.map((u) => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
                 </select>
               </div>
               <div className="ap-field">
@@ -861,14 +946,18 @@ function PartFormModal({ part, suppliers, onClose, onSaved }) {
                 <input
                   type="number"
                   min="0"
-                  placeholder="e.g. 10 (triggers low stock alert)"
+                  placeholder="e.g. 5 (triggers low stock alert)"
                   value={form.reorder_level}
                   onChange={set('reorder_level')}
                   required
                 />
                 <span style={{ fontSize: '11px', color: '#64748b', marginTop: '3px', display: 'block' }}>
-                  Triggers "Low Stock" alert when stock falls to or below this quantity (Default: 10).
+                  Triggers &ldquo;Low Stock&rdquo; alert at or below this quantity (e.g. 2–5 for tires/heavy parts, 10+ for filters).
                 </span>
+              </div>
+              <div className="ap-field">
+                <label>Shelf / Bin Location</label>
+                <input type="text" placeholder="e.g. Rack A-2, Tire Bodega" value={form.storage_location} onChange={set('storage_location')} />
               </div>
               <div className="ap-field">
                 <label>Total Value (Auto)</label>
@@ -886,7 +975,7 @@ function PartFormModal({ part, suppliers, onClose, onSaved }) {
                   type="text"
                   placeholder="Select or type a supplier"
                   value={form.supplier_name}
-                  onChange={set('supplier_name')}
+                  onChange={setFormatted('supplier_name', formatNameInput)}
                 />
                 <datalist id="pi-supplier-list">
                   {suppliers.map((s) => <option key={s} value={s} />)}
@@ -911,12 +1000,21 @@ function PartFormModal({ part, suppliers, onClose, onSaved }) {
                 style={{ cursor: 'pointer' }}
               >
                 {form.imagePreview ? (
-                  <img src={form.imagePreview} alt="Preview" className="ap-image-preview" />
+                  <img
+                    src={form.imagePreview}
+                    alt="Preview"
+                    className="ap-image-preview"
+                    onError={(e) => { e.currentTarget.src = '/images/vehicle-icon.jpg'; }}
+                  />
                 ) : (
                   <>
-                    <i className="fas fa-cloud-upload-alt ap-upload-icon"></i>
+                    <img
+                      src="/images/vehicle-icon.jpg"
+                      alt="Default Part Icon"
+                      style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', border: '1px solid #cbd5e1', marginBottom: 8 }}
+                    />
                     <span className="ap-upload-label">Upload Part Image</span>
-                    <span className="ap-upload-hint">JPG, PNG (Max 5MB)</span>
+                    <span className="ap-upload-hint">Default vehicle-icon used if empty · Max 5MB</span>
                   </>
                 )}
                 <input
@@ -949,7 +1047,7 @@ function PartsInModal({ part, partsList, onClose, onSaved }) {
   const [supplierName, setSupplierName] = useState(part?.supplier_name || '');
   const [unitPrice, setUnitPrice] = useState(part?.unit_price || '');
   const [purpose, setPurpose] = useState('Stock replenishment / Parts In');
-  const [usedDate, setUsedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [usedDate, setUsedDate] = useState(getTodayIso());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -1104,7 +1202,7 @@ function PartsOutModal({ part, partsList, vehiclesList, onClose, onSaved }) {
   const [quantity, setQuantity] = useState('');
   const [vehicleId, setVehicleId] = useState('');
   const [purpose, setPurpose] = useState('Truck repair / replacement');
-  const [usedDate, setUsedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [usedDate, setUsedDate] = useState(getTodayIso());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -1247,6 +1345,9 @@ function PartsOutModal({ part, partsList, vehiclesList, onClose, onSaved }) {
 function PartsInventoryPage() {
   const [parts, setParts] = useState([]);
   const [usages, setUsages] = useState([]);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [pendingOverrides, setPendingOverrides] = useState({});
+  const [processingPendingId, setProcessingPendingId] = useState(null);
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -1276,22 +1377,89 @@ function PartsInventoryPage() {
     if (showLoading) setLoading(true);
     setLoadError('');
     try {
-      const [partsRes, usagesRes, vehiclesRes] = await Promise.all([
-        api.get('/spare-parts'),
-        api.get('/spare-parts-usage'),
-        api.get('/vehicles'),
+      const [partsRes, usagesRes, pendingRes, vehiclesRes] = await Promise.all([
+        api.get('/spare-parts', { skipCache: true }),
+        api.get('/spare-parts-usage', { skipCache: true }),
+        api.get('/spare-parts-usage/pending', { skipCache: true }).catch(() => ({ data: [] })),
+        api.get('/vehicles', { skipCache: true }),
       ]);
       setParts(partsRes.data);
       setUsages(usagesRes.data);
+      setPendingRequests(Array.isArray(pendingRes.data) ? pendingRes.data : []);
       setVehicles(vehiclesRes.data);
     } catch (err) {
-      setLoadError('Could not load parts inventory. Is the backend running and are you logged in?');
+      if (showLoading) {
+        setLoadError('Could not load parts inventory. Is the backend running and are you logged in?');
+      }
     } finally {
       if (showLoading) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    loadData(true);
+    const interval = setInterval(() => {
+      if (!document.hidden) loadData(false);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
+  const handleConfirmPendingPart = async (req) => {
+    const override = pendingOverrides[req.usage_id] || {};
+    const chosenPartId = override.part_id ?? req.part_id;
+    const qty = Number(req.quantity_used || 0);
+    const partObj = parts.find((p) => Number(p.part_id) === Number(chosenPartId)) || req.part;
+    if (partObj && qty > Number(partObj.quantity_in_stock || 0)) {
+      setToast({
+        message: `Insufficient stock for ${partObj.part_name} (${partObj.quantity_in_stock || 0} ${partObj.unit || 'pcs'} available, ${qty} requested). Restock first.`,
+      });
+      setTimeout(() => setToast(null), 5000);
+      return;
+    }
+
+    setProcessingPendingId(req.usage_id);
+    try {
+      const res = await api.post(`/spare-parts-usage/${req.usage_id}/confirm`, {
+        part_id: chosenPartId,
+      });
+      const txNo = res.data?.transaction_no;
+      setToast({
+        message: txNo
+          ? `Parts issued (${txNo})! Stock deducted and vehicle moved to Under Maintenance.`
+          : 'Parts confirmed and vehicle moved to Under Maintenance.',
+      });
+      setTimeout(() => setToast(null), 5000);
+      await loadData(false);
+    } catch (err) {
+      setToast({
+        message: err.response?.data?.message || 'Could not confirm parts issuance.',
+      });
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setProcessingPendingId(null);
+    }
+  };
+
+  const handleUseExternalPart = async (req) => {
+    setProcessingPendingId(req.usage_id);
+    try {
+      await api.post(`/spare-parts-usage/${req.usage_id}/use-external`, {
+        notes: 'External / outside-purchased parts used; warehouse stock not deducted.',
+      });
+      setToast({
+        message: 'Marked as external parts (no warehouse stock deducted). Vehicle moved to Under Maintenance.',
+      });
+      setTimeout(() => setToast(null), 5000);
+      await loadData(false);
+    } catch (err) {
+      setToast({
+        message: err.response?.data?.message || 'Could not update maintenance parts request.',
+      });
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setProcessingPendingId(null);
+    }
+  };
 
   const categoryOptions = useMemo(
     () => Array.from(new Set(parts.map((p) => p.category).filter(Boolean))).sort(),
@@ -1307,6 +1475,10 @@ function PartsInventoryPage() {
     const matchSearch = search === '' ||
       (p.part_name || '').toLowerCase().includes(q) ||
       (p.category || '').toLowerCase().includes(q) ||
+      (p.brand || '').toLowerCase().includes(q) ||
+      (p.model_part_code || '').toLowerCase().includes(q) ||
+      (p.compatible_models || '').toLowerCase().includes(q) ||
+      (p.storage_location || '').toLowerCase().includes(q) ||
       partCode(p.part_id).toLowerCase().includes(q);
     const matchCat = category === 'All Categories' || p.category === category;
     const matchStatus =
@@ -1404,6 +1576,7 @@ function PartsInventoryPage() {
         <PartFormModal
           part={formModal.mode === 'edit' ? formModal.part : null}
           suppliers={supplierOptions}
+          vehicles={vehicles}
           onClose={() => setFormModal(null)}
           onSaved={handleSaved}
         />
@@ -1497,6 +1670,172 @@ function PartsInventoryPage() {
             </article>
           </section>
 
+          {/* Pending Maintenance Parts Confirmations Queue */}
+          <div className="content-section" style={{ marginBottom: 20, border: pendingRequests.length > 0 ? '2px solid #f59e0b' : '1px solid #e2e8f0' }}>
+            <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: pendingRequests.length > 0 ? 12 : 0 }}>
+              <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                <i className="fas fa-wrench" style={{ color: '#d97706' }}></i>
+                <span>Pending Maintenance Parts Confirmations</span>
+                {pendingRequests.length > 0 && (
+                  <span style={{
+                    background: '#fef3c7',
+                    color: '#b45309',
+                    padding: '2px 10px',
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    border: '1px solid #fde68a',
+                  }}>
+                    {pendingRequests.length} waiting
+                  </span>
+                )}
+              </h3>
+              <span style={{ fontSize: 12, color: '#64748b' }}>
+                Confirm warehouse release or switch to external parts to start vehicle maintenance
+              </span>
+            </div>
+
+            {pendingRequests.length === 0 ? (
+              <div style={{ padding: '14px 4px', color: '#64748b', fontSize: 13 }}>
+                No pending maintenance parts requests right now.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Vehicle</th>
+                      <th>Maintenance Task</th>
+                      <th>Spare Part Required</th>
+                      <th>Qty (Locked)</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingRequests.map((req) => {
+                      const override = pendingOverrides[req.usage_id] || {};
+                      const selectedPartId = override.part_id ?? req.part_id;
+                      const partObj = parts.find((p) => Number(p.part_id) === Number(selectedPartId)) || req.part;
+                      const qtyVal = Number(req.quantity_used || 0);
+                      const insufficient = partObj ? qtyVal > Number(partObj.quantity_in_stock || 0) : false;
+                      const isBusy = processingPendingId === req.usage_id;
+                      const v = req.vehicle || req.maintenance?.vehicle;
+
+                      return (
+                        <tr key={req.usage_id}>
+                          <td>
+                            <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                              {v ? `${v.model || 'Truck'} (${v.plate_number})` : '—'}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: '#b45309', fontWeight: 600 }}>
+                              Waiting for Part Confirmation
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600, color: '#1e293b', fontSize: 13 }}>
+                              {req.maintenance?.maintenance_type || 'Vehicle Maintenance'}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: '#64748b' }}>
+                              Date: {req.used_date || '—'} · By {req.user?.full_name || 'Staff'}
+                            </div>
+                          </td>
+                          <td>
+                            <select
+                              value={selectedPartId || ''}
+                              disabled={isBusy}
+                              onChange={(e) =>
+                                setPendingOverrides((prev) => ({
+                                  ...prev,
+                                  [req.usage_id]: { ...prev[req.usage_id], part_id: Number(e.target.value) },
+                                }))
+                              }
+                              style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12.5, fontWeight: 600 }}
+                            >
+                              {parts.map((p) => (
+                                <option key={p.part_id} value={p.part_id}>
+                                  {p.part_name} ({Number(p.quantity_in_stock || 0)} {p.unit || 'pcs'} avail)
+                                </option>
+                              ))}
+                            </select>
+                            {insufficient && (
+                              <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 700, marginTop: 3 }}>
+                                Insufficient stock ({Number(partObj?.quantity_in_stock || 0)} {partObj?.unit || 'pcs'})
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <span
+                              title="Requested quantity from maintenance schedule"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                padding: '5px 10px',
+                                borderRadius: 6,
+                                background: insufficient ? '#fef2f2' : '#f1f5f9',
+                                border: insufficient ? '1px solid #fecaca' : '1px solid #cbd5e1',
+                                color: insufficient ? '#b91c1c' : '#0f172a',
+                                fontWeight: 800,
+                                fontSize: 13,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <i className="fas fa-lock" style={{ fontSize: 10, opacity: 0.65 }}></i>
+                              {qtyVal} {partObj?.unit || 'pcs'}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                disabled={isBusy || insufficient}
+                                onClick={() => handleConfirmPendingPart(req)}
+                                style={{
+                                  background: insufficient ? '#cbd5e1' : '#16a34a',
+                                  color: insufficient ? '#64748b' : '#ffffff',
+                                  border: 'none',
+                                  padding: '7px 12px',
+                                  borderRadius: 6,
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  cursor: isBusy || insufficient ? 'not-allowed' : 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                }}
+                              >
+                                <i className={isBusy ? 'fas fa-spinner fa-spin' : 'fas fa-check-circle'}></i>
+                                <span>{isBusy ? 'Processing...' : 'Confirm & Issue'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => handleUseExternalPart(req)}
+                                title="Proceed with maintenance using outside/external parts without deducting warehouse stock"
+                                style={{
+                                  background: '#ffffff',
+                                  color: '#475569',
+                                  border: '1px solid #cbd5e1',
+                                  padding: '7px 10px',
+                                  borderRadius: 6,
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  cursor: isBusy ? 'not-allowed' : 'pointer',
+                                }}
+                              >
+                                Use External Part
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           <div className="content-section pi-table-section">
             <div className="pi-toolbar">
               <div className="pi-toolbar-left">
@@ -1504,7 +1843,7 @@ function PartsInventoryPage() {
                   <i className="fas fa-search"></i>
                   <input
                     type="text"
-                    placeholder="Search part name, category or code..."
+                    placeholder="Search part name, code, brand, or truck model..."
                     value={search}
                     onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
                   />
@@ -1527,52 +1866,6 @@ function PartsInventoryPage() {
                 </div>
               </div>
               <div className="pi-toolbar-right" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button
-                  className="btn-add-part"
-                  type="button"
-                  onClick={() => setStockInModal({ part: null })}
-                  style={{
-                    height: '38px',
-                    padding: '0 16px',
-                    background: '#16a34a',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 8,
-                    fontSize: 13,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  <i className="fas fa-plus-circle"></i> Parts In
-                </button>
-                <button
-                  className="btn-add-part"
-                  type="button"
-                  onClick={() => setStockOutModal({ part: null })}
-                  style={{
-                    height: '38px',
-                    padding: '0 16px',
-                    background: '#2563eb',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 8,
-                    fontSize: 13,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  <i className="fas fa-minus-circle"></i> Parts Out
-                </button>
                 <button
                   className="btn-add-part"
                   type="button"
@@ -1792,6 +2085,7 @@ function PartsInventoryPage() {
               <table className="data-table pi-usage-table">
                 <thead>
                   <tr>
+                    <th>Tx ID</th>
                     <th>Date</th>
                     <th>Type</th>
                     <th>Part</th>
@@ -1801,9 +2095,9 @@ function PartsInventoryPage() {
                 </thead>
                 <tbody>
                   {loading ? (
-                    <TableSkeleton rows={4} columns={5} />
+                    <TableSkeleton rows={4} columns={6} />
                   ) : recentUsage.length === 0 ? (
-                    <tr><td colSpan="5" style={{ textAlign: 'center', padding: 12 }}>No transactions recorded yet.</td></tr>
+                    <tr><td colSpan="6" style={{ textAlign: 'center', padding: 12 }}>No transactions recorded yet.</td></tr>
                   ) : (
                     recentUsage.map((u) => {
                       const isIn = u.transaction_type === 'in';
@@ -1814,7 +2108,8 @@ function PartsInventoryPage() {
                           onClick={() => setSelectedTransaction(u)}
                           title="Click to view full transaction & part details"
                         >
-                          <td>{formatDateTime(u.created_at || u.used_date)}</td>
+                          <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0f172a', fontSize: 11.5 }}>{txCode(u)}</td>
+                          <td>{formatDateTime(u.confirmed_at || u.created_at || u.used_date)}</td>
 
                           <td>
                             <span style={{

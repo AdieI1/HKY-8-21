@@ -2,7 +2,6 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-    ActivityIndicator,
     Alert,
     RefreshControl,
     ScrollView,
@@ -15,6 +14,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import AppHeader from "../components/AppHeader";
 import DraftCard from "../components/DraftCard";
+import { DraftListSkeleton } from "../components/SkeletonLoader";
 import { getDrafts, deleteDraft } from "../services/drafts";
 import { useTheme } from "../context/ThemeContext";
 
@@ -117,7 +117,9 @@ export default function Drafts() {
           />
         }
       >
-        {drafts.length === 0 ? (
+        {loading && drafts.length === 0 ? (
+          <DraftListSkeleton count={3} />
+        ) : drafts.length === 0 ? (
           <View style={[styles.emptyContainer, { backgroundColor: colors.bg }]}>
             <Ionicons
               name="document-outline"

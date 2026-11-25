@@ -4,20 +4,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ActiveDeliveryCard from "../../components/ActiveDeliveryCard";
 import AppHeader from "../../components/AppHeader";
 import NoActiveDeliveryCard from "../../components/NoActiveDeliveryCard";
 import RequestSheet from "../../components/RequestSheet";
 import SaveMessage from "../../components/SaveMessage";
-import { getMyDeliveryRequests, getToken, logout } from "../../services/api";
+import { ActiveDeliveryCardSkeleton } from "../../components/SkeletonLoader";
+import { getMyDeliveryRequests, getMyRewardStatus, getToken, logout } from "../../services/api";
 import { formatDeliveryRequest, isActiveDelivery } from "../../services/deliveries";
 import { getDraftById } from "../../services/drafts";
 import { useTheme } from "../../context/ThemeContext";
@@ -27,6 +29,7 @@ const { width, height } = Dimensions.get("window");
 const Home = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const insets = useSafeAreaInsets();
   const { isDark, colors } = useTheme();
 
   const [showSheet, setShowSheet] = useState(false);
@@ -34,6 +37,9 @@ const Home = () => {
   const [showSaveMessage, setShowSaveMessage] =
     useState(false);
   const [deliveries, setDeliveries] = useState([]);
+  const [vipReward, setVipReward] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const translateY = useRef(
     new Animated.Value(height)
@@ -59,8 +65,14 @@ const Home = () => {
       const token = await getToken();
       if (!token) return;
 
-      const requests = await getMyDeliveryRequests();
+      const [requests, rewardRes] = await Promise.all([
+        getMyDeliveryRequests(),
+        getMyRewardStatus().catch(() => null),
+      ]);
       setDeliveries(requests.map(formatDeliveryRequest));
+      if (rewardRes?.customer_vip) {
+        setVipReward(rewardRes.customer_vip);
+      }
     } catch (error) {
       if (error.message?.toLowerCase().includes("unauthenticated")) {
         await logout();
@@ -68,8 +80,16 @@ const Home = () => {
         return;
       }
       console.log("CUSTOMER DELIVERY SYNC ERROR:", error.message);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, [router]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadDeliveries();
+  }, [loadDeliveries]);
 
   useFocusEffect(
     useCallback(() => {
@@ -100,7 +120,9 @@ const Home = () => {
     }, [loadDeliveries, router])
   );
 
-  const activeDelivery = deliveries.find(isActiveDelivery) || null;
+  const activeDeliveries = deliveries.filter(isActiveDelivery);
+  const visibleActiveDeliveries = activeDeliveries.slice(0, 3);
+  const hasMoreActiveDeliveries = activeDeliveries.length > 3;
 
   useEffect(() => {
     Animated.timing(translateY, {
@@ -138,7 +160,7 @@ const Home = () => {
   };
 
   const handleViewDelivery = () => {
-    router.push("/deliveries");
+    router.push({ pathname: "/deliveries", params: { tab: "active" } });
   };
 
   return (
@@ -151,10 +173,15 @@ const Home = () => {
         />
 
         {/* BODY */}
-        <ScrollView
-          style={[styles.body, { backgroundColor: colors.bg }]}
-          contentContainerStyle={[styles.scrollContent, { backgroundColor: colors.bg }]}
-          showsVerticalScrollIndicator={false}
+        <View
+          style={[
+            styles.body,
+            styles.bodyContent,
+            {
+              backgroundColor: colors.bg,
+              paddingBottom: 60 + insets.bottom + 12,
+            },
+          ]}
         >
           {/* REQUEST DELIVERY */}
           <View style={[styles.requestCard, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
@@ -165,6 +192,32 @@ const Home = () => {
             <Text style={[styles.requestSubheader, { color: colors.textMuted }]}>
               Schedule a delivery quick and easy.
             </Text>
+
+            {vipReward?.is_vip && (
+              <View style={styles.vipHomeRow}>
+                <View style={styles.vipBadgePill}>
+                  <Ionicons name="ribbon" size={13} color="#92400E" />
+                  <Text style={styles.vipBadgeText}>VIP • Rank #{vipReward.rank}</Text>
+                </View>
+                <View
+                  style={[
+                    styles.voucherStatusPill,
+                    vipReward.available_this_month ? styles.voucherReadyPill : styles.voucherUsedPill,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.voucherStatusText,
+                      vipReward.available_this_month ? styles.voucherReadyText : styles.voucherUsedText,
+                    ]}
+                  >
+                    {vipReward.available_this_month
+                      ? `₱${vipReward.voucher_amount} Off Voucher Ready (Min. ₱${Number(vipReward.min_trip_amount || 1500).toLocaleString("en-PH")})`
+                      : `₱${vipReward.voucher_amount} Monthly Voucher Used`}
+                  </Text>
+                </View>
+              </View>
+            )}
 
             <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
@@ -185,16 +238,84 @@ const Home = () => {
             </TouchableOpacity>
           </View>
 
-          {/* ACTIVE DELIVERY */}
-          {activeDelivery ? (
-            <ActiveDeliveryCard
-              delivery={activeDelivery}
-              onViewDetails={handleViewDelivery}
-            />
+          {/* ACTIVE DELIVERIES */}
+          {loading && deliveries.length === 0 ? (
+            <ActiveDeliveryCardSkeleton />
+          ) : activeDeliveries.length > 0 ? (
+            <View
+              style={[
+                styles.activeSectionCard,
+                {
+                  backgroundColor: colors.card,
+                  borderColor: colors.cardBorder,
+                  borderWidth: isDark ? 1 : 0,
+                },
+              ]}
+            >
+              <View style={styles.activeHeaderRow}>
+                <View style={styles.activeTitleRow}>
+                  <Text style={styles.activeSectionTitle}>Active Deliveries</Text>
+                  <View style={styles.activeCountBadge}>
+                    <Text style={styles.activeCountText}>{activeDeliveries.length}</Text>
+                  </View>
+                </View>
+                <Text style={[styles.activeCountSub, { color: colors.textMuted }]}>
+                  {activeDeliveries.length === 1 ? "1 ongoing" : `${activeDeliveries.length} ongoing`}
+                </Text>
+              </View>
+
+              <View style={[styles.divider, { backgroundColor: colors.divider, marginTop: 10, marginBottom: 10 }]} />
+
+              <ScrollView
+                style={styles.activeListScroll}
+                contentContainerStyle={styles.activeListContent}
+                showsVerticalScrollIndicator={true}
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={handleRefresh}
+                    colors={["#E53935"]}
+                    tintColor="#E53935"
+                  />
+                }
+              >
+                {visibleActiveDeliveries.map((item) => (
+                  <ActiveDeliveryCard
+                    key={item.id}
+                    delivery={item}
+                    showHeader={false}
+                    onViewDetails={handleViewDelivery}
+                  />
+                ))}
+              </ScrollView>
+
+              {hasMoreActiveDeliveries && (
+                <TouchableOpacity
+                  style={[
+                    styles.seeMoreBtn,
+                    {
+                      backgroundColor: isDark ? colors.accentSoft : "#FEF2F2",
+                      borderColor: isDark ? colors.danger : "#FECACA",
+                    },
+                  ]}
+                  onPress={handleViewDelivery}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.seeMoreText, { color: isDark ? "#F87171" : "#DE2226" }]}>
+                    See more ({activeDeliveries.length - 3} more)
+                  </Text>
+                  <Ionicons
+                    name="arrow-forward"
+                    size={16}
+                    color={isDark ? "#F87171" : "#DE2226"}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
           ) : (
             <NoActiveDeliveryCard />
           )}
-        </ScrollView>
+        </View>
 
         {/* SAVE MESSAGE */}
         {showSaveMessage && <SaveMessage />}
@@ -227,6 +348,7 @@ const Home = () => {
           >
             <RequestSheet
               initialDraft={activeDraft}
+              vipReward={vipReward}
               onClose={() => {
                 setActiveDraft(null);
                 closeSheet();
@@ -258,9 +380,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#EDEEF5",
   },
 
-  scrollContent: {
-    padding: width * 0.04,
-    paddingBottom: height * 0.04,
+  bodyContent: {
+    paddingHorizontal: width * 0.04,
+    paddingTop: width * 0.04,
   },
 
   requestCard: {
@@ -323,5 +445,125 @@ const styles = StyleSheet.create({
     height: "100%",
     backgroundColor: "rgba(0,0,0,0.4)",
     zIndex: 998,
+  },
+
+  activeSectionCard: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 15,
+    paddingHorizontal: width * 0.04,
+    paddingTop: width * 0.04,
+    paddingBottom: width * 0.035,
+    marginTop: height * 0.016,
+  },
+
+  activeHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  activeTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  activeSectionTitle: {
+    color: "#DE2226",
+    fontSize: width * 0.06,
+    fontWeight: "900",
+  },
+
+  activeCountBadge: {
+    backgroundColor: "#DE2226",
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    paddingHorizontal: 7,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  activeCountText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+
+  activeCountSub: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  activeListScroll: {
+    flex: 1,
+  },
+
+  activeListContent: {
+    paddingBottom: 4,
+  },
+
+  seeMoreBtn: {
+    marginTop: 6,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+
+  seeMoreText: {
+    fontSize: 13.5,
+    fontWeight: "700",
+  },
+  vipHomeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+  },
+  vipBadgePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FEF3C7",
+    borderColor: "#FDE68A",
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  vipBadgeText: {
+    fontSize: 11.5,
+    fontWeight: "800",
+    color: "#92400E",
+  },
+  voucherStatusPill: {
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  voucherReadyPill: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#A7F3D0",
+  },
+  voucherUsedPill: {
+    backgroundColor: "#F1F5F9",
+    borderColor: "#CBD5E1",
+  },
+  voucherStatusText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  voucherReadyText: {
+    color: "#047857",
+  },
+  voucherUsedText: {
+    color: "#64748B",
   },
 });

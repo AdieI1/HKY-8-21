@@ -117,9 +117,16 @@ export default function PreTripCheck() {
     cargo: request?.cargo_type || "—",
     origin: request?.pickup_address || "—",
     destination: request?.dropoff_address || "—",
-    fuelIssued: delivery?.fuel_issued
-      ? `${delivery.fuel_issued} L`
-      : "—",
+    fuelIssued:
+      delivery?.fuel_issued !== null && delivery?.fuel_issued !== undefined && delivery?.fuel_issued !== ""
+        ? Number(delivery.fuel_issued) === 0
+          ? "0 L (Existing Tank)"
+          : `${Number(delivery.fuel_issued)} L`
+        : "—",
+    fuelAllowance: `₱${Number(delivery?.fuel_allowance || 0).toLocaleString("en-PH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`,
     fuelReceipt: delivery?.fuel_receipt_no || "—",
     fragility:
       { low: "Normal", medium: "Fragile", high: "Perishable" }[
@@ -183,6 +190,7 @@ export default function PreTripCheck() {
             <InfoRow label="Origin (Pick-up Point)" value={ticket.origin} />
             <InfoRow label="Destination" value={ticket.destination} />
             <InfoRow label="Fuel Issued" value={ticket.fuelIssued} />
+            <InfoRow label="Trip Cost" value={ticket.fuelAllowance} />
             <InfoRow label="Fuel Receipt No." value={ticket.fuelReceipt} />
             <InfoRow label="Cargo Fragility" value={ticket.fragility} />
             <InfoRow label="Remarks" value={ticket.remarks} isLast />

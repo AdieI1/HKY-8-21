@@ -251,10 +251,71 @@ export const getDelivery = async (id) => {
 };
 
 export const saveChecklist = async (deliveryId, payload) => {
-  return await fetchWithAuth(`/deliveries/${deliveryId}/checklist`, {
-    method: "POST",
-    body: JSON.stringify(payload),
+  const photos = Array.isArray(payload?.photos) ? payload.photos : [];
+  const hasLocalFiles = photos.some(
+    (p) => typeof p === "string" && /^(file|content|ph|assets-library):/i.test(p)
+  );
+
+  if (!hasLocalFiles) {
+    return await fetchWithAuth(`/deliveries/${deliveryId}/checklist`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  const token = await getToken();
+  if (!token) throw new Error("Not authenticated.");
+
+  const formData = new FormData();
+  formData.append("type", payload.type);
+  formData.append("items", JSON.stringify(payload.items || {}));
+  if (payload.remarks) formData.append("remarks", String(payload.remarks));
+  if (payload.starting_odometer !== undefined && payload.starting_odometer !== null) {
+    formData.append("starting_odometer", String(payload.starting_odometer));
+  }
+  if (payload.ending_odometer !== undefined && payload.ending_odometer !== null) {
+    formData.append("ending_odometer", String(payload.ending_odometer));
+  }
+  if (payload.starting_fuel !== undefined && payload.starting_fuel !== null) {
+    formData.append("starting_fuel", String(payload.starting_fuel));
+  }
+  if (payload.ending_fuel !== undefined && payload.ending_fuel !== null) {
+    formData.append("ending_fuel", String(payload.ending_fuel));
+  }
+
+  photos.forEach((uri, idx) => {
+    if (typeof uri !== "string" || !uri) return;
+    if (/^(file|content|ph|assets-library):/i.test(uri)) {
+      const cleanName = uri.split("/").pop()?.split("?")[0] || "";
+      const rawExt = cleanName.includes(".") ? cleanName.split(".").pop().toLowerCase() : "";
+      const ext = ["jpg", "jpeg", "png", "webp", "gif"].includes(rawExt) ? rawExt : "jpg";
+      const mime = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : ext === "gif" ? "image/gif" : "image/jpeg";
+      const fileName = cleanName && ["jpg", "jpeg", "png", "webp", "gif"].includes(rawExt)
+        ? cleanName
+        : `inspection_${idx + 1}.${ext}`;
+      formData.append("photos[]", {
+        uri,
+        name: fileName,
+        type: mime,
+      });
+    }
   });
+
+  const response = await fetch(`${API_URL}/deliveries/${deliveryId}/checklist`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+      "ngrok-skip-browser-warning": "true",
+    },
+    body: formData,
+  });
+
+  const data = await safeJson(response);
+  if (!response.ok) {
+    throw new Error(data?.message || "Failed to save inspection checklist.");
+  }
+  return data;
 };
 
 export const updateStaffProfile = async (userId, payload) => {

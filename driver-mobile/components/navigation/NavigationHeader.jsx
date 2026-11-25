@@ -40,6 +40,10 @@ export default function NavigationHeader({
       return "Unloading Cargo";
     }
 
+    if (navigationState === "returning_to_hq") {
+      return "Returning to HQ";
+    }
+
     if (navigationState === "completed") {
       return "Delivery Completed";
     }

@@ -9,7 +9,8 @@ import {
   ScrollView,
   Alert,
 } from "react-native";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import NavigationActions from "./NavigationActions";
@@ -20,8 +21,10 @@ import CargoChecklistModal from "../CargoChecklistModal";
 import { formatShortAddress } from "../../utils/address";
 
 const SCREEN_HEIGHT = Dimensions.get("window").height;
-const SHEET_HEIGHT = Math.min(Math.max(SCREEN_HEIGHT * 0.82, 570), SCREEN_HEIGHT - 30);
-const SHEET_CLOSED = SHEET_HEIGHT - 40;
+// Cap expanded sheet cleanly below Header + RoutePreview + Weather row (~195px top clearance)
+const SHEET_HEIGHT = Math.min(Math.max(SCREEN_HEIGHT * 0.65, 450), SCREEN_HEIGHT - 195);
+const DEFAULT_PEEK_HEIGHT = 72;
+const SHEET_CLOSED = Math.max(SHEET_HEIGHT - DEFAULT_PEEK_HEIGHT, 160);
 
 export default function NavigationInfoSheet({
   delivery,
@@ -31,10 +34,31 @@ export default function NavigationInfoSheet({
   onStatusChange,
   onDeliveryUpdated,
   onPodVisibilityChange,
+  onConfirmHqArrival,
+  isNearHq = false,
+  hqDistanceMeters = null,
 }) {
-  const translateY = useRef(
-    new Animated.Value(0)
-  ).current;
+  const insets = useSafeAreaInsets();
+  const peekHeight = 62;
+  const sheetClosed = Math.max(SHEET_HEIGHT - peekHeight, 160);
+
+  const translateY = useRef(new Animated.Value(0)).current;
+  const currentTranslateY = useRef(0);
+  const dragStartY = useRef(0);
+  const isCollapsedRef = useRef(false);
+  const sheetClosedRef = useRef(sheetClosed);
+  sheetClosedRef.current = sheetClosed;
+
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  useEffect(() => {
+    const id = translateY.addListener(({ value }) => {
+      currentTranslateY.current = value;
+    });
+    return () => {
+      translateY.removeListener(id);
+    };
+  }, [translateY]);
 
   const [ticketVisible, setTicketVisible] =
     useState(false);
@@ -84,6 +108,8 @@ export default function NavigationInfoSheet({
   };
 
   const openSheet = () => {
+    isCollapsedRef.current = false;
+    setIsCollapsed(false);
     Animated.spring(translateY, {
       toValue: 0,
       useNativeDriver: true,
@@ -93,51 +119,62 @@ export default function NavigationInfoSheet({
   };
 
   const closeSheet = () => {
+    isCollapsedRef.current = true;
+    setIsCollapsed(true);
     Animated.spring(translateY, {
-      toValue: SHEET_CLOSED,
+      toValue: sheetClosedRef.current,
       useNativeDriver: true,
       tension: 70,
       friction: 12,
     }).start();
   };
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesture) =>
-        Math.abs(gesture.dy) > 5,
-
-      onPanResponderMove: (_, gesture) => {
-        const current =
-          translateY.__getValue();
-
-        const next = current + gesture.dy;
-
-        if (
-          next >= 0 &&
-          next <= SHEET_CLOSED
-        ) {
-          translateY.setValue(next);
-        }
-      },
-
-      onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy > 50) {
-          closeSheet();
-        } else if (gesture.dy < -50) {
+  const panHandlersRef = useRef({});
+  panHandlersRef.current = {
+    onGrant: () => {
+      translateY.stopAnimation((val) => {
+        dragStartY.current = typeof val === "number" ? val : currentTranslateY.current;
+      });
+    },
+    onMove: (_, gesture) => {
+      const limit = sheetClosedRef.current || SHEET_CLOSED;
+      const next = Math.max(0, Math.min(limit, dragStartY.current + gesture.dy));
+      translateY.setValue(next);
+    },
+    onRelease: (_, gesture) => {
+      if (Math.abs(gesture.dy) < 5 && Math.abs(gesture.dx) < 5) {
+        if (isCollapsedRef.current) {
           openSheet();
         } else {
-          const position =
-            translateY.__getValue();
-
-          if (
-            position > SHEET_CLOSED / 2
-          ) {
-            closeSheet();
-          } else {
-            openSheet();
-          }
+          closeSheet();
         }
-      },
+        return;
+      }
+
+      const closedLimit = sheetClosedRef.current || SHEET_CLOSED;
+      const finalY = Math.max(0, Math.min(closedLimit, dragStartY.current + gesture.dy));
+
+      if (gesture.vy > 0.35 || gesture.dy > 45) {
+        closeSheet();
+      } else if (gesture.vy < -0.35 || gesture.dy < -45) {
+        openSheet();
+      } else if (finalY > closedLimit / 2) {
+        closeSheet();
+      } else {
+        openSheet();
+      }
+    },
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 3,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (...args) => panHandlersRef.current.onGrant?.(...args),
+      onPanResponderMove: (...args) => panHandlersRef.current.onMove?.(...args),
+      onPanResponderRelease: (...args) => panHandlersRef.current.onRelease?.(...args),
     })
   ).current;
 
@@ -160,6 +197,16 @@ export default function NavigationInfoSheet({
           {...panResponder.panHandlers}
         >
           <View style={styles.handle} />
+          <View style={styles.handleHeaderRow}>
+            <Text style={styles.requestLabel}>
+              {delivery.requestId} • {isCollapsed ? "Drag up for trip details" : "Drag down to view map"}
+            </Text>
+            <Ionicons
+              name={isCollapsed ? "chevron-up" : "chevron-down"}
+              size={18}
+              color="#64748B"
+            />
+          </View>
         </View>
 
         <ScrollView
@@ -168,18 +215,26 @@ export default function NavigationInfoSheet({
           showsVerticalScrollIndicator={false}
           bounces={false}
         >
-          <View style={styles.requestRow}>
-            <Text style={styles.requestLabel}>Request ID</Text>
-            <Text style={styles.requestId}>{delivery.requestId}</Text>
-          </View>
 
           <View style={styles.customerRow}>
             <View style={styles.avatar}>
               <Ionicons name="person" size={22} color="#FFFFFF" />
             </View>
-            <View>
-              <Text style={styles.customerName}>{delivery.driver}</Text>
-              <Text style={styles.contact}>{delivery.contact}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.customerName}>
+                {delivery.customerName || delivery.clientName || "Customer"}
+              </Text>
+              <Text style={styles.contact}>
+                {delivery.customerPhone || delivery.contact || "—"}
+              </Text>
+              {(delivery.receiverName || delivery.receiverPhone) &&
+                (delivery.receiverName !== (delivery.customerName || delivery.clientName) ||
+                  delivery.receiverPhone !== (delivery.customerPhone || delivery.contact)) && (
+                <Text style={[styles.contact, { fontSize: 11.5, marginTop: 2, color: "#4B5563" }]}>
+                  Receiver: {delivery.receiverName || "Same as Customer"}
+                  {delivery.receiverPhone ? ` • ${delivery.receiverPhone}` : ""}
+                </Text>
+              )}
             </View>
           </View>
 
@@ -234,11 +289,19 @@ export default function NavigationInfoSheet({
           <View style={styles.startingInfoRow}>
             <View style={styles.startingInfoItem}>
               <Text style={styles.tripLabel}>STARTING ODOMETER</Text>
-              <Text style={styles.tripValue}>{delivery.startingOdometer || "124,000"} km</Text>
+              <Text style={styles.tripValue}>
+                {delivery.startingOdometer !== null && delivery.startingOdometer !== undefined && delivery.startingOdometer !== ""
+                  ? `${Number(delivery.startingOdometer).toLocaleString()} km`
+                  : "—"}
+              </Text>
             </View>
             <View style={styles.startingInfoItem}>
               <Text style={styles.tripLabel}>STARTING FUEL</Text>
-              <Text style={styles.tripValue}>{delivery.startingFuel || "100"} L</Text>
+              <Text style={styles.tripValue}>
+                {delivery.startingFuel !== null && delivery.startingFuel !== undefined && delivery.startingFuel !== ""
+                  ? `${Number(delivery.startingFuel).toLocaleString()} L`
+                  : "—"}
+              </Text>
             </View>
           </View>
 
@@ -276,7 +339,9 @@ export default function NavigationInfoSheet({
               <Text style={styles.ticketButtonText}>Report</Text>
             </TouchableOpacity>
           </View>
+        </ScrollView>
 
+        <View style={[styles.footerActions, { paddingBottom: Math.max(insets.bottom > 0 ? 10 : 12, 12) }]}>
           <NavigationActions
             navigationState={navigationState}
             setNavigationState={setNavigationState}
@@ -284,9 +349,12 @@ export default function NavigationInfoSheet({
             onStatusChange={onStatusChange}
             onRequestProofOfDelivery={() => updatePodVisible(true)}
             onRequestCargoChecklist={(stage) => setCargoChecklistStage(stage)}
+            onConfirmHqArrival={onConfirmHqArrival}
+            isNearHq={isNearHq}
+            hqDistanceMeters={hqDistanceMeters}
             delivery={delivery}
           />
-        </ScrollView>
+        </View>
       </Animated.View>
 
       <TripTicket
@@ -315,6 +383,13 @@ export default function NavigationInfoSheet({
         delivery={delivery}
         onSuccess={(updatedDelivery) => {
           updatePodVisible(false);
+          if (onDeliveryUpdated && updatedDelivery) {
+            onDeliveryUpdated(updatedDelivery);
+          }
+          if (updatedDelivery?.status === "returning_to_hq" && !updatedDelivery?.hq_arrived_at) {
+            setNavigationState("returning_to_hq");
+            return;
+          }
           setNavigationState("completed");
           if (onDeliveryCompleted) {
             onDeliveryCompleted(updatedDelivery);
@@ -338,22 +413,42 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   handleArea: {
-    height: 36,
+    minHeight: 56,
+    paddingTop: 10,
+    paddingBottom: 8,
+    paddingHorizontal: 18,
     alignItems: "center",
     justifyContent: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E2E5F0",
   },
   handle: {
     width: 48,
     height: 5,
     borderRadius: 5,
     backgroundColor: "#A9AAB2",
+    marginBottom: 8,
+  },
+  handleHeaderRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   scroll: {
     flex: 1,
   },
   content: {
     paddingHorizontal: 18,
-    paddingBottom: 40,
+    paddingTop: 10,
+    paddingBottom: 14,
+  },
+  footerActions: {
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: "#E2E5F0",
+    backgroundColor: "#F1F2FA",
   },
   requestRow: {
     flexDirection: "row",

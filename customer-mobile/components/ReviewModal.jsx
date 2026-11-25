@@ -18,11 +18,12 @@ import {
 import { submitReview } from "../services/api";
 import { useTheme } from "../context/ThemeContext";
 
-const pfpplaceholder = require("../assets/images/profilepic.png");
+const defaultAvatar = require("../assets/images/defaultavatar.png");
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
 export default function ReviewModal({ visible, delivery, onClose, onSuccess }) {
   const { isDark, colors } = useTheme();
+  const [failedPhotoUri, setFailedPhotoUri] = useState(null);
   const [serviceRating, setServiceRating] = useState(0);
   const [driverRating, setDriverRating] = useState(0);
   const [comments, setComments] = useState("");
@@ -172,7 +173,19 @@ export default function ReviewModal({ visible, delivery, onClose, onSuccess }) {
 
                 <View style={styles.section}>
                   <View style={styles.driverInfoRow}>
-                    <Image source={pfpplaceholder} style={styles.driverAvatar} />
+                    <Image
+                      source={
+                        delivery?.driverPhoto && failedPhotoUri !== delivery.driverPhoto
+                          ? { uri: delivery.driverPhoto }
+                          : defaultAvatar
+                      }
+                      style={styles.driverAvatar}
+                      onError={() => {
+                        if (delivery?.driverPhoto) {
+                          setFailedPhotoUri(delivery.driverPhoto);
+                        }
+                      }}
+                    />
                     <View>
                       <Text style={[styles.driverName, { color: colors.text }]}>{delivery?.driver || "Driver"}</Text>
                       <Text style={[styles.driverLabel, { color: colors.textMuted }]}>Driver</Text>

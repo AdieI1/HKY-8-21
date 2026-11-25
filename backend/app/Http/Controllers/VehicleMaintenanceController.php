@@ -81,7 +81,7 @@ class VehicleMaintenanceController extends Controller
 
             foreach ($activeNow as $activeM) {
                 $activeM->update(['status' => 'In Progress']);
-                if ($activeM->vehicle && $activeM->vehicle->status !== 'maintenance' && $activeM->vehicle->status !== 'in_use') {
+                if ($activeM->vehicle && !in_array($activeM->vehicle->status, ['maintenance', 'waiting_part_confirmation', 'in_use'])) {
                     $activeM->vehicle->update(['status' => 'maintenance']);
                 }
             }
@@ -133,9 +133,22 @@ class VehicleMaintenanceController extends Controller
             'quantity_used' => 'nullable|integer|min:1',
         ]);
 
-        // If part is selected, check inventory first
+        $targetVehicle = Vehicle::findOrFail($validated['vehicle_id']);
+        if (in_array($targetVehicle->status, ['in_use', 'maintenance', 'waiting_part_confirmation'], true)) {
+            $reason = match ($targetVehicle->status) {
+                'in_use' => 'currently active on a delivery trip',
+                'waiting_part_confirmation' => 'already waiting for maintenance parts confirmation',
+                default => 'already under maintenance',
+            };
+            return response()->json([
+                'message' => "Cannot schedule maintenance: vehicle is {$reason}.",
+            ], 422);
+        }
+
+        // If part is selected, check inventory first (deduction happens upon Staff/Admin confirmation in Parts Inventory)
         $sparePart = null;
-        if (!empty($validated['part_id']) && !empty($validated['quantity_used'])) {
+        $hasOptionalPart = !empty($validated['part_id']) && !empty($validated['quantity_used']);
+        if ($hasOptionalPart) {
             $sparePart = SparePart::find($validated['part_id']);
             if (!$sparePart) {
                 return response()->json(['message' => 'Selected spare part not found.'], 404);
@@ -149,10 +162,13 @@ class VehicleMaintenanceController extends Controller
 
         $cost = $validated['maintenance_cost'] ?? $validated['total_cost'] ?? 0;
 
-        $maintenance = DB::transaction(function () use ($validated, $sparePart, $cost, $request) {
+        $maintenance = DB::transaction(function () use ($validated, $sparePart, $hasOptionalPart, $cost, $request, $targetVehicle) {
+            $initialStatus = $hasOptionalPart ? 'Waiting for Part Confirmation' : 'In Progress';
+            $partsStatus = $hasOptionalPart ? 'pending' : 'not_required';
+
             $record = VehicleMaintenance::create([
                 'vehicle_id' => $validated['vehicle_id'],
-                'part_id' => $validated['part_id'] ?? null,
+                'part_id' => $hasOptionalPart ? $validated['part_id'] : null,
                 'maintained_by' => $validated['maintained_by'] ?? $request->user()?->user_id,
                 'maintained_by_name' => $validated['maintained_by_name'] ?? null,
                 'maintenance_type' => $validated['maintenance_type'],
@@ -163,15 +179,13 @@ class VehicleMaintenanceController extends Controller
                 'maintenance_cost' => $cost,
                 'total_cost' => $cost,
                 'odometer_at_service' => $validated['odometer_at_service'] ?? null,
-                'status' => $validated['status'] ?? 'Scheduled',
+                'status' => $initialStatus,
+                'parts_status' => $partsStatus,
             ]);
 
-            // Deduct spare part stock and log parts out transaction
-            if ($sparePart && !empty($validated['quantity_used'])) {
+            // When optional parts are requested, queue a pending parts issuance for confirmation (do NOT deduct stock yet)
+            if ($hasOptionalPart && $sparePart) {
                 $qtyUsed = (int) $validated['quantity_used'];
-                $sparePart->decrement('quantity_in_stock', $qtyUsed);
-                $sparePart->refresh();
-                $sparePart->save(); // Triggers status recalculation
 
                 SparePartUsage::create([
                     'part_id' => $sparePart->part_id,
@@ -183,40 +197,15 @@ class VehicleMaintenanceController extends Controller
                     'unit_price' => $sparePart->unit_price,
                     'total_value' => round($qtyUsed * ($sparePart->unit_price ?? 0), 2),
                     'purpose' => 'Maintenance: ' . $validated['maintenance_type'] . ' (' . ($record->maintained_by_name ?: 'Internal') . ')',
+                    'status' => 'pending',
                     'used_date' => $validated['maintenance_date'],
                 ]);
             }
 
-            // Update vehicle maintenance dates dynamically
-            $vehicle = Vehicle::find($validated['vehicle_id']);
+            $vehicle = $targetVehicle->fresh();
             if ($vehicle) {
-                $today = now()->toDateString();
-                $isStarted = ($validated['maintenance_date'] <= $today);
-
-                if (in_array($record->status, ['Scheduled', 'In Progress'])) {
-                    if ($isStarted && $vehicle->status !== 'in_use') {
-                        $vehicle->status = 'maintenance';
-                    }
-                    $vehicle->next_maintenance_date = $validated['next_maintenance_date'] ?? $validated['maintenance_date'];
-                    // If last_maintenance_date was mistakenly set to this scheduled date, clear it or keep real completed date
-                    if ($vehicle->last_maintenance_date === $validated['maintenance_date']) {
-                        $lastCompleted = VehicleMaintenance::where('vehicle_id', $vehicle->vehicle_id)
-                            ->where('status', 'Completed')
-                            ->orderByDesc('maintenance_date')
-                            ->value('maintenance_date');
-                        $vehicle->last_maintenance_date = $lastCompleted;
-                    }
-                } elseif ($record->status === 'Completed') {
-                    $vehicle->status = 'available';
-                    $vehicle->last_maintenance_date = $validated['maintenance_date'];
-                    // Find next upcoming scheduled maintenance if any
-                    $nextScheduled = VehicleMaintenance::where('vehicle_id', $vehicle->vehicle_id)
-                        ->whereIn('status', ['Scheduled', 'In Progress'])
-                        ->where('maintenance_date', '>=', now()->toDateString())
-                        ->orderBy('maintenance_date', 'asc')
-                        ->value('maintenance_date');
-                    $vehicle->next_maintenance_date = $nextScheduled;
-                }
+                $vehicle->status = $hasOptionalPart ? 'waiting_part_confirmation' : 'maintenance';
+                $vehicle->next_maintenance_date = $validated['next_maintenance_date'] ?? $validated['maintenance_date'];
                 $vehicle->save();
             }
 
@@ -224,7 +213,28 @@ class VehicleMaintenanceController extends Controller
         });
 
         $vModel = $maintenance->vehicle?->model ?: 'Vehicle';
-        AppNotification::notify('maintenance', "Maintenance {$maintenance->status}", "{$maintenance->maintenance_type} for {$vModel} on {$maintenance->maintenance_date}.", '/vehicles');
+        $vPlate = $maintenance->vehicle?->plate_number ?: '';
+        if ($hasOptionalPart && $sparePart) {
+            AppNotification::notify(
+                'parts',
+                'Maintenance Parts Confirmation Required',
+                "{$vModel} ({$vPlate}) needs {$validated['quantity_used']}x {$sparePart->part_name} for {$maintenance->maintenance_type}. Confirm parts release in Parts Inventory.",
+                '/parts-inventory'
+            );
+            AppNotification::notify(
+                'maintenance',
+                'Waiting for Part Confirmation',
+                "{$maintenance->maintenance_type} scheduled for {$vModel} ({$vPlate}) is waiting for parts confirmation.",
+                '/vehicles'
+            );
+        } else {
+            AppNotification::notify(
+                'maintenance',
+                'Vehicle Under Maintenance',
+                "{$maintenance->maintenance_type} started for {$vModel} ({$vPlate}). Vehicle is now Under Maintenance.",
+                '/vehicles'
+            );
+        }
 
         return response()->json(
             $maintenance->load(['vehicle', 'part', 'maintainer', 'partsUsages.part']),
@@ -256,12 +266,70 @@ class VehicleMaintenanceController extends Controller
         return $vehicleMaintenance->fresh()->load(['vehicle', 'part', 'maintainer', 'partsUsages.part']);
     }
 
-    public function destroy(VehicleMaintenance $vehicleMaintenance)
+    public function cancel(Request $request, VehicleMaintenance $vehicleMaintenance)
     {
-        $vehicleMaintenance->delete();
+        if ($vehicleMaintenance->status !== 'Waiting for Part Confirmation') {
+            return response()->json([
+                'message' => 'Only maintenance schedules waiting for part confirmation can be cancelled.',
+            ], 422);
+        }
+
+        $reason = trim((string) $request->input('reason', ''));
+
+        $updated = DB::transaction(function () use ($vehicleMaintenance, $reason, $request) {
+            SparePartUsage::where('maintenance_id', $vehicleMaintenance->maintenance_id)
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'cancelled',
+                    'confirmed_by' => $request->user()?->user_id,
+                    'confirmed_at' => now(),
+                    'notes' => $reason ?: 'Cancelled from Vehicles before parts confirmation (no stock deducted).',
+                ]);
+
+            $noteLine = $reason ? "Cancelled: {$reason}" : 'Cancelled while waiting for part confirmation.';
+            $vehicleMaintenance->update([
+                'status' => 'Cancelled',
+                'parts_status' => 'cancelled',
+                'notes' => trim(($vehicleMaintenance->notes ? $vehicleMaintenance->notes . "\n" : '') . $noteLine),
+            ]);
+
+            $vehicle = $vehicleMaintenance->vehicle;
+            if ($vehicle && $vehicle->status === 'waiting_part_confirmation') {
+                $nextScheduled = VehicleMaintenance::where('vehicle_id', $vehicle->vehicle_id)
+                    ->where('maintenance_id', '!=', $vehicleMaintenance->maintenance_id)
+                    ->whereIn('status', ['Scheduled', 'In Progress', 'Waiting for Part Confirmation'])
+                    ->where('maintenance_date', '>=', now()->toDateString())
+                    ->orderBy('maintenance_date', 'asc')
+                    ->value('maintenance_date');
+
+                $restoredStatus = strtolower((string) $vehicle->condition) === 'need repair' ? 'broken' : 'available';
+                $vehicle->update([
+                    'status' => $restoredStatus,
+                    'next_maintenance_date' => $nextScheduled,
+                ]);
+            }
+
+            return $vehicleMaintenance->fresh()->load(['vehicle', 'part', 'maintainer', 'partsUsages.part']);
+        });
+
+        $vModel = $updated->vehicle?->model ?: 'Vehicle';
+        AppNotification::notify(
+            'maintenance',
+            'Pending Maintenance Cancelled',
+            "Pending maintenance for {$vModel} ({$updated->maintenance_type}) was cancelled before parts confirmation. Vehicle is available again.",
+            '/vehicles'
+        );
 
         return response()->json([
-            'message' => 'Maintenance record deleted successfully.'
+            'message' => 'Pending maintenance cancelled (audit history preserved) and vehicle released.',
+            'maintenance' => $updated,
         ]);
+    }
+
+    public function destroy(VehicleMaintenance $vehicleMaintenance)
+    {
+        return response()->json([
+            'message' => 'Maintenance records are preserved for audit history and cannot be deleted. Cancel pending schedules instead.',
+        ], 422);
     }
 }

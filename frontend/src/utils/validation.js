@@ -28,8 +28,46 @@ export function formatPhoneInput(val) {
 }
 
 /**
- * Validates Philippine LTO Driver's License Number format.
- * Format: [A-Z]\d{2}-\d{2}-\d{6} (e.g. D01-23-456789) or 11 alphanumeric characters.
+ * Formats name-like text into Title Case (e.g. "JOHN" or "john" -> "John",
+ * "juan dela cruz" -> "Juan Dela Cruz") so inputs avoid all-caps or all-lowercase.
+ *
+ * @param {string} val
+ * @returns {string}
+ */
+export function formatNameInput(val) {
+  if (!val) return '';
+  return String(val)
+    .toLowerCase()
+    .replace(/(^|[\s-])([a-z])/g, (_, sep, ch) => sep + ch.toUpperCase());
+}
+
+/**
+ * Returns an accurate alert title for form error banners instead of a hardcoded
+ * "Incomplete Required Fields" heading.
+ *
+ * @param {string} msg
+ * @returns {string}
+ */
+export function getFormAlertTitle(msg) {
+  if (!msg) return 'Validation Notice';
+  const lower = String(msg).toLowerCase();
+  if (lower.includes('required') || lower.includes('fill in') || lower.includes('complete all')) {
+    return 'Incomplete Required Fields';
+  }
+  if (lower.includes('email') && (lower.includes('taken') || lower.includes('already') || lower.includes('exists'))) {
+    return 'Email Already Registered';
+  }
+  if (lower.includes('email')) return 'Invalid Email Address';
+  if (lower.includes('phone') || lower.includes('contact number')) return 'Invalid Phone Number';
+  if (lower.includes('sqlstate') || lower.includes('failed') || lower.includes('error') || lower.includes('network')) {
+    return 'Save Failed';
+  }
+  return 'Validation Notice';
+}
+
+/**
+ * Validates Driver's License Number permissively (allows official LTO formats
+ * with or without hyphens, e.g. D01-23-456789, MO2-01-058744, or shorter codes).
  *
  * @param {string} license
  * @returns {boolean}
@@ -37,23 +75,22 @@ export function formatPhoneInput(val) {
 export function validateLicenseNumber(license) {
   if (!license) return true; // Optional unless required by the specific form
   const cleaned = String(license).trim().toUpperCase();
-  // Accepts standard hypenated format D01-23-456789 or continuous D0123456789
-  return /^[A-Z]\d{2}-\d{2}-\d{6}$/.test(cleaned) || /^[A-Z]\d{10}$/.test(cleaned);
+  const alnumCount = cleaned.replace(/-/g, '').length;
+  return /^[A-Z0-9-]{3,15}$/.test(cleaned) && alnumCount >= 3;
 }
 
 /**
- * Formats license number input to uppercase and standard alphanumeric / hyphens up to 13 chars.
+ * Formats license number input to uppercase alphanumeric / hyphens up to 15 chars.
  *
  * @param {string} val
  * @returns {string}
  */
 export function formatLicenseInput(val) {
   if (!val) return '';
-  // Uppercase, keep only letters, digits, and hyphens, max 13 chars
   return String(val)
     .toUpperCase()
     .replace(/[^A-Z0-9-]/g, '')
-    .slice(0, 13);
+    .slice(0, 15);
 }
 
 /**
@@ -77,7 +114,7 @@ export function validateEmail(email) {
 export function validatePlateNumber(plate) {
   if (!plate) return false;
   const cleaned = String(plate).trim().toUpperCase();
-  return /^[A-Z]{3}-\d{4}$/.test(cleaned);
+  return /^[A-Z]{3}-\d{3,4}$/.test(cleaned);
 }
 
 /**
@@ -134,12 +171,22 @@ export function validatePositiveNumber(val) {
  *
  * @returns {string}
  */
-export function getTodayIso() {
-  const d = new Date();
+export function formatLocalDateIso(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return '';
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+/**
+ * Returns local today's date as YYYY-MM-DD.
+ *
+ * @returns {string}
+ */
+export function getTodayIso() {
+  return formatLocalDateIso(new Date());
 }
 
 /**
@@ -150,10 +197,7 @@ export function getTodayIso() {
 export function getTomorrowIso() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return formatLocalDateIso(d);
 }
 
 /**
@@ -255,11 +299,11 @@ export function getPolicyNumberFeedback(val) {
 export function validateEngineNumber(val) {
   if (!val) return true;
   const cleaned = String(val).trim().toUpperCase();
-  return /^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{3,6}-\d{6,7}$/.test(cleaned);
+  return /^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{3,6}-(?=.*\d)[A-Z0-9]{5,7}$/.test(cleaned);
 }
 
 /**
- * Formats Engine Number input (max 14 chars): uppercase engine code (3–6 chars) + single "-" + 6–7 digits only.
+ * Formats Engine Number input (max 14 chars): uppercase engine code (3–6 chars) + single "-" + 5–7 serial chars.
  *
  * @param {string} val
  * @returns {string}
@@ -270,7 +314,7 @@ export function formatEngineNumberInput(val) {
   const hyphenIdx = raw.indexOf('-');
   if (hyphenIdx !== -1) {
     const code = raw.slice(0, hyphenIdx).replace(/-/g, '').slice(0, 6);
-    const serial = raw.slice(hyphenIdx + 1).replace(/\D/g, '').slice(0, 7);
+    const serial = raw.slice(hyphenIdx + 1).replace(/[^A-Z0-9]/g, '').slice(0, 7);
     return `${code}-${serial}`;
   }
   return raw.slice(0, 6);
@@ -289,16 +333,16 @@ export function getEngineNumberFeedback(val) {
     return { valid: true, message: 'Valid truck engine number' };
   }
   if (!cleaned.includes('-')) {
-    return { valid: false, message: 'Add "-" followed by 6–7 serial digits (e.g. 8M22-025168)' };
+    return { valid: false, message: 'Add "-" followed by serial (e.g. 8M22-025168 or 6D22-S14392)' };
   }
   const [code, serial = ''] = cleaned.split('-');
   if (code.length < 3 || !/[A-Z]/.test(code) || !/\d/.test(code)) {
     return { valid: false, message: 'Engine code before "-" needs 3–6 chars with letter & digit' };
   }
-  if (serial.length < 6) {
-    return { valid: false, message: `Serial after "-" needs 6–7 digits (${serial.length}/6)` };
+  if (serial.length < 5 || !/\d/.test(serial)) {
+    return { valid: false, message: `Serial after "-" needs 5–7 chars with digits (${serial.length}/5)` };
   }
-  return { valid: false, message: 'Format: CODE-123456 (e.g. 8M22-025168)' };
+  return { valid: false, message: 'Format: CODE-123456 (e.g. 8M22-025168 or 6D22-S14392)' };
 }
 
 /**

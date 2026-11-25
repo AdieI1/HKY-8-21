@@ -149,18 +149,94 @@ export default function DeliverySection({
       <Text style={[styles.title, { marginTop: 8 }]}>Delivery Timing</Text>
       <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
-      {!isScheduled && (forecast?.available_drivers_now === 0 || blockedDates.includes(getTodayDate())) && (
-        <View style={[styles.demandAlert, { backgroundColor: isDark ? "#451A03" : "#FEF3C7", borderColor: isDark ? "#78350F" : "#FDE68A" }]}>
-          <Ionicons name="warning-outline" size={16} color={isDark ? "#FBBF24" : "#B45309"} />
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.demandAlertTitle, { color: isDark ? "#FBBF24" : "#92400E" }]}>High Fleet Demand Today</Text>
-            <Text style={[styles.demandAlertText, { color: isDark ? "#FDE68A" : "#78350F" }]}>
-              All fleet drivers are currently on delivery trips. Scheduling for{" "}
-              <Text style={{ fontWeight: "700" }}>{earliestLabel || "a future date"}</Text> locks in a confirmed slot.
-            </Text>
+      {!isScheduled && (forecast?.available_drivers_now === 0 || blockedDates.includes(getTodayDate())) && (() => {
+        const isAllOffDuty =
+          forecast?.availability_reason === "all_off_duty" &&
+          !blockedDates.includes(getTodayDate());
+
+        if (isAllOffDuty) {
+          return (
+            <View
+              style={[
+                styles.demandAlert,
+                {
+                  backgroundColor: isDark ? "#0F172A" : "#EFF6FF",
+                  borderColor: isDark ? "#1E3A8A" : "#BFDBFE",
+                },
+              ]}
+            >
+              <Ionicons
+                name="time-outline"
+                size={16}
+                color={isDark ? "#60A5FA" : "#1D4ED8"}
+              />
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[
+                    styles.demandAlertTitle,
+                    { color: isDark ? "#93C5FD" : "#1E3A8A" },
+                  ]}
+                >
+                  Drivers Currently Off Duty
+                </Text>
+                <Text
+                  style={[
+                    styles.demandAlertText,
+                    { color: isDark ? "#DBEAFE" : "#1E40AF" },
+                  ]}
+                >
+                  All drivers are currently off duty. Please wait for the next
+                  driver to go on duty, or schedule for{" "}
+                  <Text style={{ fontWeight: "700" }}>
+                    {earliestLabel || "a future date"}
+                  </Text>{" "}
+                  to lock in a confirmed slot.
+                </Text>
+              </View>
+            </View>
+          );
+        }
+
+        return (
+          <View
+            style={[
+              styles.demandAlert,
+              {
+                backgroundColor: isDark ? "#451A03" : "#FEF3C7",
+                borderColor: isDark ? "#78350F" : "#FDE68A",
+              },
+            ]}
+          >
+            <Ionicons
+              name="warning-outline"
+              size={16}
+              color={isDark ? "#FBBF24" : "#B45309"}
+            />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={[
+                  styles.demandAlertTitle,
+                  { color: isDark ? "#FBBF24" : "#92400E" },
+                ]}
+              >
+                High Fleet Demand Today
+              </Text>
+              <Text
+                style={[
+                  styles.demandAlertText,
+                  { color: isDark ? "#FDE68A" : "#78350F" },
+                ]}
+              >
+                All fleet drivers are currently on delivery trips. Scheduling for{" "}
+                <Text style={{ fontWeight: "700" }}>
+                  {earliestLabel || "a future date"}
+                </Text>{" "}
+                locks in a confirmed slot.
+              </Text>
+            </View>
           </View>
-        </View>
-      )}
+        );
+      })()}
 
       <View style={styles.toggleRow}>
         <TouchableOpacity

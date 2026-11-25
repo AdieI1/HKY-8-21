@@ -28,6 +28,7 @@ import {
     setActiveAcceptedDeliveryId,
     clearActiveAcceptedDeliveryId,
     changeDriverPassword,
+    setDriverDutyStatus,
 } from "../../services/api";
 
 const loginbg = require("../../assets/images/loginbg.png");
@@ -41,6 +42,7 @@ export default function Index() {
     const [loading, setLoading] = useState(false);
     const [loginError, setLoginError] = useState("");
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+    const [goOnDutyOnLogin, setGoOnDutyOnLogin] = useState(false);
 
     // OWASP Enforced First-Login Password Rotation State
     const [mustChangePasswordModal, setMustChangePasswordModal] = useState(false);
@@ -55,7 +57,11 @@ export default function Index() {
         if (!deliveryId) return false;
         try {
             const delivery = await getDelivery(deliveryId);
-            if (!delivery || ["completed", "returning_to_hq", "rejected"].includes(delivery.status)) {
+            const isFinished =
+                !delivery ||
+                ["completed", "rejected"].includes(delivery.status) ||
+                (delivery.status === "returning_to_hq" && Boolean(delivery.hq_arrived_at));
+            if (isFinished) {
                 await clearActiveAcceptedDeliveryId();
                 return false;
             }
@@ -81,21 +87,27 @@ export default function Index() {
     };
 
     const navigateAfterLogin = async () => {
+        if (goOnDutyOnLogin) {
+            await setDriverDutyStatus("available").catch(() => null);
+        }
+
         const [activeId, deliveries] = await Promise.all([
             getActiveAcceptedDeliveryId().catch(() => null),
             getMyDeliveries().catch(() => []),
         ]);
 
         const activeInProgress = Array.isArray(deliveries)
-            ? deliveries.find((d) =>
-                  [
-                      "accepted",
-                      "arrived_pickup",
-                      "loading_cargo",
-                      "out_for_delivery",
-                      "arrived_dropoff",
-                      "unloading_cargo",
-                  ].includes(d?.status)
+            ? deliveries.find(
+                  (d) =>
+                      [
+                          "accepted",
+                          "arrived_pickup",
+                          "loading_cargo",
+                          "out_for_delivery",
+                          "arrived_dropoff",
+                          "unloading_cargo",
+                      ].includes(d?.status) ||
+                      (d?.status === "returning_to_hq" && !d?.hq_arrived_at)
               )
             : null;
 
@@ -163,15 +175,17 @@ export default function Index() {
                 ]);
 
                 const activeInProgress = Array.isArray(deliveries)
-                    ? deliveries.find((d) =>
-                          [
-                              "accepted",
-                              "arrived_pickup",
-                              "loading_cargo",
-                              "out_for_delivery",
-                              "arrived_dropoff",
-                              "unloading_cargo",
-                          ].includes(d?.status)
+                    ? deliveries.find(
+                          (d) =>
+                              [
+                                  "accepted",
+                                  "arrived_pickup",
+                                  "loading_cargo",
+                                  "out_for_delivery",
+                                  "arrived_dropoff",
+                                  "unloading_cargo",
+                              ].includes(d?.status) ||
+                              (d?.status === "returning_to_hq" && !d?.hq_arrived_at)
                       )
                     : null;
 
@@ -337,6 +351,28 @@ export default function Index() {
                         {loginError ? (
                             <Text style={styles.errorText}>{loginError}</Text>
                         ) : null}
+
+                        <TouchableOpacity
+                            activeOpacity={0.75}
+                            onPress={() => setGoOnDutyOnLogin((prev) => !prev)}
+                            disabled={loading}
+                            style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 8,
+                                marginBottom: 14,
+                                alignSelf: "flex-start",
+                            }}
+                        >
+                            <Ionicons
+                                name={goOnDutyOnLogin ? "checkbox" : "square-outline"}
+                                size={20}
+                                color={goOnDutyOnLogin ? "#4ADE80" : "#CBD5E1"}
+                            />
+                            <Text style={{ color: "#E2E8F0", fontSize: 13, fontWeight: "600" }}>
+                                Go On Duty immediately after login
+                            </Text>
+                        </TouchableOpacity>
 
                         {/* LOGIN BUTTON */}
                         <TouchableOpacity

@@ -18,8 +18,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { getCurrentCustomer, getSavedUser, refreshCustomerProfile, logout, updateCustomerProfile } from "../../services/api";
+import { getCurrentCustomer, getSavedUser, refreshCustomerProfile, getMyRewardStatus, logout, updateCustomerProfile } from "../../services/api";
 import { useTheme } from "../../context/ThemeContext";
+import { SkeletonBox } from "../../components/SkeletonLoader";
 
 const { width, height } = Dimensions.get("window");
 const pfpplaceholder = require("../../assets/images/profilepic.png");
@@ -28,6 +29,8 @@ const Profile = () => {
   const router = useRouter();
   const { isDark, colors } = useTheme();
   const [customer, setCustomer] = useState(getCurrentCustomer() || {});
+  const [vipReward, setVipReward] = useState(null);
+  const [loadingProfile, setLoadingProfile] = useState(() => !getCurrentCustomer()?.email);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -53,12 +56,30 @@ const Profile = () => {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      refreshCustomerProfile().then((user) => {
-        if (active && user) {
-          setCustomer(user);
-          populateForm(user);
+      (async () => {
+        try {
+          const cached = await getSavedUser();
+          if (active && cached) {
+            setCustomer(cached);
+            populateForm(cached);
+          }
+          const [user, rewardRes] = await Promise.all([
+            refreshCustomerProfile(),
+            getMyRewardStatus().catch(() => null),
+          ]);
+          if (active && user) {
+            setCustomer(user);
+            populateForm(user);
+          }
+          if (active && rewardRes?.customer_vip) {
+            setVipReward(rewardRes.customer_vip);
+          }
+        } finally {
+          if (active) {
+            setLoadingProfile(false);
+          }
         }
-      });
+      })();
       return () => {
         active = false;
       };
@@ -216,8 +237,25 @@ const Profile = () => {
 
             <View style={styles.txtContainer}>
               <Text style={styles.welcome}>Welcome!</Text>
-              <Text style={styles.Name}>{displayName}</Text>
-              <Text style={styles.gmail}>{customer.email || "N/A"}</Text>
+              {loadingProfile && !customer?.email ? (
+                <View style={{ gap: 6, marginTop: 4 }}>
+                  <SkeletonBox width={140} height={18} borderRadius={6} />
+                  <SkeletonBox width={170} height={12} borderRadius={5} />
+                </View>
+              ) : (
+                <>
+                  <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                    <Text style={styles.Name}>{displayName}</Text>
+                    {vipReward?.is_vip && (
+                      <View style={styles.headerVipPill}>
+                        <Ionicons name="ribbon" size={12} color="#92400E" />
+                        <Text style={styles.headerVipText}>VIP • #{vipReward.rank}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.gmail}>{customer.email || "N/A"}</Text>
+                </>
+              )}
             </View>
           </View>
         </LinearGradient>
@@ -231,6 +269,49 @@ const Profile = () => {
 
           <View style={[styles.divider, { backgroundColor: colors.divider }]} />
 
+          {vipReward?.is_vip && (
+            <View style={styles.vipRewardBox}>
+              <View style={styles.vipRewardHeader}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Ionicons name="ribbon" size={16} color="#B45309" />
+                  <Text style={styles.vipRewardTitle}>Top 5 VIP Loyalty Voucher</Text>
+                </View>
+                <View
+                  style={[
+                    styles.vipStatusTag,
+                    vipReward.available_this_month ? styles.vipStatusAvail : styles.vipStatusUsed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.vipStatusTagText,
+                      vipReward.available_this_month ? styles.vipStatusAvailText : styles.vipStatusUsedText,
+                    ]}
+                  >
+                    {vipReward.available_this_month ? "Available" : "Used This Month"}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.vipVoucherAmt}>
+                ₱{vipReward.voucher_amount} Off ({vipReward.voucher_code})
+              </Text>
+              <Text style={styles.vipVoucherSub}>
+                1x/month on deliveries ₱{Number(vipReward.min_trip_amount || 1500).toLocaleString("en-PH")}+ • Fair standard scheduling
+              </Text>
+            </View>
+          )}
+
+          {loadingProfile && !customer?.email ? (
+            <View style={{ gap: 14, paddingVertical: 6 }}>
+              {[0, 1, 2, 3, 4].map((row) => (
+                <View key={row} style={{ gap: 6 }}>
+                  <SkeletonBox width={96} height={12} borderRadius={4} />
+                  <SkeletonBox width="100%" height={40} borderRadius={8} />
+                </View>
+              ))}
+            </View>
+          ) : (
+            <>
           {/* PHONE NUMBER */}
           <View style={styles.infoRow}>
             <Text style={[styles.label, { color: colors.textMuted }]}>Phone number</Text>
@@ -321,6 +402,8 @@ const Profile = () => {
               <Text style={[styles.valueText, { color: isDark ? "#F8FAFC" : "#444451" }]}>{dob || "05/16/98"}</Text>
             </TouchableOpacity>
           </View>
+            </>
+          )}
 
           {showDatePicker && (
             <DateTimePicker
@@ -431,4 +514,17 @@ const styles = StyleSheet.create({
   modalInput: { backgroundColor: "#F9FAFB", borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 12, padding: 12, fontSize: 14, color: "#111", height: 100, marginBottom: 16 },
   modalSubmitBtn: { backgroundColor: "#CA2A30", paddingVertical: 14, borderRadius: 12, flexDirection: "row", justifyContent: "center", alignItems: "center" },
   modalSubmitText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  headerVipPill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#FEF3C7", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  headerVipText: { fontSize: 11, fontWeight: "800", color: "#92400E" },
+  vipRewardBox: { backgroundColor: "#FFFBEB", borderColor: "#FDE68A", borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 14 },
+  vipRewardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 },
+  vipRewardTitle: { fontSize: 13, fontWeight: "800", color: "#92400E" },
+  vipStatusTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+  vipStatusAvail: { backgroundColor: "#DCFCE7" },
+  vipStatusUsed: { backgroundColor: "#E2E8F0" },
+  vipStatusTagText: { fontSize: 10.5, fontWeight: "800" },
+  vipStatusAvailText: { color: "#047857" },
+  vipStatusUsedText: { color: "#475569" },
+  vipVoucherAmt: { fontSize: 15, fontWeight: "800", color: "#047857" },
+  vipVoucherSub: { fontSize: 11.5, color: "#78350F", marginTop: 2 },
 });

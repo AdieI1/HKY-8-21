@@ -19,13 +19,21 @@ import NavigationMap from "../../components/navigation/NavigationMap";
 import WeatherRouteAdvisory from "../../components/navigation/WeatherRouteAdvisory";
 import {
   getDelivery,
-  saveDeliveryChecklist,
+  markDeliveryArrivedAtHq,
   updateDeliveryLocation,
   updateDriverDeliveryStatus,
   clearActiveAcceptedDeliveryId,
 } from "../../services/api";
+import {
+  DEFAULT_HQ_COORDINATES,
+  haversineDistanceKm,
+} from "../utils/routeService";
 
-const statusToNavigationState = (status) => {
+const statusToNavigationState = (status, deliveryObj = null) => {
+  if (status === "returning_to_hq") {
+    return deliveryObj?.hq_arrived_at ? "completed" : "returning_to_hq";
+  }
+
   const states = {
     assigned: "preview",
     accepted: "in_transit_pickup",
@@ -34,7 +42,7 @@ const statusToNavigationState = (status) => {
     out_for_delivery: "in_transit_dropoff",
     arrived_dropoff: "arrived_dropoff",
     unloading_cargo: "unloading",
-    returning_to_hq: "completed",
+    returning_to_hq: "returning_to_hq",
     completed: "completed",
   };
 
@@ -58,6 +66,12 @@ export default function Navigation() {
   const [activeHazardAlert, setActiveHazardAlert] = useState(null);
   const [routeMetrics, setRouteMetrics] = useState(null);
   const [isPodOpen, setIsPodOpen] = useState(false);
+  const [isNearHq, setIsNearHq] = useState(false);
+  const [hqDistanceMeters, setHqDistanceMeters] = useState(null);
+
+  const navigationStateRef = useRef(navigationState);
+  navigationStateRef.current = navigationState;
+  const hqArrivalTriggeredRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -66,7 +80,7 @@ export default function Navigation() {
       .then((data) => {
         if (!active) return;
         setBackendDelivery(data);
-        setNavigationState(statusToNavigationState(data.status));
+        setNavigationState(statusToNavigationState(data.status, data));
       })
       .catch((error) => {
         Alert.alert(
@@ -110,11 +124,17 @@ export default function Navigation() {
           ? new Date(backendDelivery.created_at).toLocaleDateString()
           : "",
       driver: assignedDriver.full_name || "",
-      contact: request.receiver_phone || customer.phone || "",
+      customerName:
+        customer.full_name ||
+        customer.name ||
+        request.receiver_name ||
+        "Customer",
+      customerPhone: customer.phone || request.receiver_phone || "",
+      contact: customer.phone || request.receiver_phone || "",
       balance: formatMoney(Math.max(totalPrice - paidAmount, 0)),
       cargo: request.cargo_type || "",
       cargoDescription: request.cargo_type || "",
-      clientName: request.receiver_name ? `${request.receiver_name} (Receiver)` : (customer.full_name || ""),
+      clientName: customer.full_name || customer.name || request.receiver_name || "",
       receiverName: request.receiver_name || null,
       receiverPhone: request.receiver_phone || null,
       weight: request.weight ? `${request.weight}kg` : "",
@@ -138,9 +158,24 @@ export default function Navigation() {
             ? (distance ? `${Math.max(Math.round((distance / 40) * 60), 1)} mins` : "—")
             : "Calculating...",
       startingOdometer:
-        preTrip?.starting_odometer || vehicle.odometer_reading || "",
-      startingFuel: preTrip?.starting_fuel || "",
-      fuelIssued: backendDelivery.fuel_issued || "",
+        backendDelivery.starting_odometer ??
+        preTrip?.starting_odometer ??
+        vehicle.odometer_reading ??
+        null,
+      startingFuel:
+        backendDelivery.starting_fuel ??
+        preTrip?.starting_fuel ??
+        backendDelivery.fuel_issued ??
+        vehicle.fuel_level ??
+        null,
+      fuelIssued:
+        backendDelivery.fuel_issued !== null && backendDelivery.fuel_issued !== undefined && backendDelivery.fuel_issued !== ""
+          ? Number(backendDelivery.fuel_issued)
+          : "",
+      fuelAllowance:
+        backendDelivery.fuel_allowance !== null && backendDelivery.fuel_allowance !== undefined && backendDelivery.fuel_allowance !== ""
+          ? Number(backendDelivery.fuel_allowance)
+          : 0,
       fuelReceiptNo: backendDelivery.fuel_receipt_no || "",
       vehicle: [vehicle.brand, vehicle.model, vehicle.plate_number]
         .filter(Boolean)
@@ -172,9 +207,45 @@ export default function Navigation() {
     setBackendDelivery(updated);
   };
 
+  const handleConfirmHqArrival = useCallback(async () => {
+    if (hqArrivalTriggeredRef.current) return;
+    hqArrivalTriggeredRef.current = true;
+    try {
+      const res = await markDeliveryArrivedAtHq(deliveryId);
+      const updated = res?.delivery || res;
+      if (updated) {
+        setBackendDelivery(updated);
+      }
+      setNavigationState("completed");
+    } catch (error) {
+      hqArrivalTriggeredRef.current = false;
+      throw error;
+    }
+  }, [deliveryId]);
+
+  const handleConfirmHqArrivalRef = useRef(handleConfirmHqArrival);
+  handleConfirmHqArrivalRef.current = handleConfirmHqArrival;
+
+  useEffect(() => {
+    if (navigationState === "returning_to_hq" && isNearHq && !hqArrivalTriggeredRef.current) {
+      handleConfirmHqArrival().catch(() => {});
+    }
+  }, [navigationState, isNearHq, handleConfirmHqArrival]);
+
   const lastSyncTimeRef = useRef(0);
   const handleLocationChange = useCallback(
     (coordinate) => {
+      if (coordinate?.latitude != null && coordinate?.longitude != null) {
+        const distKm = haversineDistanceKm(coordinate, DEFAULT_HQ_COORDINATES);
+        const meters = Math.round(distKm * 1000);
+        setHqDistanceMeters(meters);
+        const near = meters <= 150;
+        setIsNearHq(near);
+        if (near && navigationStateRef.current === "returning_to_hq" && !hqArrivalTriggeredRef.current) {
+          handleConfirmHqArrivalRef.current?.().catch(() => {});
+        }
+      }
+
       const now = Date.now();
       // Steady 2.2-second rhythm avoids network congestion over Ngrok
       if (now - lastSyncTimeRef.current < 2200) {
@@ -204,7 +275,7 @@ export default function Navigation() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <View style={styles.container}>
         <NavigationHeader
           navigationState={navigationState}
@@ -221,6 +292,13 @@ export default function Navigation() {
               onRouteMetrics={setRouteMetrics}
             />
           )}
+
+          <NavigationRoutePreview
+            delivery={delivery}
+            navigationState={navigationState}
+            isNearHq={isNearHq}
+            hqDistanceMeters={hqDistanceMeters}
+          />
 
           <WeatherRouteAdvisory
             delivery={backendDelivery}
@@ -251,11 +329,6 @@ export default function Navigation() {
           )}
         </View>
 
-        <NavigationRoutePreview
-          delivery={delivery}
-          navigationState={navigationState}
-        />
-
         <NavigationInfoSheet
           delivery={delivery}
           navigationState={navigationState}
@@ -263,6 +336,9 @@ export default function Navigation() {
           onStatusChange={handleStatusChange}
           onDeliveryUpdated={setBackendDelivery}
           onPodVisibilityChange={setIsPodOpen}
+          onConfirmHqArrival={handleConfirmHqArrival}
+          isNearHq={isNearHq}
+          hqDistanceMeters={hqDistanceMeters}
         />
 
         {showCompleted && (
@@ -296,9 +372,9 @@ const styles = StyleSheet.create({
 
   hazardBanner: {
     position: "absolute",
-    top: 10,
-    left: 16,
-    right: 16,
+    top: 138,
+    left: 14,
+    right: 14,
     backgroundColor: "#1F2937",
     borderRadius: 12,
     paddingVertical: 10,
@@ -310,7 +386,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 6,
     elevation: 10,
-    zIndex: 15,
+    zIndex: 28,
   },
 
   hazardHeader: {
@@ -347,15 +423,21 @@ const styles = StyleSheet.create({
 
   completedMessage: {
     position: "absolute",
-    top: 75,
-    left: 48,
-    right: 48,
-    backgroundColor: "#F1F2FA",
-    borderRadius: 12,
-    paddingVertical: 18,
+    top: 162,
+    left: 44,
+    right: 44,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    paddingVertical: 16,
     paddingHorizontal: 20,
-    elevation: 10,
-    zIndex: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 18,
+    zIndex: 40,
   },
 
   completedTitle: {

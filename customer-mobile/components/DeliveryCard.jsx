@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useState } from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 
-const pfpplaceholder = require("../assets/images/profilepic.png");
+const defaultAvatar = require("../assets/images/defaultavatar.png");
 
 const STATUS_CONFIG = {
   pending: { label: "Pending", color: "#F2A900" },
@@ -98,6 +99,11 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule, o
   }
 
   const { isDark, colors } = useTheme();
+  const [failedPhotoUri, setFailedPhotoUri] = useState(null);
+  const driverPhotoUri =
+    assigned && delivery.driverPhoto && failedPhotoUri !== delivery.driverPhoto
+      ? delivery.driverPhoto
+      : null;
 
   return (
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
@@ -258,8 +264,16 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule, o
 
       <View style={styles.driverSection}>
         <View style={styles.driverInfo}>
-          <Image source={pfpplaceholder} style={styles.driverImage} />
-          <View>
+          <Image
+            source={driverPhotoUri ? { uri: driverPhotoUri } : defaultAvatar}
+            style={styles.driverImage}
+            onError={() => {
+              if (driverPhotoUri) {
+                setFailedPhotoUri(driverPhotoUri);
+              }
+            }}
+          />
+          <View style={{ flex: 1 }}>
             <Text style={styles.driverName}>
               {assigned ? delivery.driver || "Assigned Driver" : "To be Assigned"}
             </Text>
@@ -268,10 +282,10 @@ export default function DeliveryCard({ delivery, onReview, onAcceptReschedule, o
         </View>
 
         <View style={styles.vehicleInfo}>
-          <Text style={styles.vehicle}>
+          <Text style={[styles.vehicle, { textAlign: "right" }]}>
             {assigned ? delivery.vehicle || "Assigned Vehicle" : "To be Assigned"}
           </Text>
-          <Text style={styles.plate}>
+          <Text style={[styles.plate, { textAlign: "right" }]}>
             Plate Number: {delivery.plate || "N/A"}
           </Text>
         </View>
@@ -515,6 +529,8 @@ const styles = StyleSheet.create({
     marginBottom: 7,
   },
   routeText: {
+    flex: 1,
+    flexShrink: 1,
     marginLeft: 7,
     color: "#30313A",
     fontSize: 13,
@@ -533,10 +549,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: 10,
     paddingHorizontal: 16,
     paddingVertical: 13,
   },
   driverInfo: {
+    flex: 1,
+    flexShrink: 1,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -557,6 +576,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   vehicleInfo: {
+    flexShrink: 1,
+    maxWidth: "46%",
     alignItems: "flex-end",
   },
   vehicle: {

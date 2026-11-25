@@ -242,7 +242,7 @@ export default function DispatchTicketPanel({
                 </div>
                 <div className="tt-field">
                   <label className="tt-label">Cargo Fragility</label>
-                  <input className="tt-input" type="text" value={({ low: 'Normal', medium: 'Fragile', high: 'Perishable' })[selectedDelivery.request?.fragility] || '—'} readOnly />
+                  <input className="tt-input" type="text" value={({ low: 'Standard', medium: 'Fragile', high: 'Extremely Fragile', perishable: 'Perishable' })[selectedDelivery.request?.fragility] || '—'} readOnly />
                 </div>
               </div>
 

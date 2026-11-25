@@ -10,6 +10,8 @@ import reverb from '../utils/reverb';
 import {
   validatePhoneNumber,
   formatPhoneInput,
+  formatNameInput,
+  getFormAlertTitle,
   validateLicenseNumber,
   formatLicenseInput,
   validateDateSequence,
@@ -149,9 +151,12 @@ function isDriverOnActiveDelivery(driver) {
   if (!driver) return false;
   return (
     Array.isArray(driver.deliveries) &&
-    driver.deliveries.some(
-      (d) => !TERMINAL_DELIVERY_STATUSES.includes((d.status || '').toLowerCase())
-    )
+    driver.deliveries.some((d) => {
+      const st = (d.status || '').toLowerCase();
+      if (TERMINAL_DELIVERY_STATUSES.includes(st)) return false;
+      if (st === 'returning_to_hq' && Boolean(d.hq_arrived_at)) return false;
+      return true;
+    })
   );
 }
 
@@ -168,15 +173,28 @@ function availabilityLabel(driver) {
   if (driver.status === 'inactive') return 'Inactive';
   if (driver.availability_status === 'offline') return 'Inactive';
   const hasActiveDelivery = isDriverOnActiveDelivery(driver);
-  if (driver.availability_status === 'busy' && hasActiveDelivery) return 'On Delivery';
+  if (hasActiveDelivery || driver.availability_status === 'busy') return 'On Delivery';
+  if (driver.availability_status === 'on_leave') return 'On Leave';
+  if (driver.availability_status === 'pending_leave') return 'Pending Leave';
+  if (driver.availability_status === 'off_duty') return 'Off Duty';
   return 'Available';
 }
 
 function availabilityClass(driver) {
   const label = availabilityLabel(driver);
   if (label === 'On Delivery') return 'on-delivery';
-  if (label === 'Inactive') return 'inactive';
+  if (['Inactive', 'Off Duty', 'On Leave', 'Pending Leave'].includes(label)) return 'inactive';
   return 'available';
+}
+
+function formatLeaveType(type) {
+  const map = {
+    sick_leave: 'Sick Leave',
+    emergency_absence: 'Emergency Absence',
+    day_off: 'Day Off',
+    vacation: 'Vacation / Personal',
+  };
+  return map[type] || (type || 'Leave').replace(/_/g, ' ');
 }
 
 const EMPTY_FORM = {
@@ -188,9 +206,8 @@ const EMPTY_FORM = {
   phone: '',
   license_number: '',
   license_type: 'Professional',
-  license_date_issued: '',
+  agency_code: '',
   license_expiry_date: '',
-  authorized_by: '',
   restriction_code: '',
   health_condition: 'Fit to Work',
   last_medical_check: '',
@@ -219,12 +236,24 @@ function splitFullName(fullName) {
 function DriversPage() {
   const navigate = useNavigate();
   const [drivers, setDrivers] = useState([]);
+  const [driverLeaves, setDriverLeaves] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [currentDate, setCurrentDate] = useState('');
 
-  const [view, setView] = useState('drivers'); // 'drivers' | 'archives' | 'incidents'
+  const [view, setView] = useState('drivers'); // 'drivers' | 'archives' | 'incidents' | 'leaves'
+  const [showLogLeaveModal, setShowLogLeaveModal] = useState(false);
+  const [savingLeave, setSavingLeave] = useState(false);
+  const [leaveForm, setLeaveForm] = useState({
+    driver_id: '',
+    leave_type: 'sick_leave',
+    start_date: getTodayIso(),
+    end_date: getTodayIso(),
+    reason: '',
+  });
+  const [processingLeaveId, setProcessingLeaveId] = useState(null);
+  const [togglingDutyId, setTogglingDutyId] = useState(null);
   const [search, setSearch] = useState('');
   const [activeStatusFilter, setActiveStatusFilter] = useState('all'); // 'all' | 'available' | 'busy' | 'inactive' | 'resigned'
   const [sortBy, setSortBy] = useState('id_asc'); // 'name_asc' | 'name_desc' | 'id_asc' | 'id_desc' | 'status_hierarchy' | 'contract_soonest' | 'contract_longest'
@@ -354,14 +383,16 @@ function DriversPage() {
       setLoadError('');
     }
     try {
-      const [driversRes, incidentsRes, usersRes] = await Promise.all([
+      const [driversRes, incidentsRes, leavesRes, usersRes] = await Promise.all([
         api.get('/drivers', { skipCache: true }),
         api.get('/incident-reports', { skipCache: true }),
+        api.get('/driver-leaves', { skipCache: true }).catch(() => ({ data: [] })),
         isSilent ? Promise.resolve(null) : api.get('/users').catch(() => ({ data: [] })),
       ]);
       const freshDrivers = Array.isArray(driversRes.data) ? driversRes.data : [];
       setDrivers(freshDrivers);
       setIncidents(incidentsRes.data);
+      setDriverLeaves(Array.isArray(leavesRes.data) ? leavesRes.data : []);
       setDetailsDriver((prev) => {
         if (!prev?.driver_id) return prev;
         return freshDrivers.find((d) => d.driver_id === prev.driver_id) || prev;
@@ -466,6 +497,131 @@ function DriversPage() {
     setActiveStatusFilter((prev) => (prev === statusKey ? 'all' : statusKey));
   };
 
+  const pendingLeaveCount = useMemo(
+    () => driverLeaves.filter((l) => l.status === 'pending').length,
+    [driverLeaves]
+  );
+
+  const handleToggleDuty = async (driver, nextStatus, e) => {
+    e?.stopPropagation();
+    if (!driver?.driver_id) return;
+    const prevStatus = driver.availability_status;
+    const targetLabel = nextStatus === 'available' ? 'On Duty' : 'Off Duty';
+
+    const patchDriverList = (updater) => {
+      setDrivers((prev) => prev.map((d) => (d.driver_id === driver.driver_id ? updater(d) : d)));
+      setDetailsDriver((prev) =>
+        prev?.driver_id === driver.driver_id ? updater(prev) : prev
+      );
+    };
+
+    // Optimistic update so table badge & button flip immediately with zero perceived lag
+    patchDriverList((d) => ({ ...d, availability_status: nextStatus }));
+    setTogglingDutyId(driver.driver_id);
+
+    try {
+      const res = await api.post('/driver/duty-status', {
+        driver_id: driver.driver_id,
+        availability_status: nextStatus,
+      });
+      api.clearCache?.();
+      const updatedDriver = res.data?.driver;
+      if (updatedDriver) {
+        patchDriverList((d) => ({
+          ...d,
+          ...updatedDriver,
+          deliveries: updatedDriver.deliveries ?? d.deliveries,
+        }));
+      }
+      setToast({ message: res.data?.message || `Driver set to ${targetLabel}.` });
+      setTimeout(() => setToast(null), 3500);
+      loadData(true).catch(() => {});
+    } catch (err) {
+      patchDriverList((d) => ({ ...d, availability_status: prevStatus }));
+      setToast({
+        type: 'error',
+        message: err.response?.data?.message || 'Could not update driver duty status.',
+      });
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setTogglingDutyId(null);
+    }
+  };
+
+  const handleApproveLeave = async (leave) => {
+    setProcessingLeaveId(leave.leave_id);
+    try {
+      const res = await api.post(`/driver-leaves/${leave.leave_id}/approve`);
+      await loadData(true);
+      setToast({ message: res.data?.message || 'Leave request approved.' });
+      setTimeout(() => setToast(null), 4500);
+    } catch (err) {
+      setToast({
+        type: 'error',
+        message: err.response?.data?.message || 'Could not approve leave request.',
+      });
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setProcessingLeaveId(null);
+    }
+  };
+
+  const handleRejectLeave = async (leave) => {
+    setProcessingLeaveId(leave.leave_id);
+    try {
+      const res = await api.post(`/driver-leaves/${leave.leave_id}/reject`, {
+        review_notes: 'Declined by staff/admin.',
+      });
+      await loadData(true);
+      setToast({ message: res.data?.message || 'Leave request rejected.' });
+      setTimeout(() => setToast(null), 4500);
+    } catch (err) {
+      setToast({
+        type: 'error',
+        message: err.response?.data?.message || 'Could not reject leave request.',
+      });
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setProcessingLeaveId(null);
+    }
+  };
+
+  const handleSubmitAdminLeave = async (e) => {
+    e.preventDefault();
+    if (!leaveForm.driver_id || !leaveForm.start_date || !leaveForm.reason.trim()) {
+      setToast({ type: 'error', message: 'Please select driver, date, and reason.' });
+      setTimeout(() => setToast(null), 4500);
+      return;
+    }
+    setSavingLeave(true);
+    try {
+      const res = await api.post('/driver-leaves', {
+        ...leaveForm,
+        end_date: leaveForm.end_date || leaveForm.start_date,
+        auto_approve: true,
+      });
+      setShowLogLeaveModal(false);
+      setLeaveForm({
+        driver_id: '',
+        leave_type: 'sick_leave',
+        start_date: getTodayIso(),
+        end_date: getTodayIso(),
+        reason: '',
+      });
+      await loadData(true);
+      setToast({ message: res.data?.message || 'Driver leave recorded.' });
+      setTimeout(() => setToast(null), 4500);
+    } catch (err) {
+      setToast({
+        type: 'error',
+        message: err.response?.data?.message || 'Failed to record leave.',
+      });
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setSavingLeave(false);
+    }
+  };
+
   const filteredDrivers = useMemo(() => {
     let list = [...activeDrivers];
 
@@ -474,7 +630,9 @@ function DriversPage() {
     } else if (activeStatusFilter === 'busy') {
       list = list.filter((d) => availabilityLabel(d) === 'On Delivery');
     } else if (activeStatusFilter === 'inactive') {
-      list = list.filter((d) => availabilityLabel(d) === 'Inactive');
+      list = list.filter((d) =>
+        ['Inactive', 'Off Duty', 'On Leave', 'Pending Leave'].includes(availabilityLabel(d))
+      );
     }
 
     if (search.trim()) {
@@ -620,12 +778,9 @@ function DriversPage() {
   };
 
   const openAddModal = () => {
-    const authUser = JSON.parse(localStorage.getItem('auth_user') || '{}');
-    const defaultAuthorizedBy = authUser?.full_name || 'Administrator';
     setEditingDriver(null);
     setForm({
       ...EMPTY_FORM,
-      authorized_by: defaultAuthorizedBy,
     });
     setChangePassword(false);
     setProfilePhotoFile(null);
@@ -647,8 +802,6 @@ function DriversPage() {
       setTimeout(() => setToast(null), 4000);
       return;
     }
-    const authUser = JSON.parse(localStorage.getItem('auth_user') || '{}');
-    const defaultAuthorizedBy = authUser?.full_name || 'Administrator';
     setEditingDriver(driver);
     const { first_name, middle_name, last_name } = splitFullName(driver.user?.full_name);
     setForm({
@@ -660,9 +813,8 @@ function DriversPage() {
       phone: driver.user?.phone || '',
       license_number: driver.license_number || '',
       license_type: driver.license_type || 'Professional',
-      license_date_issued: driver.license_date_issued || '',
+      agency_code: driver.agency_code || '',
       license_expiry_date: driver.license_expiry_date || '',
-      authorized_by: driver.authorized_by || defaultAuthorizedBy,
       restriction_code: driver.restriction_code || '',
       health_condition: driver.health_condition || 'Fit to Work',
       last_medical_check: driver.last_medical_check || '',
@@ -696,7 +848,6 @@ function DriversPage() {
 
     // 1. Personal Information
     if (!form.first_name?.trim()) errs.first_name = 'First name is required.';
-    if (!form.middle_name?.trim()) errs.middle_name = 'Middle name is required (or N/A).';
     if (!form.last_name?.trim()) errs.last_name = 'Last name is required.';
     if (!form.birthdate) {
       errs.birthdate = 'Birthdate is required.';
@@ -714,25 +865,20 @@ function DriversPage() {
     if (!form.license_number?.trim()) {
       errs.license_number = 'License number is required.';
     } else if (!validateLicenseNumber(form.license_number)) {
-      errs.license_number = 'Must follow LTO format (e.g. D01-23-456789).';
+      errs.license_number = 'Must be 3–15 alphanumeric characters (hyphens allowed).';
     }
     if (!form.license_type) errs.license_type = 'License type is required.';
     if (parseDlCodes(form.restriction_code).length === 0) {
       errs.restriction_code = 'Please select at least one valid LTO DL code.';
     }
-    if (!form.license_date_issued) {
-      errs.license_date_issued = 'License issue date is required.';
-    } else if (form.license_date_issued > todayIso) {
-      errs.license_date_issued = 'Issue date cannot be in the future.';
+    if (!form.agency_code?.trim()) {
+      errs.agency_code = 'Agency code is required.';
     }
     if (!form.license_expiry_date) {
       errs.license_expiry_date = 'License expiry date is required.';
     } else if (!isStrictlyFutureDate(form.license_expiry_date)) {
       errs.license_expiry_date = 'License expiry date must be strictly after today (tomorrow onward).';
-    } else if (form.license_date_issued && !validateDateSequence(form.license_date_issued, form.license_expiry_date)) {
-      errs.license_expiry_date = 'Expiry date must be on or after issue date.';
     }
-    if (!form.authorized_by?.trim()) errs.authorized_by = 'Authorized By is required.';
 
     // 3. Health Information
     if (!form.health_condition) errs.health_condition = 'Health condition is required.';
@@ -802,11 +948,6 @@ function DriversPage() {
       }
     }
 
-    // 7. Profile Photo
-    if (!editingDriver?.user?.profile_photo_url && !profilePhotoFile && !profilePhotoPreview) {
-      errs.profile_photo = 'Driver profile photo is required.';
-    }
-
     if (Object.keys(errs).length > 0) {
       setFormErrors(errs);
       const count = Object.keys(errs).length;
@@ -818,7 +959,7 @@ function DriversPage() {
     setFormError('');
     setFormErrors({});
     try {
-      const full_name = [form.first_name, form.middle_name, form.last_name].filter(Boolean).join(' ');
+      const full_name = [form.first_name?.trim(), form.middle_name?.trim(), form.last_name?.trim()].filter(Boolean).join(' ');
       const formData = new FormData();
       formData.append('full_name', full_name);
       formData.append('email', form.email);
@@ -827,9 +968,8 @@ function DriversPage() {
       if (form.nationality) formData.append('nationality', form.nationality);
       if (form.license_number) formData.append('license_number', form.license_number);
       if (form.license_type) formData.append('license_type', form.license_type);
-      if (form.license_date_issued) formData.append('license_date_issued', form.license_date_issued);
+      if (form.agency_code) formData.append('agency_code', form.agency_code.trim().toUpperCase());
       if (form.license_expiry_date) formData.append('license_expiry_date', form.license_expiry_date);
-      if (form.authorized_by) formData.append('authorized_by', form.authorized_by);
       if (form.restriction_code) formData.append('restriction_code', form.restriction_code);
       if (form.health_condition) formData.append('health_condition', form.health_condition);
       if (form.last_medical_check) formData.append('last_medical_check', form.last_medical_check);
@@ -1067,6 +1207,14 @@ function DriversPage() {
                   </div>
                 </div>
                 <div className="toolbar-right">
+                  <button
+                    className="btn-incidents"
+                    style={{ background: '#0f766e' }}
+                    onClick={() => setView('leaves')}
+                  >
+                    <i className="fas fa-calendar-times" style={{ marginRight: 5 }}></i>
+                    Leave Requests{pendingLeaveCount > 0 ? ` (${pendingLeaveCount})` : ''}
+                  </button>
                   <button className="btn-incidents" onClick={() => setView('incidents')}>Incidents</button>
                   <button className="btn-archives" onClick={() => { setView('archives'); setActiveStatusFilter('resigned'); }}>Archives</button>
                   <button className="btn-add-driver" onClick={openAddModal}><i className="fas fa-plus"></i> Add Driver</button>
@@ -1113,11 +1261,59 @@ function DriversPage() {
                               <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>{driver.user?.full_name || '—'}</span>
                             </div>
                           </td>
-                          <td><span className={`driver-status ${availabilityClass(driver)}`}><i className="fas fa-circle"></i> {availabilityLabel(driver)}</span></td>
+                          <td>
+                            {(() => {
+                              const lbl = availabilityLabel(driver);
+                              const customBadgeStyle =
+                                lbl === 'On Leave'
+                                  ? { background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca' }
+                                  : lbl === 'Pending Leave'
+                                  ? { background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' }
+                                  : lbl === 'Off Duty'
+                                  ? { background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1' }
+                                  : undefined;
+                              return (
+                                <span className={`driver-status ${availabilityClass(driver)}`} style={customBadgeStyle}>
+                                  <i className="fas fa-circle"></i> {lbl}
+                                </span>
+                              );
+                            })()}
+                          </td>
                           <td>{driver.contract_end ? `Valid until ${formatDate(driver.contract_end)}` : 'Not set'}</td>
                           <td>{driver.user?.phone || '—'}</td>
                           <td className="action-cell">
                             <div className="driver-action-buttons">
+                              {!lockedOnDelivery && !['on_leave', 'pending_leave', 'offline'].includes(driver.availability_status) && (
+                                <button
+                                  type="button"
+                                  disabled={togglingDutyId === driver.driver_id}
+                                  title={
+                                    driver.availability_status === 'available'
+                                      ? 'Clock driver Off Duty (hides from Dispatch)'
+                                      : 'Set driver On Duty (ready for Dispatch)'
+                                  }
+                                  style={{
+                                    padding: '6px 10px',
+                                    borderRadius: 6,
+                                    border: 'none',
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    background: driver.availability_status === 'available' ? '#64748b' : '#16a34a',
+                                    color: '#fff',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                  onClick={(e) =>
+                                    handleToggleDuty(
+                                      driver,
+                                      driver.availability_status === 'available' ? 'off_duty' : 'available',
+                                      e
+                                    )
+                                  }
+                                >
+                                  {driver.availability_status === 'available' ? 'Set Off Duty' : 'Set On Duty'}
+                                </button>
+                              )}
                               <button
                                 className="btn-edit-info"
                                 disabled={lockedOnDelivery}
@@ -1362,8 +1558,253 @@ function DriversPage() {
               </div>
             </div>
           )}
+
+          {/* ---------------- Leave Requests ---------------- */}
+          {view === 'leaves' && (
+            <div className="content-section" id="leavesSection">
+              <div className="drivers-toolbar">
+                <div className="toolbar-left">
+                  <button className="btn-return" onClick={() => setView('drivers')}>
+                    <span>Return</span>
+                    <i className="fa fa-reply"></i>
+                  </button>
+                  <h3 style={{ margin: '0 0 0 12px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+                    Driver Leave &amp; Emergency Absence Requests
+                  </h3>
+                </div>
+                <div className="toolbar-right">
+                  <button
+                    type="button"
+                    className="btn-add-driver"
+                    onClick={() => {
+                      setLeaveForm({
+                        driver_id: activeDrivers[0]?.driver_id ? String(activeDrivers[0].driver_id) : '',
+                        leave_type: 'sick_leave',
+                        start_date: getTodayIso(),
+                        end_date: getTodayIso(),
+                        reason: '',
+                      });
+                      setShowLogLeaveModal(true);
+                    }}
+                  >
+                    <i className="fas fa-plus"></i> Log Driver Leave / Absence
+                  </button>
+                </div>
+              </div>
+              <div className="section-content">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Driver</th>
+                      <th>Leave Type</th>
+                      <th>Dates</th>
+                      <th>Reason &amp; Notes</th>
+                      <th>Attachment</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {driverLeaves.length === 0 ? (
+                      <tr>
+                        <td colSpan="7" style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>
+                          No leave or absence requests recorded yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      driverLeaves.map((lv) => {
+                        const isPending = lv.status === 'pending';
+                        const isBusy = processingLeaveId === lv.leave_id;
+                        const statusStyles = {
+                          pending: { bg: '#fef3c7', color: '#b45309' },
+                          approved: { bg: '#dcfce7', color: '#15803d' },
+                          rejected: { bg: '#fee2e2', color: '#b91c1c' },
+                          cancelled: { bg: '#f1f5f9', color: '#64748b' },
+                          completed: { bg: '#e0f2fe', color: '#0369a1' },
+                        }[lv.status] || { bg: '#f1f5f9', color: '#475569' };
+
+                        return (
+                          <tr key={lv.leave_id}>
+                            <td style={{ fontWeight: 700, color: '#0f172a' }}>
+                              {lv.driver?.user?.full_name || 'Driver'}
+                            </td>
+                            <td style={{ fontWeight: 600 }}>
+                              {formatLeaveType(lv.leave_type)}
+                            </td>
+                            <td style={{ whiteSpace: 'nowrap', fontSize: 13 }}>
+                              {formatDate(lv.start_date)}
+                              {lv.end_date && lv.end_date !== lv.start_date ? ` – ${formatDate(lv.end_date)}` : ''}
+                            </td>
+                            <td style={{ maxWidth: 260, fontSize: 13, color: '#334155' }}>
+                              {lv.reason}
+                              {lv.review_notes && (
+                                <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 2 }}>
+                                  Note: {lv.review_notes}
+                                </div>
+                              )}
+                            </td>
+                            <td>
+                              {lv.attachment_url ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleViewDocFile(
+                                      `Leave Attachment (${lv.driver?.user?.full_name || 'Driver'})`,
+                                      lv.attachment_url,
+                                      lv.driver
+                                    )
+                                  }
+                                  style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', fontSize: 12.5 }}
+                                >
+                                  View File
+                                </button>
+                              ) : (
+                                <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
+                              )}
+                            </td>
+                            <td>
+                              <span
+                                style={{
+                                  padding: '3px 10px',
+                                  borderRadius: 999,
+                                  fontSize: 11.5,
+                                  fontWeight: 700,
+                                  textTransform: 'capitalize',
+                                  background: statusStyles.bg,
+                                  color: statusStyles.color,
+                                }}
+                              >
+                                {lv.status}
+                              </span>
+                            </td>
+                            <td>
+                              {isPending ? (
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    disabled={isBusy}
+                                    onClick={() => handleApproveLeave(lv)}
+                                    style={{ background: '#16a34a', color: '#fff', border: 'none', padding: '5px 10px', borderRadius: 5, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isBusy}
+                                    onClick={() => handleRejectLeave(lv)}
+                                    style={{ background: '#fff', color: '#b91c1c', border: '1px solid #fecaca', padding: '5px 10px', borderRadius: 5, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: 12, color: '#64748b' }}>
+                                  {lv.reviewer?.full_name ? `By ${lv.reviewer.full_name}` : 'Processed'}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Admin Log Leave / Absence Modal */}
+      {showLogLeaveModal && (
+        <div
+          className="modal"
+          style={{ display: 'flex', position: 'fixed', inset: 0, alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', zIndex: 1250, padding: 16 }}
+          onClick={() => setShowLogLeaveModal(false)}
+        >
+          <div
+            className="modal-content"
+            style={{ width: '100%', maxWidth: 460, background: '#fff', borderRadius: 12, overflow: 'hidden' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ background: '#b91c1c', color: '#fff', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#fff' }}>Log Driver Leave / Emergency Absence</h3>
+              <button type="button" onClick={() => setShowLogLeaveModal(false)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer' }}>&times;</button>
+            </div>
+            <form onSubmit={handleSubmitAdminLeave} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Driver *</label>
+                <select
+                  value={leaveForm.driver_id}
+                  onChange={(e) => setLeaveForm((p) => ({ ...p, driver_id: e.target.value }))}
+                  required
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }}
+                >
+                  <option value="">-- Choose Driver --</option>
+                  {activeDrivers.map((d) => (
+                    <option key={d.driver_id} value={d.driver_id}>
+                      {d.user?.full_name || driverCode(d.driver_id)} ({availabilityLabel(d)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Leave Type *</label>
+                <select
+                  value={leaveForm.leave_type}
+                  onChange={(e) => setLeaveForm((p) => ({ ...p, leave_type: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }}
+                >
+                  <option value="sick_leave">Sick Leave</option>
+                  <option value="emergency_absence">Emergency Absence</option>
+                  <option value="day_off">Day Off</option>
+                  <option value="vacation">Vacation / Personal</option>
+                </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Start Date *</label>
+                  <input
+                    type="date"
+                    value={leaveForm.start_date}
+                    onChange={(e) => setLeaveForm((p) => ({ ...p, start_date: e.target.value }))}
+                    required
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>End Date *</label>
+                  <input
+                    type="date"
+                    min={leaveForm.start_date}
+                    value={leaveForm.end_date}
+                    onChange={(e) => setLeaveForm((p) => ({ ...p, end_date: e.target.value }))}
+                    required
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Reason / Details *</label>
+                <textarea
+                  rows="3"
+                  required
+                  placeholder="e.g. Fever / medical emergency reported by driver"
+                  value={leaveForm.reason}
+                  onChange={(e) => setLeaveForm((p) => ({ ...p, reason: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
+                <button type="button" onClick={() => setShowLogLeaveModal(false)} style={{ padding: '8px 14px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer' }}>Cancel</button>
+                <button type="submit" disabled={savingLeave} style={{ padding: '8px 18px', borderRadius: 6, border: 'none', background: '#b91c1c', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>
+                  {savingLeave ? 'Saving...' : 'Save & Approve Leave'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (
@@ -1527,8 +1968,36 @@ function DriversPage() {
 
                   {(() => {
                     const detailsLockedOnDelivery = isDriverOnActiveDelivery(detailsDriver);
+                    const detailsBlockedLeave = ['on_leave', 'pending_leave', 'offline'].includes(detailsDriver.availability_status);
                     return (
                       <>
+                        {!detailsLockedOnDelivery && !detailsBlockedLeave && detailsDriver.status === 'active' && (
+                          <button
+                            type="button"
+                            disabled={togglingDutyId === detailsDriver.driver_id}
+                            onClick={(e) =>
+                              handleToggleDuty(
+                                detailsDriver,
+                                detailsDriver.availability_status === 'available' ? 'off_duty' : 'available',
+                                e
+                              )
+                            }
+                            style={{
+                              width: '100%',
+                              marginBottom: 8,
+                              padding: '9px 12px',
+                              borderRadius: 8,
+                              border: 'none',
+                              fontWeight: 700,
+                              fontSize: 13,
+                              cursor: 'pointer',
+                              background: detailsDriver.availability_status === 'available' ? '#64748b' : '#16a34a',
+                              color: '#fff',
+                            }}
+                          >
+                            {detailsDriver.availability_status === 'available' ? 'Set Driver Off Duty' : 'Set Driver On Duty'}
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="driver-btn-edit-info"
@@ -1681,16 +2150,12 @@ function DriversPage() {
                           <span className="driver-info-kv-val">{detailsDriver.restriction_code || 'None'}</span>
                         </div>
                         <div className="driver-info-kv-row">
-                          <span className="driver-info-kv-key">Date Issued</span>
-                          <span className="driver-info-kv-val">{formatDate(detailsDriver.license_date_issued)}</span>
+                          <span className="driver-info-kv-key">Agency Code</span>
+                          <span className="driver-info-kv-val">{detailsDriver.agency_code || '—'}</span>
                         </div>
                         <div className="driver-info-kv-row">
                           <span className="driver-info-kv-key">Expiry Date</span>
                           <span className="driver-info-kv-val">{formatDate(detailsDriver.license_expiry_date)}</span>
-                        </div>
-                        <div className="driver-info-kv-row">
-                          <span className="driver-info-kv-key">Authorized by</span>
-                          <span className="driver-info-kv-val">{detailsDriver.authorized_by || 'LTO Region 10'}</span>
                         </div>
                       </div>
                     </div>
@@ -2211,7 +2676,7 @@ function DriversPage() {
                     <i className="fas fa-exclamation"></i>
                   </div>
                   <div className="sweet-alert-body">
-                    <h4 className="sweet-alert-title">Incomplete Required Fields</h4>
+                    <h4 className="sweet-alert-title">{getFormAlertTitle(formError)}</h4>
                     <p className="sweet-alert-desc">{formError}</p>
                   </div>
                   <button
@@ -2250,13 +2715,13 @@ function DriversPage() {
                     {/* Left Column: Profile Picture Uploader */}
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                       <label className="driver-field-label">
-                        Profile Photo <span className="req-star">*</span>
+                        Profile Photo <span style={{ fontWeight: 400, color: '#64748b', fontSize: 11 }}>(Optional)</span>
                       </label>
                       <div
                         className={`driver-photo-box ${formErrors.profile_photo ? 'input-error' : ''}`}
                         onClick={() => fileInputRef.current?.click()}
                         style={{ flex: 1, minHeight: 180, padding: 14 }}
-                        title="Click to select driver photo"
+                        title="Click to select driver photo (optional)"
                       >
                         {profilePhotoPreview ? (
                           <div style={{ position: 'relative' }}>
@@ -2272,11 +2737,13 @@ function DriversPage() {
                           </div>
                         ) : (
                           <>
-                            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, marginBottom: 8 }}>
-                              <i className="fas fa-cloud-upload-alt"></i>
-                            </div>
+                            <img
+                              src="/images/defaultavatar.png"
+                              alt="Default Avatar"
+                              style={{ width: 64, height: 64, borderRadius: '50%', objectFit: 'cover', border: '2px solid #e2e8f0', marginBottom: 8 }}
+                            />
                             <p style={{ margin: '0 0 2px', fontWeight: 700, color: '#1e293b', fontSize: 12.5 }}>Upload Photo</p>
-                            <p style={{ fontSize: 11, margin: 0, color: '#64748b' }}>JPG, PNG or WEBP</p>
+                            <p style={{ fontSize: 10.5, margin: 0, color: '#64748b', textAlign: 'center' }}>Default avatar used if skipped</p>
                           </>
                         )}
                       </div>
@@ -2301,7 +2768,7 @@ function DriversPage() {
                             className={`driver-form-input ${formErrors.first_name ? 'input-error' : ''}`}
                             placeholder="e.g. Juan"
                             value={form.first_name}
-                            onChange={(e) => handleFieldChange('first_name', e.target.value)}
+                            onChange={(e) => handleFieldChange('first_name', formatNameInput(e.target.value))}
                           />
                           {formErrors.first_name && (
                             <div className="driver-error-feedback">
@@ -2313,14 +2780,14 @@ function DriversPage() {
 
                         <div className="form-group" style={{ position: 'relative' }}>
                           <label className="driver-field-label">
-                            Middle Name <span className="req-star">*</span>
+                            Middle Name <span style={{ fontWeight: 400, color: '#64748b', fontSize: 11 }}>(Optional)</span>
                           </label>
                           <input
                             type="text"
                             className={`driver-form-input ${formErrors.middle_name ? 'input-error' : ''}`}
-                            placeholder="e.g. Santos (or N/A)"
+                            placeholder="e.g. Santos (optional)"
                             value={form.middle_name}
-                            onChange={(e) => handleFieldChange('middle_name', e.target.value)}
+                            onChange={(e) => handleFieldChange('middle_name', formatNameInput(e.target.value))}
                           />
                           {formErrors.middle_name && (
                             <div className="driver-error-feedback">
@@ -2339,7 +2806,7 @@ function DriversPage() {
                             className={`driver-form-input ${formErrors.last_name ? 'input-error' : ''}`}
                             placeholder="e.g. Dela Cruz"
                             value={form.last_name}
-                            onChange={(e) => handleFieldChange('last_name', e.target.value)}
+                            onChange={(e) => handleFieldChange('last_name', formatNameInput(e.target.value))}
                           />
                           {formErrors.last_name && (
                             <div className="driver-error-feedback">
@@ -2460,7 +2927,7 @@ function DriversPage() {
                       </label>
                       <input
                         type="text"
-                        maxLength={13}
+                        maxLength={15}
                         className={`driver-form-input ${formErrors.license_number ? 'input-error' : ''}`}
                         placeholder="e.g. D01-23-456789"
                         value={form.license_number}
@@ -2568,33 +3035,14 @@ function DriversPage() {
                     )}
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16, marginTop: 14 }}>
-                    <div className="form-group" style={{ position: 'relative' }}>
-                      <label className="driver-field-label">
-                        Date Issued <span className="req-star">*</span>
-                      </label>
-                      <input
-                        type="date"
-                        max={getTodayIso()}
-                        className={`driver-form-input ${formErrors.license_date_issued ? 'input-error' : ''}`}
-                        value={form.license_date_issued || ''}
-                        onChange={(e) => handleFieldChange('license_date_issued', e.target.value)}
-                      />
-                      {formErrors.license_date_issued && (
-                        <div className="driver-error-feedback">
-                          <i className="fas fa-circle-exclamation"></i>
-                          <span>{formErrors.license_date_issued}</span>
-                        </div>
-                      )}
-                    </div>
-
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, marginTop: 14 }}>
                     <div className="form-group" style={{ position: 'relative' }}>
                       <label className="driver-field-label">
                         Date Expiry <span className="req-star">*</span>
                       </label>
                       <input
                         type="date"
-                        min={[getTomorrowIso(), form.license_date_issued].filter(Boolean).sort().pop()}
+                        min={getTomorrowIso()}
                         className={`driver-form-input ${formErrors.license_expiry_date ? 'input-error' : ''}`}
                         value={form.license_expiry_date || ''}
                         onChange={(e) => handleFieldChange('license_expiry_date', e.target.value)}
@@ -2608,28 +3056,21 @@ function DriversPage() {
                     </div>
 
                     <div className="form-group" style={{ position: 'relative' }}>
-                      <label className="driver-field-label" style={{ justifyContent: 'space-between' }}>
-                        <span>Authorized By <span className="req-star">*</span></span>
-                        {editingDriver && (
-                          <span style={{ fontSize: 11, color: '#64748b', fontWeight: 'normal', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                            <i className="fas fa-lock" style={{ fontSize: 10 }}></i> Immutable Audit
-                          </span>
-                        )}
+                      <label className="driver-field-label">
+                        Agency Code <span className="req-star">*</span>
                       </label>
                       <input
                         type="text"
-                        className={`driver-form-input ${formErrors.authorized_by ? 'input-error' : ''}`}
-                        value={form.authorized_by || ''}
-                        disabled={Boolean(editingDriver)}
-                        readOnly={Boolean(editingDriver)}
-                        style={editingDriver ? { backgroundColor: '#f1f5f9', color: '#475569', cursor: 'not-allowed' } : {}}
-                        placeholder="Authorized user name"
-                        onChange={(e) => handleFieldChange('authorized_by', e.target.value)}
+                        maxLength={20}
+                        className={`driver-form-input ${formErrors.agency_code ? 'input-error' : ''}`}
+                        placeholder="e.g. K01"
+                        value={form.agency_code || ''}
+                        onChange={(e) => handleFieldChange('agency_code', e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''))}
                       />
-                      {formErrors.authorized_by && (
+                      {formErrors.agency_code && (
                         <div className="driver-error-feedback">
                           <i className="fas fa-circle-exclamation"></i>
-                          <span>{formErrors.authorized_by}</span>
+                          <span>{formErrors.agency_code}</span>
                         </div>
                       )}
                     </div>

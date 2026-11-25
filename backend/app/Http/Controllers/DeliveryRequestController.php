@@ -8,6 +8,7 @@ use App\Models\DeliveryRequest;
 use App\Models\Role;
 use App\Models\SystemSetting;
 use App\Models\User;
+use App\Services\RewardsService;
 use Illuminate\Http\Request;
 
 use Illuminate\Support\Facades\DB;
@@ -88,7 +89,7 @@ class DeliveryRequestController extends Controller
             'customer_id' => 'required|exists:users,user_id',
             'item_name' => 'nullable|string|max:150',
             'cargo_type' => 'nullable|string|max:100',
-            'fragility' => 'nullable|in:low,medium,high',
+            'fragility' => 'nullable|in:low,medium,high,perishable',
             'weight' => 'nullable|numeric',
             'pickup_address' => 'nullable|string',
             'dropoff_address' => 'nullable|string',
@@ -146,7 +147,10 @@ class DeliveryRequestController extends Controller
             'password' => 'nullable|string|min:6',
             'item_name' => 'nullable|string|max:150',
             'cargo_type' => 'nullable|string|max:100',
-            'fragility' => 'nullable|in:low,medium,high',
+            'service_type' => 'nullable|string|max:50',
+            'container_number' => 'nullable|string|max:50',
+            'seal_number' => 'nullable|string|max:50',
+            'fragility' => 'nullable|in:low,medium,high,perishable',
             'weight' => 'nullable|numeric',
             'pickup_address' => 'nullable|string',
             'pickup_lat' => 'nullable|numeric',
@@ -169,6 +173,7 @@ class DeliveryRequestController extends Controller
             'is_scheduled' => 'nullable|boolean',
             'scheduled_date' => 'nullable|date|after_or_equal:today',
             'scheduled_time_slot' => 'nullable|string|max:100',
+            'apply_vip_voucher' => 'nullable|boolean',
             'is_draft' => 'nullable|boolean',
         ], [
             'receiver_phone.regex' => 'Receiver contact number must start with 09 and be exactly 11 digits.',
@@ -233,6 +238,9 @@ class DeliveryRequestController extends Controller
                 'customer_id' => $user->user_id,
                 'item_name' => $request->item_name,
                 'cargo_type' => $request->cargo_type,
+                'service_type' => $request->input('service_type', 'standard'),
+                'container_number' => $request->container_number,
+                'seal_number' => $request->seal_number,
                 'fragility' => $request->fragility,
                 'weight' => $request->weight,
                 'pickup_address' => $request->pickup_address,
@@ -349,7 +357,7 @@ class DeliveryRequestController extends Controller
         $validated = $request->validate([
             'item_name' => "$fieldRule|string|max:150",
             'cargo_type' => "$fieldRule|string|max:100",
-            'fragility' => "$fieldRule|in:low,medium,high",
+            'fragility' => "$fieldRule|in:low,medium,high,perishable",
             'weight' => "$fieldRule|numeric|min:0.01",
             'pickup_address' => "$fieldRule|string",
             'pickup_lat' => "$fieldRule|numeric|between:-90,90",
@@ -372,6 +380,7 @@ class DeliveryRequestController extends Controller
             'is_scheduled' => 'nullable|boolean',
             'scheduled_date' => 'nullable|date|after_or_equal:today',
             'scheduled_time_slot' => 'nullable|string|max:100',
+            'apply_vip_voucher' => 'nullable|boolean',
             'is_draft' => 'nullable|boolean',
         ], [
             'receiver_phone.regex' => 'Receiver contact number must start with 09 and be exactly 11 digits.',
@@ -388,15 +397,42 @@ class DeliveryRequestController extends Controller
             ], 422);
         }
 
-        unset($validated['payment_receipt'], $validated['is_draft']);
-        
+        unset($validated['payment_receipt'], $validated['is_draft'], $validated['apply_vip_voucher']);
+
         $setting = SystemSetting::getSettings();
-        $validated['total_price'] = round(
+        $subtotal = round(
             ((float) ($validated['distance_km'] ?? 0) * (float) $setting->distance_rate) +
             ((float) ($validated['weight'] ?? 0) * (float) $setting->weight_rate) +
             (float) $setting->base_labor_fee,
             2
         );
+
+        $vipVoucherAmount = 0.0;
+        $vipVoucherCode = null;
+        if (!$request->boolean('is_draft') && $request->boolean('apply_vip_voucher')) {
+            $vipStatus = RewardsService::getCustomerVipStatus((int) $user->user_id);
+            if (!$vipStatus['is_vip']) {
+                return response()->json([
+                    'message' => 'Only Top 5 VIP customers are eligible for the VIP voucher.',
+                ], 422);
+            }
+            if ($vipStatus['already_redeemed_this_month']) {
+                return response()->json([
+                    'message' => 'Your monthly VIP voucher has already been redeemed this month.',
+                ], 422);
+            }
+            if ($subtotal < (float) $vipStatus['min_trip_amount']) {
+                return response()->json([
+                    'message' => 'Minimum trip fee of ₱' . number_format($vipStatus['min_trip_amount'], 0) . ' is required to apply the VIP voucher.',
+                ], 422);
+            }
+            $vipVoucherAmount = min((float) $vipStatus['voucher_amount'], $subtotal);
+            $vipVoucherCode = $vipStatus['voucher_code'];
+        }
+
+        $validated['total_price'] = round(max(0, $subtotal - $vipVoucherAmount), 2);
+        $validated['vip_voucher_amount'] = $vipVoucherAmount;
+        $validated['vip_voucher_code'] = $vipVoucherCode;
 
 
         if ($request->hasFile('payment_receipt')) {

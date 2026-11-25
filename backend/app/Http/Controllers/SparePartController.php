@@ -22,18 +22,25 @@ class SparePartController extends Controller
             'category' => 'nullable|string|max:50',
             'description' => 'nullable|string',
             'quantity_in_stock' => 'nullable|integer|min:0',
-            'unit' => 'nullable|string|max:20',
+            'unit' => 'nullable|string|max:30',
             'unit_price' => 'nullable|numeric|min:0',
             'reorder_level' => 'nullable|integer|min:0',
             'supplier_name' => 'nullable|string|max:100',
             'brand' => 'nullable|string|max:100',
+            'part_condition' => 'nullable|string|max:30',
             'model_part_code' => 'nullable|string|max:100',
+            'compatible_models' => 'nullable|string|max:150',
+            'storage_location' => 'nullable|string|max:80',
             'warranty' => 'nullable|string|max:50',
             'supplier_contact' => 'nullable|string|max:50',
             'supplier_address' => 'nullable|string',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
             'status' => 'nullable|string',
         ]);
+
+        if (!empty($data['model_part_code'])) {
+            $data['model_part_code'] = strtoupper(trim($data['model_part_code']));
+        }
 
         if ($request->hasFile('image')) {
             $data['image'] = $request->file('image')->store('spare-parts', 'public');
@@ -59,18 +66,25 @@ class SparePartController extends Controller
             'category' => 'nullable|string|max:50',
             'description' => 'nullable|string',
             'quantity_in_stock' => 'nullable|integer|min:0',
-            'unit' => 'nullable|string|max:20',
+            'unit' => 'nullable|string|max:30',
             'unit_price' => 'nullable|numeric|min:0',
             'reorder_level' => 'nullable|integer|min:0',
             'supplier_name' => 'nullable|string|max:100',
             'brand' => 'nullable|string|max:100',
+            'part_condition' => 'nullable|string|max:30',
             'model_part_code' => 'nullable|string|max:100',
+            'compatible_models' => 'nullable|string|max:150',
+            'storage_location' => 'nullable|string|max:80',
             'warranty' => 'nullable|string|max:50',
             'supplier_contact' => 'nullable|string|max:50',
             'supplier_address' => 'nullable|string',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
             'status' => 'nullable|string',
         ]);
+
+        if (!empty($data['model_part_code'])) {
+            $data['model_part_code'] = strtoupper(trim($data['model_part_code']));
+        }
 
         if ($request->hasFile('image')) {
             $newPath = $request->file('image')->store('spare-parts', 'public');
@@ -118,7 +132,7 @@ class SparePartController extends Controller
             $sparePart->status = SparePart::determineStatus($sparePart->quantity_in_stock, $sparePart->reorder_level);
             $sparePart->save();
 
-            return SparePartUsage::create([
+            $tx = SparePartUsage::create([
                 'part_id' => $sparePart->part_id,
                 'transaction_type' => 'in',
                 'supplier_name' => $validated['supplier_name'] ?? $sparePart->supplier_name,
@@ -127,8 +141,13 @@ class SparePartController extends Controller
                 'unit_price' => $unitPrice,
                 'total_value' => $totalVal,
                 'purpose' => $validated['purpose'] ?: 'Received new stock / Parts In',
+                'status' => 'confirmed',
+                'confirmed_by' => $request->user()?->user_id,
+                'confirmed_at' => now(),
                 'used_date' => $validated['used_date'] ?? now()->toDateString(),
             ]);
+            $tx->update(['transaction_no' => sprintf('PTX-%05d', $tx->usage_id)]);
+            return $tx;
         });
 
         return response()->json([
@@ -164,7 +183,7 @@ class SparePartController extends Controller
             $sparePart->status = SparePart::determineStatus($sparePart->quantity_in_stock, $sparePart->reorder_level);
             $sparePart->save();
 
-            return SparePartUsage::create([
+            $tx = SparePartUsage::create([
                 'part_id' => $sparePart->part_id,
                 'transaction_type' => 'out',
                 'vehicle_id' => $validated['vehicle_id'] ?? null,
@@ -173,8 +192,13 @@ class SparePartController extends Controller
                 'unit_price' => $sparePart->unit_price,
                 'total_value' => round($qty * ($sparePart->unit_price ?? 0), 2),
                 'purpose' => $validated['purpose'] ?: 'Issued parts / Parts Out',
+                'status' => 'confirmed',
+                'confirmed_by' => $request->user()?->user_id,
+                'confirmed_at' => now(),
                 'used_date' => $validated['used_date'] ?? now()->toDateString(),
             ]);
+            $tx->update(['transaction_no' => sprintf('PTX-%05d', $tx->usage_id)]);
+            return $tx;
         });
 
 

@@ -37,7 +37,11 @@ export default function History() {
 
       const deliveries = await getMyDeliveries();
       const list = Array.isArray(deliveries)
-        ? deliveries.filter((d) => d?.status === "completed")
+        ? deliveries.filter(
+            (d) =>
+              d?.status === "completed" ||
+              (d?.status === "returning_to_hq" && Boolean(d?.hq_arrived_at))
+          )
         : [];
 
       const formatted = list.map((delivery) => {

@@ -17,6 +17,9 @@ export default function OverviewSection({
   distanceKm = 0,
   weightKg = 0,
   pricing,
+  vipReward = null,
+  useVipVoucher = false,
+  onToggleVipVoucher,
   reviewVisible = false,
   reviewDetails,
   onCloseReview,
@@ -30,8 +33,16 @@ export default function OverviewSection({
     distanceFee: Number(distanceKm || 0) * 80,
     weightFee: Number(weightKg || 0),
     laborFee: 800,
+    subtotal: Number(distanceKm || 0) * 80 + Number(weightKg || 0) + 800,
+    voucherDiscount: 0,
+    voucherCode: null,
     total: Number(distanceKm || 0) * 80 + Number(weightKg || 0) + 800,
   };
+  const minTripForVoucher = Number(vipReward?.min_trip_amount || 1500);
+  const subtotalAmount = Number(fees.subtotal ?? fees.total ?? 0);
+  const voucherEligible = Boolean(
+    vipReward?.is_vip && vipReward?.available_this_month && subtotalAmount >= minTripForVoucher
+  );
 
   const openInfo = (text) => {
     setActiveInfo(text);
@@ -66,6 +77,43 @@ export default function OverviewSection({
           </View>
         </TouchableOpacity>
       ))}
+
+      {vipReward?.is_vip && (
+        <View style={styles.voucherSection}>
+          {vipReward.available_this_month ? (
+            voucherEligible ? (
+              <TouchableOpacity
+                style={[styles.voucherBtn, useVipVoucher && styles.voucherBtnActive]}
+                onPress={onToggleVipVoucher}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={useVipVoucher ? "checkmark-circle" : "pricetag-outline"}
+                  size={16}
+                  color={useVipVoucher ? "#047857" : "#92400E"}
+                />
+                <Text style={[styles.voucherBtnText, useVipVoucher && styles.voucherBtnTextActive]}>
+                  {useVipVoucher
+                    ? `VIP Voucher Applied (-${money(fees.voucherDiscount)})`
+                    : `Apply VIP ₱${vipReward.voucher_amount} Voucher (${vipReward.voucher_code})`}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.voucherHint}>
+                VIP ₱{vipReward.voucher_amount} voucher unlocks at {money(minTripForVoucher)}+ trip total.
+              </Text>
+            )
+          ) : (
+            <Text style={styles.voucherHint}>Monthly VIP voucher already redeemed this month.</Text>
+          )}
+        </View>
+      )}
+
+      {Number(fees.voucherDiscount || 0) > 0 && (
+        <Text style={styles.discountLine}>
+          VIP Voucher ({fees.voucherCode || "VIP"}): -{money(fees.voucherDiscount)}
+        </Text>
+      )}
       <Text style={[styles.total, { color: isDark ? "#EF4444" : "#E53935" }]}>Total Expenses: {money(fees.total)}</Text>
 
       <Modal visible={modalVisible} transparent animationType="fade">
@@ -101,6 +149,11 @@ export default function OverviewSection({
                 Receiver: {reviewDetails.receiverName}{reviewDetails.receiverPhone ? ` (${reviewDetails.receiverPhone})` : ""}
               </Text>
             ) : null}
+            {Number(fees.voucherDiscount || 0) > 0 && (
+              <Text style={styles.discountLine}>
+                VIP Voucher ({fees.voucherCode || "VIP"}): -{money(fees.voucherDiscount)}
+              </Text>
+            )}
             <Text style={[styles.reviewTotal, { color: isDark ? "#EF4444" : "#E53935" }]}>Total: {money(fees.total)}</Text>
             <View style={styles.reviewActions}>
               <TouchableOpacity style={[styles.cancelButton, { backgroundColor: isDark ? "#334155" : "#9E9E9E" }]} onPress={onCloseReview}>
@@ -143,4 +196,24 @@ const styles = StyleSheet.create({
   confirmButton: { flex: 1, padding: 12, alignItems: "center", borderRadius: 10, backgroundColor: "#E53935" },
   cancelText: { color: "#fff", fontWeight: "700" },
   confirmText: { color: "#fff", fontWeight: "700" },
+  voucherSection: { marginTop: 6, marginBottom: 4 },
+  voucherBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FDE68A",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  voucherBtnActive: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#86EFAC",
+  },
+  voucherBtnText: { fontSize: 12.5, fontWeight: "700", color: "#92400E" },
+  voucherBtnTextActive: { color: "#047857" },
+  voucherHint: { fontSize: 11.5, color: "#64748B", fontStyle: "italic" },
+  discountLine: { fontSize: 13, fontWeight: "700", color: "#047857", marginTop: 4 },
 });

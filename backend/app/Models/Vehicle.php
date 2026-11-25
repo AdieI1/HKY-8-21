@@ -19,11 +19,15 @@ class Vehicle extends Model
         'classification',
         'vehicle_category',
         'body_type',
+        'piston_displacement',
         'color',
         'capacity',
+        'gross_weight',
+        'net_weight',
         'passenger_capacity',
         'mileage',
         'odometer_reading',
+        'fuel_level',
         'fuel_type',
         'condition',
         'registration_valid_from',
@@ -97,7 +101,7 @@ class Vehicle extends Model
         $today = now()->toDateString();
         if ($this->relationLoaded('maintenances')) {
             $futureScheduled = $this->maintenances->first(function ($m) use ($today) {
-                return in_array($m->status, ['Scheduled', 'In Progress']) && $m->maintenance_date > $today;
+                return in_array($m->status, ['Scheduled', 'In Progress', 'Waiting for Part Confirmation']) && $m->maintenance_date > $today;
             });
             if ($futureScheduled) {
                 return $futureScheduled->maintenance_date;
@@ -120,9 +124,9 @@ class Vehicle extends Model
             if ($completed) {
                 return $completed->maintenance_date;
             }
-            // 2. Any maintenance whose date has arrived or passed
+            // 2. Any non-cancelled maintenance whose date has arrived or passed
             $pastMaintenance = $this->maintenances->first(function ($m) use ($today) {
-                return $m->maintenance_date <= $today;
+                return !in_array($m->status, ['Cancelled', 'Waiting for Part Confirmation']) && $m->maintenance_date <= $today;
             });
             if ($pastMaintenance) {
                 return $pastMaintenance->maintenance_date;

@@ -75,14 +75,17 @@ function AnalyticsOverviewModal({ isOpen, type, onClose, deliveries = [] }) {
         }
 
         if (type === 'revenue') {
-          // Total revenue for this month
+          // Total revenue and fuel allowances for this month
           const rev = inMonth
             .filter((d) => d.payment_verification === 'approved' || d.status === 'completed')
             .reduce((sum, d) => sum + Number(d.trip_cost || 0), 0);
+          const allowance = inMonth.reduce((sum, d) => sum + Number(d.fuel_allowance || 0), 0);
           return {
             period: monthName,
             value: formatCurrency(rev),
             rawValue: rev,
+            allowanceValue: formatCurrency(allowance),
+            rawAllowance: allowance,
             isFuture: false,
           };
         } else {
@@ -129,10 +132,13 @@ function AnalyticsOverviewModal({ isOpen, type, onClose, deliveries = [] }) {
           const rev = inQuarter
             .filter((d) => d.payment_verification === 'approved' || d.status === 'completed')
             .reduce((sum, d) => sum + Number(d.trip_cost || 0), 0);
+          const allowance = inQuarter.reduce((sum, d) => sum + Number(d.fuel_allowance || 0), 0);
           return {
             period: q.label,
             value: formatCurrency(rev),
             rawValue: rev,
+            allowanceValue: formatCurrency(allowance),
+            rawAllowance: allowance,
             isFuture: false,
           };
         } else {
@@ -173,10 +179,13 @@ function AnalyticsOverviewModal({ isOpen, type, onClose, deliveries = [] }) {
           const rev = inWeek
             .filter((d) => d.payment_verification === 'approved' || d.status === 'completed')
             .reduce((sum, d) => sum + Number(d.trip_cost || 0), 0);
+          const allowance = inWeek.reduce((sum, d) => sum + Number(d.fuel_allowance || 0), 0);
           return {
             period: `${MONTHS_FULL[targetMonth]} - ${w.label}`,
             value: formatCurrency(rev),
             rawValue: rev,
+            allowanceValue: formatCurrency(allowance),
+            rawAllowance: allowance,
             isFuture: false,
           };
         } else {
@@ -201,28 +210,43 @@ function AnalyticsOverviewModal({ isOpen, type, onClose, deliveries = [] }) {
 
   const buildOverviewExportSpec = () => {
     const totalVal = tableData.reduce((s, r) => s + Number(r.rawValue || 0), 0);
+    const totalAllowances = tableData.reduce((s, r) => s + Number(r.rawAllowance || 0), 0);
     return {
       filename: `HJY-${type}-overview-${selectedYear}-${groupBy}`,
       sheetName: title,
       title: `${title} (${selectedYear})`,
       subtitle: `Grouped ${groupBy}`,
-      summary: [
-        { label: 'Reporting Year', value: selectedYear },
-        { label: 'Grouping', value: groupBy.charAt(0).toUpperCase() + groupBy.slice(1) },
-        { label: isRevenue ? 'Total Revenue' : 'Total Deliveries', value: totalVal, format: isRevenue ? 'currency' : 'integer' },
-      ],
+      summary: isRevenue
+        ? [
+            { label: 'Reporting Year', value: selectedYear },
+            { label: 'Grouping', value: groupBy.charAt(0).toUpperCase() + groupBy.slice(1) },
+            { label: 'Total Revenue', value: totalVal, format: 'currency' },
+            { label: 'Total Trip Costs', value: totalAllowances, format: 'currency' },
+          ]
+        : [
+            { label: 'Reporting Year', value: selectedYear },
+            { label: 'Grouping', value: groupBy.charAt(0).toUpperCase() + groupBy.slice(1) },
+            { label: 'Total Deliveries', value: totalVal, format: 'integer' },
+          ],
       tables: [
         {
           title: `${title} Breakdown`,
-          columns: [
-            { header: groupBy === 'monthly' ? 'Month' : 'Period', align: 'left', bold: true, minWidth: 24 },
-            { header: isRevenue ? 'Total Revenue (PHP)' : 'Total Deliveries', align: 'right', format: isRevenue ? 'currency' : 'integer', minWidth: 22 },
-          ],
-          rows: tableData.map((row) => [
-            row.period,
-            row.isFuture ? '—' : Number(row.rawValue || 0),
-          ]),
-          totalsRow: ['TOTAL', totalVal],
+          columns: isRevenue
+            ? [
+                { header: groupBy === 'monthly' ? 'Month' : 'Period', align: 'left', bold: true, minWidth: 24 },
+                { header: 'Total Revenue (PHP)', align: 'right', format: 'currency', minWidth: 22 },
+                { header: 'Trip Costs (PHP)', align: 'right', format: 'currency', minWidth: 22 },
+              ]
+            : [
+                { header: groupBy === 'monthly' ? 'Month' : 'Period', align: 'left', bold: true, minWidth: 24 },
+                { header: 'Total Deliveries', align: 'right', format: 'integer', minWidth: 22 },
+              ],
+          rows: tableData.map((row) =>
+            isRevenue
+              ? [row.period, row.isFuture ? '—' : Number(row.rawValue || 0), row.isFuture ? '—' : Number(row.rawAllowance || 0)]
+              : [row.period, row.isFuture ? '—' : Number(row.rawValue || 0)]
+          ),
+          totalsRow: isRevenue ? ['TOTAL', totalVal, totalAllowances] : ['TOTAL', totalVal],
         },
       ],
     };
@@ -304,6 +328,7 @@ function AnalyticsOverviewModal({ isOpen, type, onClose, deliveries = [] }) {
               <tr>
                 <th>{groupBy === 'monthly' ? 'Month' : 'Period'}</th>
                 <th style={{ textAlign: 'right' }}>{valueColumnLabel}</th>
+                {isRevenue && <th style={{ textAlign: 'right' }}>Trip Costs</th>}
               </tr>
             </thead>
             <tbody>
@@ -320,6 +345,18 @@ function AnalyticsOverviewModal({ isOpen, type, onClose, deliveries = [] }) {
                   >
                     {row.value}
                   </td>
+                  {isRevenue && (
+                    <td
+                      className="overview-td-val"
+                      style={{
+                        textAlign: 'right',
+                        color: row.isFuture ? '#94a3b8' : '#0f766e',
+                        fontWeight: row.isFuture ? 500 : 600,
+                      }}
+                    >
+                      {row.isFuture ? 'N/A' : (row.allowanceValue || '₱0.00')}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

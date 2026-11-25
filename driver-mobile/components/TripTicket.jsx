@@ -30,7 +30,11 @@ export default function TripTicket({
     odometerIn:
       delivery.startingOdometer || "",
     fuelIssued:
-      delivery.fuelIssued || "",
+      delivery.fuelIssued !== undefined && delivery.fuelIssued !== null && delivery.fuelIssued !== ""
+        ? delivery.fuelIssued
+        : "",
+    fuelAllowance:
+      delivery.fuelAllowance ?? delivery.fuel_allowance ?? 0,
     fuelReceiptNo:
       delivery.fuelReceiptNo || "",
     fragility: delivery.fragility || "",
@@ -146,10 +150,20 @@ export default function TripTicket({
               <TicketRow
                 label="Fuel Issued"
                 value={
-                  ticket.fuelIssued
-                    ? `${ticket.fuelIssued} L`
+                  ticket.fuelIssued !== "" && ticket.fuelIssued !== null && ticket.fuelIssued !== undefined
+                    ? Number(ticket.fuelIssued) === 0
+                      ? "0 L (Existing Tank)"
+                      : `${Number(ticket.fuelIssued)} L`
                     : ""
                 }
+              />
+
+              <TicketRow
+                label="Trip Cost"
+                value={`₱${Number(ticket.fuelAllowance || 0).toLocaleString("en-PH", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}`}
               />
 
               <TicketRow
@@ -176,7 +190,7 @@ export default function TripTicket({
 }
 
 function formatFragility(value) {
-  const labels = { low: "Normal", medium: "Fragile", high: "Perishable" };
+  const labels = { low: "Standard", medium: "Fragile", high: "Extremely Fragile", perishable: "Perishable" };
   return labels[value] || value;
 }
 

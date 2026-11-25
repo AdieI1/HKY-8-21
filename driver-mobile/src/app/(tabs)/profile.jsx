@@ -19,15 +19,196 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../../context/ThemeContext";
-import { getCurrentUser, getSavedUser, updateDriverProfile, resolveAvatarUrl, API_URL } from "../../../services/api";
+import { getCurrentUser, getSavedUser, getMyRewardStatus, updateDriverProfile, resolveAvatarUrl, setDriverDutyStatus, getMyLeaves, submitDriverLeave, cancelDriverLeave, API_URL } from "../../../services/api";
 
 const defaultAvatar = require("../../../assets/images/defaultavatar.png");
+
+const getLocalDateString = (offsetDays = 0) => {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const LEAVE_TYPE_OPTIONS = [
+  { key: "sick_leave", label: "Sick Leave" },
+  { key: "emergency_absence", label: "Emergency Absence" },
+  { key: "day_off", label: "Day Off" },
+  { key: "vacation", label: "Vacation" },
+];
+
+const DUTY_BADGE_MAP = {
+  available: { label: "On Duty (Available)", bg: "#DCFCE7", text: "#15803D" },
+  busy: { label: "On Active Delivery", bg: "#DBEAFE", text: "#1D4ED8" },
+  pending_leave: { label: "Leave Pending Review", bg: "#FEF3C7", text: "#B45309" },
+  on_leave: { label: "On Approved Leave", bg: "#FFEDD5", text: "#C2410C" },
+  off_duty: { label: "Off Duty", bg: "#F1F5F9", text: "#475569" },
+  offline: { label: "Off Duty", bg: "#F1F5F9", text: "#475569" },
+};
+
+const LEAVE_STATUS_STYLES = {
+  pending: { bg: "#FEF3C7", text: "#B45309", label: "Pending Review" },
+  approved: { bg: "#DCFCE7", text: "#15803D", label: "Approved" },
+  rejected: { bg: "#FEE2E2", text: "#B91C1C", label: "Rejected" },
+  cancelled: { bg: "#F1F5F9", text: "#475569", label: "Cancelled" },
+  completed: { bg: "#E0E7FF", text: "#4338CA", label: "Completed" },
+};
 
 export default function Profile() {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
 
   const [user, setUser] = useState(null);
+  const [driverReward, setDriverReward] = useState(null);
+  const [myLeaves, setMyLeaves] = useState([]);
+  const [dutyUpdating, setDutyUpdating] = useState(false);
+  const [dutyFeedback, setDutyFeedback] = useState("");
+  const [leaveModalVisible, setLeaveModalVisible] = useState(false);
+  const [leaveType, setLeaveType] = useState("sick_leave");
+  const [startDate, setStartDate] = useState(() => getLocalDateString(0));
+  const [endDate, setEndDate] = useState(() => getLocalDateString(0));
+  const [leaveReason, setLeaveReason] = useState("");
+  const [leaveAttachment, setLeaveAttachment] = useState(null);
+  const [submittingLeave, setSubmittingLeave] = useState(false);
+  const [leaveError, setLeaveError] = useState("");
+  const [cancellingLeaveId, setCancellingLeaveId] = useState(null);
+
+  const refreshDutyAndLeaves = async () => {
+    try {
+      const [freshUser, leavesRes] = await Promise.all([
+        getCurrentUser().catch(() => null),
+        getMyLeaves().catch(() => []),
+      ]);
+      if (freshUser) setUser(freshUser);
+      if (Array.isArray(leavesRes)) setMyLeaves(leavesRes);
+    } catch {
+      // keep existing profile state on transient error
+    }
+  };
+
+  const handleToggleDutyStatus = async () => {
+    const currentStatus = user?.driver?.availability_status || "off_duty";
+    if (dutyUpdating || ["busy", "on_leave", "pending_leave"].includes(currentStatus)) {
+      return;
+    }
+    const targetStatus = currentStatus === "available" ? "off_duty" : "available";
+    setDutyUpdating(true);
+    setDutyFeedback("");
+    try {
+      const res = await setDriverDutyStatus(targetStatus);
+      setUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              driver: res?.driver || { ...(prev.driver || {}), availability_status: targetStatus },
+            }
+          : prev
+      );
+      setDutyFeedback(
+        targetStatus === "available"
+          ? "You are now On Duty and open for dispatch."
+          : "You are now Off Duty."
+      );
+      await refreshDutyAndLeaves();
+    } catch (err) {
+      setDutyFeedback(err?.message || "Failed to update duty status.");
+    } finally {
+      setDutyUpdating(false);
+    }
+  };
+
+  const openLeaveRequestModal = (presetType = "sick_leave") => {
+    const today = getLocalDateString(0);
+    setLeaveType(presetType);
+    setStartDate(today);
+    setEndDate(today);
+    setLeaveReason("");
+    setLeaveAttachment(null);
+    setLeaveError("");
+    setLeaveModalVisible(true);
+  };
+
+  const pickLeaveAttachment = async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm?.granted) {
+        setLeaveError("Photo library permission is needed to attach a document.");
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.7,
+      });
+      if (!res.canceled && res.assets?.length) {
+        const asset = res.assets[0];
+        setLeaveAttachment({
+          uri: asset.uri,
+          name: asset.fileName || `leave_${Date.now()}.jpg`,
+          type: asset.mimeType || "image/jpeg",
+        });
+      }
+    } catch {
+      setLeaveError("Could not select image attachment.");
+    }
+  };
+
+  const handleSubmitLeaveRequest = async () => {
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    const sDate = startDate.trim();
+    const eDate = endDate.trim();
+    const trimmedReason = leaveReason.trim();
+
+    if (!datePattern.test(sDate) || !datePattern.test(eDate)) {
+      setLeaveError("Use YYYY-MM-DD format for Start and End dates.");
+      return;
+    }
+    if (eDate < sDate) {
+      setLeaveError("End date must be on or after Start date.");
+      return;
+    }
+    if (trimmedReason.length < 3) {
+      setLeaveError("Please enter a brief reason (at least 3 characters).");
+      return;
+    }
+
+    setSubmittingLeave(true);
+    setLeaveError("");
+    try {
+      const res = await submitDriverLeave({
+        leaveType,
+        startDate: sDate,
+        endDate: eDate,
+        reason: trimmedReason,
+        attachment: leaveAttachment,
+      });
+      if (res?.driver) {
+        setUser((prev) => (prev ? { ...prev, driver: res.driver } : prev));
+      }
+      setLeaveModalVisible(false);
+      setDutyFeedback(res?.message || "Leave request submitted.");
+      await refreshDutyAndLeaves();
+    } catch (err) {
+      setLeaveError(err?.message || "Failed to submit leave request.");
+    } finally {
+      setSubmittingLeave(false);
+    }
+  };
+
+  const handleCancelLeaveRequest = async (leaveId) => {
+    setCancellingLeaveId(leaveId);
+    setDutyFeedback("");
+    try {
+      const res = await cancelDriverLeave(leaveId);
+      setDutyFeedback(res?.message || "Leave request cancelled.");
+      await refreshDutyAndLeaves();
+    } catch (err) {
+      setDutyFeedback(err?.message || "Unable to cancel leave request.");
+    } finally {
+      setCancellingLeaveId(null);
+    }
+  };
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -47,7 +228,17 @@ export default function Profile() {
         setPhone(cached?.phone || "");
       }
 
-      const fresh = await getCurrentUser().catch(() => null);
+      const [fresh, rewardRes, leavesRes] = await Promise.all([
+        getCurrentUser().catch(() => null),
+        getMyRewardStatus().catch(() => null),
+        getMyLeaves().catch(() => []),
+      ]);
+      if (rewardRes?.driver_reward) {
+        setDriverReward(rewardRes.driver_reward);
+      }
+      if (Array.isArray(leavesRes)) {
+        setMyLeaves(leavesRes);
+      }
       if (fresh) {
         // If driver relation not attached, fetch driver record directly
         if (!fresh.driver && fresh.user_id) {
@@ -253,14 +444,22 @@ export default function Profile() {
               {user?.email || "driver@hkytrucking.com"}
             </Text>
 
-            {Boolean(licenseNumber) && (
-              <View style={styles.licenseBadge}>
-                <Ionicons name="card-outline" size={12} color="#FFFFFF" />
-                <Text style={styles.licenseText}>
-                  License: {licenseNumber}
-                </Text>
-              </View>
-            )}
+            <View style={styles.badgeRow}>
+              {Boolean(licenseNumber) && (
+                <View style={styles.licenseBadge}>
+                  <Ionicons name="card-outline" size={12} color="#FFFFFF" />
+                  <Text style={styles.licenseText}>
+                    License: {licenseNumber}
+                  </Text>
+                </View>
+              )}
+              {driverReward?.is_top_driver && (
+                <View style={styles.topDriverBadge}>
+                  <Ionicons name="trophy" size={12} color="#92400E" />
+                  <Text style={styles.topDriverBadgeText}>#1 Top Driver</Text>
+                </View>
+              )}
+            </View>
           </View>
         </View>
       </View>
@@ -277,6 +476,26 @@ export default function Profile() {
           />
         }
       >
+        {driverReward?.is_top_driver && (
+          <View style={styles.rewardCard}>
+            <View style={styles.rewardCardLeft}>
+              <View style={styles.rewardIconWrap}>
+                <Ionicons name="trophy" size={20} color="#B45309" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rewardCardTitle}>#1 Top Driver Recognition</Text>
+                <Text style={styles.rewardCardSub}>
+                  {driverReward.completed_deliveries || 0} completed deliveries • Top Leaderboard Rank
+                </Text>
+              </View>
+            </View>
+            <View style={styles.bonusPill}>
+              <Text style={styles.bonusPillText}>
+                +₱{Number(driverReward.bonus_amount || 1000).toLocaleString("en-PH")} Bonus
+              </Text>
+            </View>
+          </View>
+        )}
         <View
           style={[
             styles.infoCard,
@@ -431,8 +650,294 @@ export default function Profile() {
               <Text style={styles.editText}>Update Contact Number</Text>
             </TouchableOpacity>
           )}
+
+          {/* DUTY ATTENDANCE & SICK LEAVE / EMERGENCY ABSENCE */}
+          {(() => {
+            const dutyStatus = user?.driver?.availability_status || "off_duty";
+            const badgeMeta = DUTY_BADGE_MAP[dutyStatus] || DUTY_BADGE_MAP.off_duty;
+            const lockedFromDuty = ["busy", "on_leave", "pending_leave"].includes(dutyStatus);
+            const isOnDuty = dutyStatus === "available";
+            return (
+              <View style={[styles.leaveCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.leaveHeaderRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.leaveTitle, { color: theme.text }]}>Duty & Leave Attendance</Text>
+                    <Text style={[styles.leaveSubtitle, { color: theme.textSecondary }]}>
+                      Go Off Duty after your shift or file Sick Leave / Emergency Absence.
+                    </Text>
+                  </View>
+                  <View style={[styles.dutyStatusPill, { backgroundColor: badgeMeta.bg }]}>
+                    <Text style={[styles.dutyStatusText, { color: badgeMeta.text }]}>{badgeMeta.label}</Text>
+                  </View>
+                </View>
+
+                {dutyFeedback ? (
+                  <Text style={[styles.dutyFeedbackText, { color: theme.primary }]}>{dutyFeedback}</Text>
+                ) : null}
+
+                <View style={styles.leaveActionRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.dutyToggleBtn,
+                      {
+                        backgroundColor: lockedFromDuty
+                          ? "#CBD5E1"
+                          : isOnDuty
+                          ? "#F97316"
+                          : "#16A34A",
+                      },
+                    ]}
+                    disabled={dutyUpdating || lockedFromDuty}
+                    onPress={handleToggleDutyStatus}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={isOnDuty ? "moon-outline" : "checkmark-circle-outline"}
+                      size={18}
+                      color="#FFFFFF"
+                    />
+                    <Text style={styles.dutyToggleBtnText}>
+                      {dutyUpdating
+                        ? "Updating..."
+                        : isOnDuty
+                        ? "Go Off Duty"
+                        : "Go On Duty"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.applyLeaveBtn, { borderColor: "#DC2626", backgroundColor: "#FEF2F2" }]}
+                    onPress={() => openLeaveRequestModal("sick_leave")}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="medkit-outline" size={18} color="#DC2626" />
+                    <Text style={styles.applyLeaveBtnText}>Apply Leave / Absence</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {myLeaves.length > 0 && (
+                  <View style={[styles.leaveHistoryBox, { borderTopColor: theme.border }]}>
+                    <Text style={[styles.leaveHistoryHeading, { color: theme.textSecondary }]}>
+                      Recent Leave Requests
+                    </Text>
+                    {myLeaves.slice(0, 4).map((lv) => {
+                      const st = LEAVE_STATUS_STYLES[lv.status] || LEAVE_STATUS_STYLES.pending;
+                      const typeLabel =
+                        LEAVE_TYPE_OPTIONS.find((t) => t.key === lv.leave_type)?.label ||
+                        lv.leave_type;
+                      return (
+                        <View
+                          key={lv.leave_id}
+                          style={[styles.leaveItemRow, { borderColor: theme.border }]}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <View style={styles.leaveItemTop}>
+                              <Text style={[styles.leaveItemType, { color: theme.text }]}>
+                                {typeLabel}
+                              </Text>
+                              <View style={[styles.leaveStatusPill, { backgroundColor: st.bg }]}>
+                                <Text style={[styles.leaveStatusText, { color: st.text }]}>
+                                  {st.label}
+                                </Text>
+                              </View>
+                            </View>
+                            <Text style={[styles.leaveItemDates, { color: theme.textSecondary }]}>
+                              {lv.start_date} to {lv.end_date}
+                            </Text>
+                            {lv.reason ? (
+                              <Text
+                                style={[styles.leaveItemReason, { color: theme.textSecondary }]}
+                                numberOfLines={2}
+                              >
+                                {lv.reason}
+                              </Text>
+                            ) : null}
+                            {lv.review_notes ? (
+                              <Text style={styles.leaveReviewNotes}>
+                                Note: {lv.review_notes}
+                              </Text>
+                            ) : null}
+                          </View>
+                          {lv.status === "pending" && (
+                            <TouchableOpacity
+                              style={styles.cancelLeaveBtn}
+                              disabled={cancellingLeaveId === lv.leave_id}
+                              onPress={() => handleCancelLeaveRequest(lv.leave_id)}
+                            >
+                              <Text style={styles.cancelLeaveBtnText}>
+                                {cancellingLeaveId === lv.leave_id ? "..." : "Cancel"}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            );
+          })()}
         </View>
       </ScrollView>
+
+      {/* LEAVE / EMERGENCY ABSENCE MODAL */}
+      <Modal
+        visible={leaveModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setLeaveModalVisible(false)}
+      >
+        <View style={styles.leaveModalBackdrop}>
+          <View style={[styles.leaveModalCard, { backgroundColor: theme.card }]}>
+            <View style={styles.leaveModalHeader}>
+              <Text style={[styles.leaveModalTitle, { color: theme.text }]}>
+                Apply for Leave / Absence
+              </Text>
+              <TouchableOpacity onPress={() => setLeaveModalVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Leave Type</Text>
+            <View style={styles.chipWrap}>
+              {LEAVE_TYPE_OPTIONS.map((opt) => {
+                const selected = leaveType === opt.key;
+                return (
+                  <TouchableOpacity
+                    key={opt.key}
+                    style={[
+                      styles.typeChip,
+                      selected
+                        ? { backgroundColor: theme.primary, borderColor: theme.primary }
+                        : { backgroundColor: "transparent", borderColor: theme.border },
+                    ]}
+                    onPress={() => setLeaveType(opt.key)}
+                  >
+                    <Text
+                      style={[
+                        styles.typeChipText,
+                        { color: selected ? "#FFFFFF" : theme.text },
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.quickDateRow}>
+              <TouchableOpacity
+                style={[styles.quickDateBtn, { borderColor: theme.border }]}
+                onPress={() => {
+                  const d = getLocalDateString(0);
+                  setStartDate(d);
+                  setEndDate(d);
+                }}
+              >
+                <Text style={[styles.quickDateText, { color: theme.text }]}>Today</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.quickDateBtn, { borderColor: theme.border }]}
+                onPress={() => {
+                  const d = getLocalDateString(1);
+                  setStartDate(d);
+                  setEndDate(d);
+                }}
+              >
+                <Text style={[styles.quickDateText, { color: theme.text }]}>Tomorrow</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.quickDateBtn, { borderColor: theme.border }]}
+                onPress={() => {
+                  setStartDate(getLocalDateString(0));
+                  setEndDate(getLocalDateString(1));
+                }}
+              >
+                <Text style={[styles.quickDateText, { color: theme.text }]}>Today–Tomorrow</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.dateRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>
+                  Start Date (YYYY-MM-DD)
+                </Text>
+                <TextInput
+                  style={[
+                    styles.leaveInput,
+                    { color: theme.text, borderColor: theme.border, backgroundColor: darkMode ? "#1E293B" : "#F8FAFC" },
+                  ]}
+                  value={startDate}
+                  onChangeText={setStartDate}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={theme.textSecondary}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>
+                  End Date (YYYY-MM-DD)
+                </Text>
+                <TextInput
+                  style={[
+                    styles.leaveInput,
+                    { color: theme.text, borderColor: theme.border, backgroundColor: darkMode ? "#1E293B" : "#F8FAFC" },
+                  ]}
+                  value={endDate}
+                  onChangeText={setEndDate}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={theme.textSecondary}
+                />
+              </View>
+            </View>
+
+            <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Reason</Text>
+            <TextInput
+              style={[
+                styles.leaveTextArea,
+                { color: theme.text, borderColor: theme.border, backgroundColor: darkMode ? "#1E293B" : "#F8FAFC" },
+              ]}
+              value={leaveReason}
+              onChangeText={setLeaveReason}
+              placeholder="Explain why you need leave or emergency absence..."
+              placeholderTextColor={theme.textSecondary}
+              multiline
+              numberOfLines={3}
+            />
+
+            <TouchableOpacity
+              style={[styles.attachBtn, { borderColor: theme.border }]}
+              onPress={pickLeaveAttachment}
+            >
+              <Ionicons name="attach-outline" size={18} color={theme.primary} />
+              <Text style={[styles.attachBtnText, { color: theme.text }]} numberOfLines={1}>
+                {leaveAttachment ? `Attached: ${leaveAttachment.name}` : "Attach Med Cert / Proof (Optional)"}
+              </Text>
+            </TouchableOpacity>
+
+            {leaveError ? <Text style={styles.leaveErrorText}>{leaveError}</Text> : null}
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={[styles.modalCancelBtn, { borderColor: theme.border }]}
+                onPress={() => setLeaveModalVisible(false)}
+                disabled={submittingLeave}
+              >
+                <Text style={[styles.leaveModalCancelText, { color: theme.text }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSubmitBtn, { backgroundColor: "#DC2626" }]}
+                onPress={handleSubmitLeaveRequest}
+                disabled={submittingLeave}
+              >
+                <Text style={styles.modalSubmitText}>
+                  {submittingLeave ? "Submitting..." : "Submit Request"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* PHOTO PICKER MODAL */}
       <Modal
@@ -579,6 +1084,335 @@ const styles = StyleSheet.create({
   licenseText: {
     color: "#FFFFFF",
     fontSize: 11,
+    fontWeight: "700",
+  },
+  badgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+  },
+  topDriverBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginTop: 6,
+    gap: 4,
+  },
+  topDriverBadgeText: {
+    color: "#92400E",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  rewardCard: {
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FDE68A",
+    borderWidth: 1,
+    borderRadius: 12,
+    marginHorizontal: 12,
+    marginBottom: 12,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  rewardCardLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
+  rewardIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rewardCardTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#92400E",
+  },
+  rewardCardSub: {
+    fontSize: 11.5,
+    color: "#B45309",
+    marginTop: 2,
+  },
+  bonusPill: {
+    backgroundColor: "#DCFCE7",
+    borderColor: "#86EFAC",
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  bonusPillText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#047857",
+  },
+  leaveCard: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  leaveHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  leaveTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  leaveSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  dutyStatusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  dutyStatusText: {
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  dutyFeedbackText: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 10,
+  },
+  leaveActionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+  },
+  dutyToggleBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 10,
+  },
+  dutyToggleBtnText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  applyLeaveBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  applyLeaveBtnText: {
+    color: "#DC2626",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  leaveHistoryBox: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
+  leaveHistoryHeading: {
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 8,
+    textTransform: "uppercase",
+  },
+  leaveItemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+    gap: 10,
+  },
+  leaveItemTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  leaveItemType: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  leaveStatusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  leaveStatusText: {
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  leaveItemDates: {
+    fontSize: 12,
+    marginTop: 3,
+  },
+  leaveItemReason: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  leaveReviewNotes: {
+    fontSize: 11,
+    color: "#B45309",
+    marginTop: 3,
+  },
+  cancelLeaveBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#FEE2E2",
+  },
+  cancelLeaveBtnText: {
+    color: "#B91C1C",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  leaveModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.55)",
+    justifyContent: "center",
+    padding: 18,
+  },
+  leaveModalCard: {
+    borderRadius: 16,
+    padding: 18,
+  },
+  leaveModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  leaveModalTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  chipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
+  },
+  typeChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  typeChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  quickDateRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 10,
+  },
+  quickDateBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  quickDateText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  dateRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 12,
+  },
+  leaveInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+  },
+  leaveTextArea: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    minHeight: 72,
+    textAlignVertical: "top",
+    marginBottom: 12,
+  },
+  attachBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  attachBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    flex: 1,
+  },
+  leaveErrorText: {
+    color: "#DC2626",
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 10,
+  },
+  modalBtnRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: "center",
+  },
+  leaveModalCancelText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  modalSubmitBtn: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: "center",
+  },
+  modalSubmitText: {
+    color: "#FFFFFF",
+    fontSize: 14,
     fontWeight: "700",
   },
   content: {

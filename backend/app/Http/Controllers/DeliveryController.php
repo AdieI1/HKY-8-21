@@ -46,7 +46,7 @@ class DeliveryController extends Controller
             'tracking' => function ($q) {
                 $q->orderBy('tracking_id', 'asc');
             },
-            'checklists',
+            'checklists.inspector',
             'reviews',
             'incidents',
             'strandedDriver.user',
@@ -115,7 +115,7 @@ class DeliveryController extends Controller
             'assignedBy',
             'permit',
             'tracking',
-            'checklists',
+            'checklists.inspector',
             'incidents',
             'strandedDriver.user',
             'strandedVehicle',
@@ -154,7 +154,7 @@ class DeliveryController extends Controller
                 'assignedBy',
                 'permit',
                 'tracking',
-                'checklists',
+                'checklists.inspector',
                 'incidents',
                 'strandedDriver.user',
                 'strandedVehicle',
@@ -324,7 +324,7 @@ class DeliveryController extends Controller
             'assignedBy',
             'permit',
             'tracking',
-            'checklists',
+            'checklists.inspector',
             'reviews',
             'strandedDriver.user',
             'strandedVehicle',
@@ -371,7 +371,7 @@ class DeliveryController extends Controller
         $deliveries = Delivery::with([
             'request.customer',
             'reviews.customer',
-            'checklists',
+            'checklists.inspector',
         ])
             ->where('driver_id', $driver->driver_id)
             ->where('status', '!=', 'pending')
@@ -480,6 +480,8 @@ class DeliveryController extends Controller
             'estimated_duration_days' => 'nullable|integer|min:1|max:30',
             'estimated_delivery_date' => 'nullable|date',
             'fuel_issued' => 'nullable|numeric|min:0',
+            'fuel_allowance' => 'nullable|numeric|min:0',
+            'starting_fuel' => 'nullable|numeric|min:0',
             'fuel_receipt_no' => 'nullable|string|max:100',
             'remarks' => 'nullable|string|max:1000',
             'starting_odometer' => 'nullable|numeric|min:0',
@@ -491,11 +493,62 @@ class DeliveryController extends Controller
             'item_permit_type' => 'nullable|string|max:100',
         ]);
 
+        // Guard target driver against assigning off-duty, absent, or on-leave drivers BEFORE touching old driver/transaction
+        $targetDriver = Driver::with('user')->find($request->driver_id);
+        if ($targetDriver) {
+            $targetDriver = $targetDriver->syncLeaveAndDutyStatus();
+            $drvName = $targetDriver->user?->full_name ?: 'Driver';
+            if ($targetDriver->status !== 'active') {
+                return response()->json([
+                    'message' => "{$drvName} is currently inactive and cannot be assigned.",
+                ], 422);
+            }
+            if ($targetDriver->availability_status === 'on_leave') {
+                return response()->json([
+                    'message' => "{$drvName} is currently On Leave and cannot be assigned.",
+                ], 422);
+            }
+            if ($targetDriver->availability_status === 'pending_leave') {
+                return response()->json([
+                    'message' => "{$drvName} has a pending Sick Leave / Emergency Absence covering today and cannot be assigned until reviewed.",
+                ], 422);
+            }
+            if (in_array($targetDriver->availability_status, ['off_duty', 'offline'], true)) {
+                return response()->json([
+                    'message' => "{$drvName} is currently Off Duty and cannot be assigned until they clock On Duty.",
+                ], 422);
+            }
+            if ($targetDriver->availability_status === 'busy' && (int) $delivery->driver_id !== (int) $targetDriver->driver_id) {
+                return response()->json([
+                    'message' => "{$drvName} is currently assigned to another active delivery.",
+                ], 422);
+            }
+
+            $targetTripDate = $validated['trip_date']
+                ?? $delivery->request?->scheduled_date?->toDateString()
+                ?? now()->toDateString();
+            $hasFutureLeaveConflict = \App\Models\DriverLeave::where('driver_id', $targetDriver->driver_id)
+                ->where('status', 'approved')
+                ->whereDate('start_date', '<=', $targetTripDate)
+                ->whereDate('end_date', '>=', $targetTripDate)
+                ->exists();
+            if ($hasFutureLeaveConflict) {
+                return response()->json([
+                    'message' => "{$drvName} has approved leave on {$targetTripDate} and cannot be assigned to that trip date.",
+                ], 422);
+            }
+        }
+
         $updated = DB::transaction(function () use (
             $request,
             $delivery,
             $validated
         ) {
+            $dispatcherUserId = $request->user()?->user_id
+                ?? $request->input('assigned_by')
+                ?? \App\Models\User::whereHas('role', fn($q) => $q->whereIn('role_name', ['Staff', 'Admin', 'Dispatcher', 'staff', 'admin']))->value('user_id')
+                ?? 2;
+
             /*
             |--------------------------------------------------------------------------
             | If this delivery was previously assigned to another driver,
@@ -510,9 +563,12 @@ class DeliveryController extends Controller
                 $oldDriver = Driver::find($delivery->driver_id);
 
                 if ($oldDriver) {
-                    $oldDriver->update([
-                        'availability_status' => 'available'
-                    ]);
+                    $oldDriver = $oldDriver->syncLeaveAndDutyStatus();
+                    if (!in_array($oldDriver->availability_status, ['on_leave', 'pending_leave', 'off_duty', 'offline'], true)) {
+                        $oldDriver->update([
+                            'availability_status' => 'available'
+                        ]);
+                    }
                 }
             }
 
@@ -596,7 +652,7 @@ class DeliveryController extends Controller
                 if ($oldVehicle) {
                     if ($isReliefAssignment || $oldVehicle->status === 'broken') {
                         $oldVehicle->update(['status' => 'broken']);
-                    } elseif (!in_array($oldVehicle->status, ['maintenance', 'decommissioned'])) {
+                    } elseif (!in_array($oldVehicle->status, ['maintenance', 'waiting_part_confirmation', 'broken', 'decommissioned'])) {
                         $oldVehicle->update(['status' => 'available']);
                     }
                 }
@@ -609,6 +665,26 @@ class DeliveryController extends Controller
             */
 
             $targetVehicle = \App\Models\Vehicle::find($request->vehicle_id);
+            if ($targetVehicle) {
+                if ($targetVehicle->status === 'waiting_part_confirmation') {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'This vehicle is waiting for maintenance parts confirmation and cannot be assigned to a delivery.',
+                    ], 422);
+                }
+                if (in_array($targetVehicle->status, ['maintenance', 'broken', 'decommissioned'], true)) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => "Vehicle [{$targetVehicle->plate_number}] is currently {$targetVehicle->status} and cannot be assigned.",
+                    ], 422);
+                }
+                if ($targetVehicle->status === 'in_use' && (int) $delivery->vehicle_id !== (int) $targetVehicle->vehicle_id) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => "Vehicle [{$targetVehicle->plate_number}] is currently assigned to another active delivery.",
+                    ], 422);
+                }
+            }
 
             $odometer = $validated['starting_odometer']
                 ?? $validated['odometer_reading']
@@ -617,28 +693,35 @@ class DeliveryController extends Controller
                 ?? $targetVehicle?->odometer_reading
                 ?? $delivery->starting_odometer;
 
+            $requestedFuelLiters = isset($validated['fuel_issued']) && $validated['fuel_issued'] !== ''
+                ? (float) $validated['fuel_issued']
+                : 0.0;
+
+            $fuelAllowanceAmount = isset($validated['fuel_allowance']) && $validated['fuel_allowance'] !== ''
+                ? round((float) $validated['fuel_allowance'], 2)
+                : 0.0;
+
+            $existingVehicleFuel = $targetVehicle?->fuel_level;
+            if ($existingVehicleFuel === null && $targetVehicle) {
+                $existingVehicleFuel = Delivery::where('vehicle_id', $targetVehicle->vehicle_id)
+                    ->where('delivery_id', '!=', $delivery->delivery_id)
+                    ->whereNotNull('ending_fuel')
+                    ->orderByDesc('end_time')
+                    ->orderByDesc('delivery_id')
+                    ->value('ending_fuel');
+            }
+
             $startingFuel = $validated['starting_fuel']
                 ?? $request->starting_fuel
-                ?? $validated['fuel_issued']
-                ?? $request->fuel_issued
-                ?? $delivery->fuel_issued
-                ?? $targetVehicle?->fuel_level
-                ?? $delivery->starting_fuel;
+                ?? ($requestedFuelLiters > 0
+                    ? (($existingVehicleFuel !== null ? (float) $existingVehicleFuel : 0.0) + $requestedFuelLiters)
+                    : ($existingVehicleFuel ?? $delivery->starting_fuel ?? 0));
 
             $durationDays = isset($validated['estimated_duration_days']) ? (int) $validated['estimated_duration_days'] : ($delivery->estimated_duration_days ?: 2);
             $estDeliveryDate = $validated['estimated_delivery_date'] ?? null;
             if (!$estDeliveryDate) {
                 $estDeliveryDate = now()->addDays($durationDays);
             }
-
-            $dispatcherUserId = $request->user()?->user_id 
-                ?? $request->input('assigned_by') 
-                ?? \App\Models\User::whereHas('role', fn($q) => $q->whereIn('role_name', ['Staff', 'Admin', 'Dispatcher', 'staff', 'admin']))->value('user_id')
-                ?? 2;
-
-            $requestedFuelLiters = isset($validated['fuel_issued']) && $validated['fuel_issued'] !== ''
-                ? (float) $validated['fuel_issued']
-                : 0.0;
 
             // Relief reassignment or fresh dispatch with fuel > 0 requires Fuel Inventory confirmation first
             $wasOngoing = !$isReliefAssignment && in_array($delivery->status, ['accepted', 'in_transit', 'out_for_delivery', 'loading_cargo', 'arrived_pickup']);
@@ -684,8 +767,9 @@ class DeliveryController extends Controller
                 'trip_date' => $validated['trip_date'] ?? ($delivery->trip_date ?: now()->toDateString()),
                 'estimated_duration_days' => $durationDays,
                 'estimated_delivery_date' => $estDeliveryDate,
-                'fuel_issued' => $validated['fuel_issued'] ?? $delivery->fuel_issued,
-                'fuel_receipt_no' => $needsFuelConfirmation ? null : ($validated['fuel_receipt_no'] ?? $delivery->fuel_receipt_no),
+                'fuel_issued' => $requestedFuelLiters,
+                'fuel_allowance' => $fuelAllowanceAmount,
+                'fuel_receipt_no' => $needsFuelConfirmation ? null : ($requestedFuelLiters > 0 ? ($validated['fuel_receipt_no'] ?? $delivery->fuel_receipt_no) : null),
                 'fuel_issuance_status' => $needsFuelConfirmation ? 'pending' : ($wasOngoing ? ($delivery->fuel_issuance_status ?: 'confirmed') : 'not_required'),
                 'remarks' => $validated['remarks'] ?? null,
                 'starting_odometer' => $odometer !== null ? $odometer : $delivery->starting_odometer,
@@ -724,6 +808,10 @@ class DeliveryController extends Controller
                         'issued_at' => now(),
                     ]
                 );
+            } elseif (!$needsFuelConfirmation) {
+                \App\Models\FuelIssuance::where('delivery_id', $delivery->delivery_id)
+                    ->where('status', 'pending')
+                    ->update(['status' => 'cancelled']);
             }
 
             if ($delivery->request) {
@@ -1040,6 +1128,50 @@ class DeliveryController extends Controller
         );
     }
 
+    public function acceptDelivery(Request $request, Delivery $delivery)
+    {
+        $driver = $this->assignedDriver($request, $delivery);
+
+        if ($driver instanceof \Illuminate\Http\JsonResponse) {
+            return $driver;
+        }
+
+        if ($delivery->fuel_issuance_status === 'pending' || $delivery->status === 'pending') {
+            return response()->json([
+                'message' => 'Fuel issuance must be confirmed before accepting this delivery.'
+            ], 422);
+        }
+
+        $delCode = 'DEL' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+        $driverName = $delivery->driver?->user?->full_name ?: 'Driver';
+
+        $alreadyNotified = AppNotification::where('type', 'delivery')
+            ->where('title', 'Delivery Accepted')
+            ->where('message', 'like', "%#{$delCode}%")
+            ->exists();
+
+        if (!$alreadyNotified) {
+            AppNotification::notify(
+                'delivery',
+                'Delivery Accepted',
+                "Delivery #{$delCode} has been accepted by {$driverName}.",
+                '/delivery'
+            );
+
+            if ($delivery->request?->customer_id) {
+                AppNotification::notify(
+                    'delivery_status',
+                    "Delivery Accepted (#{$delCode})",
+                    "Your delivery #{$delCode} has been accepted by {$driverName}.",
+                    '/deliveries',
+                    $delivery->request->customer_id
+                );
+            }
+        }
+
+        return response()->json($this->loadDriverDelivery($delivery));
+    }
+
     public function updateDriverStatus(Request $request, Delivery $delivery)
     {
         $driver = $this->assignedDriver($request, $delivery);
@@ -1218,16 +1350,16 @@ class DeliveryController extends Controller
             if ($hasPostTrip) {
                 $this->setDeliveryStatus($delivery, 'completed');
             } else {
-                // Hold completion until Staff finishes Post-Trip Inspection (ending odometer & ending fuel)
+                // Hold completion until driver returns to HJY Headquarters and Staff finishes Post-Trip Inspection
                 $this->setDeliveryStatus($delivery, 'returning_to_hq');
 
                 $delCode = 'DLV' . str_pad((string) $delivery->delivery_id, 4, '0', STR_PAD_LEFT);
                 $plate = $delivery->vehicle?->plate_number ?: 'Truck';
                 $driverName = $delivery->driver?->user?->full_name ?: 'Driver';
                 AppNotification::notify(
-                    'inspection',
-                    "Post-Trip Inspection Required ({$delCode})",
-                    "Proof of delivery submitted for {$delCode} ({$plate}, {$driverName}). Complete Post-Trip Inspection with ending odometer and ending fuel to finalize this delivery.",
+                    'delivery',
+                    "POD Submitted — Returning to HQ ({$delCode})",
+                    "Proof of delivery submitted for {$delCode} ({$plate}, {$driverName}). Driver is navigating back to HJY Headquarters.",
                     '/delivery'
                 );
             }
@@ -1238,7 +1370,78 @@ class DeliveryController extends Controller
         return response()->json([
             'message' => $hasPostTrip
                 ? 'Proof of delivery recorded and delivery completed.'
-                : 'Proof of delivery recorded. Awaiting Staff Post-Trip Inspection to finalize delivery.',
+                : 'Proof of delivery recorded. Please navigate back to HJY Headquarters.',
+            'delivery' => $this->loadDriverDelivery($delivery),
+        ]);
+    }
+
+    /**
+     * Mark that the returning driver has arrived at HJY Headquarters.
+     * Releases the driver back to On Duty (available) while keeping the vehicle in_use until Staff completes Post-Trip Inspection.
+     */
+    public function markArrivedAtHq(Request $request, Delivery $delivery)
+    {
+        $driver = $this->assignedDriver($request, $delivery);
+
+        if ($driver instanceof \Illuminate\Http\JsonResponse) {
+            return $driver;
+        }
+
+        if ($delivery->status === 'completed') {
+            return response()->json([
+                'message' => 'Delivery already completed.',
+                'delivery' => $this->loadDriverDelivery($delivery),
+            ]);
+        }
+
+        if ($delivery->status !== 'returning_to_hq') {
+            return response()->json([
+                'message' => 'Submit proof of delivery first before confirming HQ arrival.',
+            ], 422);
+        }
+
+        $hasPostTrip = $delivery->checklists()->where('type', 'post_trip')->exists();
+
+        if (!$delivery->hq_arrived_at) {
+            DB::transaction(function () use ($delivery) {
+                $delivery->update(['hq_arrived_at' => now()]);
+
+                DeliveryTracking::create([
+                    'delivery_id' => $delivery->delivery_id,
+                    'status_update' => 'arrived_hq',
+                ]);
+            });
+        }
+
+        if ($hasPostTrip) {
+            $this->setDeliveryStatus($delivery, 'completed');
+        } else {
+            // Release driver immediately on HQ arrival; vehicle stays in_use until Staff Post-Trip Inspection completes.
+            if ($delivery->driver) {
+                $delivery->driver->syncLeaveAndDutyStatus();
+            }
+
+            $delCode = 'DLV' . str_pad((string) $delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+            $plate = $delivery->vehicle?->plate_number ?: 'Truck';
+            $driverName = $delivery->driver?->user?->full_name ?: 'Driver';
+            AppNotification::notify(
+                'inspection',
+                "Arrived at HQ — Post-Trip Inspection Required ({$delCode})",
+                "Truck {$plate} ({$driverName}) arrived at HJY Headquarters for {$delCode}. Complete Post-Trip Inspection (ending odometer & ending fuel) to release the vehicle.",
+                '/delivery'
+            );
+
+            try {
+                \App\Events\DeliveryUpdated::dispatch($delivery->fresh());
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Reverb broadcast error: " . $e->getMessage());
+            }
+        }
+
+        return response()->json([
+            'message' => $hasPostTrip
+                ? 'Arrived at HJY Headquarters and delivery finalized.'
+                : 'Arrived at HJY Headquarters. Trip completed on your side — vehicle awaiting post-trip inspection.',
             'delivery' => $this->loadDriverDelivery($delivery),
         ]);
     }
@@ -1281,6 +1484,68 @@ class DeliveryController extends Controller
         return null;
     }
 
+    private function storeChecklistPhotos(Request $request, Delivery $delivery, ?DeliveryChecklist $existing = null): array
+    {
+        $stored = is_array($existing?->photos) ? $existing->photos : [];
+        $folder = 'checklists/delivery_' . $delivery->delivery_id;
+
+        if ($request->hasFile('photos')) {
+            $newPhotos = [];
+            $files = $request->file('photos');
+            if (!is_array($files)) {
+                $files = [$files];
+            }
+            foreach ($files as $file) {
+                if (!$file || !$file->isValid()) {
+                    continue;
+                }
+                $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+                $filename = 'chk_' . time() . '_' . Str::random(8) . '.' . $ext;
+                $newPhotos[] = $file->storeAs($folder, $filename, 'public');
+            }
+            if (!empty($newPhotos)) {
+                return array_values(array_unique(array_merge($stored, $newPhotos)));
+            }
+        }
+
+        $inputPhotos = $request->input('photos');
+        if (is_string($inputPhotos)) {
+            $decodedList = json_decode($inputPhotos, true);
+            if (is_array($decodedList)) {
+                $inputPhotos = $decodedList;
+            }
+        }
+
+        if (is_array($inputPhotos) && !empty($inputPhotos)) {
+            $newPhotos = [];
+            foreach ($inputPhotos as $photo) {
+                if (!is_string($photo) || trim($photo) === '') {
+                    continue;
+                }
+                $trimmed = trim($photo);
+                if (str_starts_with($trimmed, 'data:')) {
+                    if (preg_match('/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/s', $trimmed, $matches)) {
+                        $ext = strtolower($matches[1]) === 'jpeg' ? 'jpg' : strtolower($matches[1]);
+                        $bytes = base64_decode($matches[2]);
+                        if ($bytes !== false) {
+                            $filename = 'chk_' . time() . '_' . Str::random(8) . '.' . $ext;
+                            Storage::disk('public')->put($folder . '/' . $filename, $bytes);
+                            $newPhotos[] = $folder . '/' . $filename;
+                        }
+                    }
+                } elseif (preg_match('/^https?:\/\//i', $trimmed) || str_contains($trimmed, 'checklists/')) {
+                    $clean = preg_replace('#^https?://[^/]+/storage/#i', '', $trimmed);
+                    $newPhotos[] = ltrim($clean, '/');
+                }
+            }
+            if (!empty($newPhotos)) {
+                return array_values(array_unique(array_merge($stored, $newPhotos)));
+            }
+        }
+
+        return $stored;
+    }
+
     public function saveChecklist(Request $request, Delivery $delivery)
     {
         $user = $request->user();
@@ -1298,6 +1563,13 @@ class DeliveryController extends Controller
             }
         }
 
+        if (is_string($request->input('items'))) {
+            $decodedItems = json_decode($request->input('items'), true);
+            if (is_array($decodedItems)) {
+                $request->merge(['items' => $decodedItems]);
+            }
+        }
+
         $validated = $request->validate([
             'type' => 'required|in:pre_trip,post_trip,pre_loading,post_loading,pre_unloading,post_unloading',
             'items' => 'required|array|min:1',
@@ -1307,6 +1579,7 @@ class DeliveryController extends Controller
             'ending_odometer' => 'nullable|numeric|min:0',
             'starting_fuel' => 'nullable|numeric|min:0',
             'ending_fuel' => 'nullable|numeric|min:0',
+            'photos' => 'nullable',
         ]);
 
         if (in_array(null, array_values($validated['items']), true)) {
@@ -1338,10 +1611,52 @@ class DeliveryController extends Controller
             ], 422);
         }
 
+        if ($validated['type'] === 'pre_trip') {
+            if (!isset($validated['starting_odometer'])) {
+                return response()->json([
+                    'message' => 'Starting odometer reading is required to complete the pre-trip inspection.'
+                ], 422);
+            }
+        }
+
+        if ($validated['type'] === 'post_trip') {
+            if (!isset($validated['ending_odometer']) || !isset($validated['ending_fuel'])) {
+                return response()->json([
+                    'message' => 'Ending odometer and ending fuel readings are required to complete the post-trip inspection.'
+                ], 422);
+            }
+
+            $preTripOdo = $delivery->starting_odometer
+                ?? DeliveryChecklist::where('delivery_id', $delivery->delivery_id)
+                    ->where('type', 'pre_trip')
+                    ->value('starting_odometer');
+
+            if ($preTripOdo !== null && (float) $validated['ending_odometer'] < (float) $preTripOdo) {
+                return response()->json([
+                    'message' => 'Ending odometer (' . number_format((float) $validated['ending_odometer'], 0) . ' km) cannot be less than starting odometer (' . number_format((float) $preTripOdo, 0) . ' km).'
+                ], 422);
+            }
+        }
+
+        $existingChecklist = DeliveryChecklist::where('delivery_id', $delivery->delivery_id)
+            ->where('type', $validated['type'])
+            ->first();
+        $storedPhotos = $this->storeChecklistPhotos($request, $delivery, $existingChecklist);
+
+        if (
+            in_array($validated['type'], ['pre_loading', 'post_loading', 'pre_unloading', 'post_unloading'], true) &&
+            empty($storedPhotos)
+        ) {
+            return response()->json([
+                'message' => 'Please capture at least one photo proof of cargo condition before continuing.',
+            ], 422);
+        }
+
         $inspectorId = $user?->user_id;
         $inspectorName = $user?->full_name ?? $user?->name ?? $request->input('inspector_name', 'Authorized Inspector');
 
         $checklistData = array_merge($validated, [
+            'photos' => $storedPhotos,
             'inspected_by' => $inspectorId,
             'inspector_name' => $inspectorName,
             'completed_at' => now(),
@@ -1355,31 +1670,42 @@ class DeliveryController extends Controller
             $checklistData
         );
 
+        $delCode = 'DLV' . str_pad((string) $delivery->delivery_id, 4, '0', STR_PAD_LEFT);
+        $plate = $delivery->vehicle?->plate_number ?: 'Vehicle';
+        $photoCountNote = !empty($storedPhotos) ? (' with ' . count($storedPhotos) . ' inspection photo(s)') : '';
+
         if ($validated['type'] === 'pre_trip') {
-            $updateData = [];
-            if (isset($validated['starting_odometer'])) {
-                $updateData['starting_odometer'] = $validated['starting_odometer'];
-            }
+            $preTripUpdate = [
+                'starting_odometer' => $validated['starting_odometer'],
+            ];
             if (isset($validated['starting_fuel'])) {
-                $updateData['starting_fuel'] = $validated['starting_fuel'];
-            } elseif ($delivery->starting_fuel === null && $delivery->fuel_issued !== null) {
-                $updateData['starting_fuel'] = $delivery->fuel_issued;
+                $preTripUpdate['starting_fuel'] = $validated['starting_fuel'];
+            } elseif ($delivery->starting_fuel === null) {
+                $fallbackFuel = $delivery->fuel_issued ?? $delivery->vehicle?->fuel_level;
+                if ($fallbackFuel !== null) {
+                    $preTripUpdate['starting_fuel'] = $fallbackFuel;
+                }
             }
-            if (!empty($updateData)) {
-                $delivery->update($updateData);
-            }
-            if (isset($validated['starting_odometer']) && $delivery->vehicle) {
+            $delivery->update($preTripUpdate);
+            if ($delivery->vehicle) {
                 $delivery->vehicle->update(['odometer_reading' => $validated['starting_odometer']]);
+            }
+
+            AppNotification::notify(
+                'checklist',
+                "Pre-Trip Inspection Completed ({$delCode})",
+                "{$inspectorName} completed pre-trip inspection for {$plate} ({$delCode}){$photoCountNote}.",
+                "/delivery?deliveryId={$delivery->delivery_id}"
+            );
+
+            try {
+                \App\Events\DeliveryUpdated::dispatch($delivery->fresh());
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Reverb broadcast error: " . $e->getMessage());
             }
         }
 
         if ($validated['type'] === 'post_trip') {
-            if (!isset($validated['ending_odometer']) || !isset($validated['ending_fuel'])) {
-                return response()->json([
-                    'message' => 'Ending odometer and ending fuel readings are required to complete the post-trip inspection.'
-                ], 422);
-            }
-
             $updateData = [
                 'ending_odometer' => $validated['ending_odometer'],
                 'ending_fuel' => $validated['ending_fuel'],
@@ -1387,8 +1713,18 @@ class DeliveryController extends Controller
             $delivery->update($updateData);
 
             if ($delivery->vehicle) {
-                $delivery->vehicle->update(['odometer_reading' => $validated['ending_odometer']]);
+                $delivery->vehicle->update([
+                    'odometer_reading' => $validated['ending_odometer'],
+                    'fuel_level' => $validated['ending_fuel'],
+                ]);
             }
+
+            AppNotification::notify(
+                'checklist',
+                "Post-Trip Inspection Completed ({$delCode})",
+                "{$inspectorName} completed post-trip inspection for {$plate} ({$delCode}){$photoCountNote}.",
+                "/delivery?deliveryId={$delivery->delivery_id}"
+            );
 
             if ($delivery->status !== 'completed') {
                 $this->setDeliveryStatus($delivery, 'completed');
@@ -1403,7 +1739,7 @@ class DeliveryController extends Controller
         }
 
         return response()->json([
-            'checklist' => $checklist->fresh(),
+            'checklist' => $checklist->fresh()->load('inspector'),
             'delivery' => $this->loadDriverDelivery($delivery),
         ]);
     }
@@ -1502,6 +1838,7 @@ class DeliveryController extends Controller
 
             if ($status === 'completed') {
                 $updates['end_time'] = now();
+                $updates['hq_arrived_at'] = $delivery->hq_arrived_at ?: now();
 
                 $deliveryRequest = $delivery->request;
 
@@ -1536,13 +1873,25 @@ class DeliveryController extends Controller
             $delCode = 'DEL' . str_pad($delivery->delivery_id, 4, '0', STR_PAD_LEFT);
             $statusStr = ucwords(str_replace('_', ' ', $status));
             $driverName = $delivery->driver?->user?->full_name ?: 'Driver';
-            AppNotification::notify('delivery', "Delivery {$statusStr}", "Delivery #{$delCode} ({$driverName}) is now {$statusStr}.", '/delivery');
+
+            $adminTitle = $status === 'accepted' ? 'Delivery Is On Route' : "Delivery {$statusStr}";
+            $adminMsg = $status === 'accepted'
+                ? "Delivery #{$delCode} ({$driverName}) is on route."
+                : "Delivery #{$delCode} ({$driverName}) is now {$statusStr}.";
+            $customerTitle = $status === 'accepted'
+                ? "Delivery Is On Route (#{$delCode})"
+                : "Delivery {$statusStr} (#{$delCode})";
+            $customerMsg = $status === 'accepted'
+                ? "Your delivery #{$delCode} is on route."
+                : "Your delivery #{$delCode} is now {$statusStr}.";
+
+            AppNotification::notify('delivery', $adminTitle, $adminMsg, '/delivery');
 
             if ($delivery->request?->customer_id) {
                 AppNotification::notify(
                     'delivery_status',
-                    "Delivery {$statusStr} (#{$delCode})",
-                    "Your delivery #{$delCode} is now {$statusStr}.",
+                    $customerTitle,
+                    $customerMsg,
                     '/deliveries',
                     $delivery->request->customer_id
                 );
@@ -1556,7 +1905,7 @@ class DeliveryController extends Controller
 
             if ($status === 'completed') {
                 if ($delivery->driver) {
-                    $delivery->driver()->update(['availability_status' => 'available']);
+                    $delivery->driver->syncLeaveAndDutyStatus();
                 }
 
                 if ($delivery->vehicle) {
@@ -1577,7 +1926,7 @@ class DeliveryController extends Controller
             'assignedBy',
             'permit',
             'tracking',
-            'checklists',
+            'checklists.inspector',
             'reviews',
             'strandedDriver.user',
             'strandedVehicle',

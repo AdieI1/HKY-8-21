@@ -1,7 +1,28 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../../api/api-client';
 import PinRouteMap, { geocode, isWithinMindanao } from './PinRouteMap';
-import { validatePhoneNumber, formatPhoneInput } from '../../utils/validation';
+import { validatePhoneNumber, formatPhoneInput, validateEmail, formatNameInput } from '../../utils/validation';
+
+const getLocalTodayDateStr = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getAlertTitle = (msg) => {
+  if (!msg) return 'Validation Notice';
+  const lower = String(msg).toLowerCase();
+  if (lower.includes('missing output') || lower.includes('required fields')) return 'Incomplete Required Fields';
+  if (lower.includes('mindanao') || lower.includes('locate')) return 'Invalid Location';
+  if (lower.includes('contact number') || lower.includes('phone')) return 'Invalid Phone Number';
+  if (lower.includes('email') && (lower.includes('taken') || lower.includes('already') || lower.includes('exists'))) return 'Email Already Registered';
+  if (lower.includes('email')) return 'Invalid Email Address';
+  if (lower.includes('receipt') || lower.includes('10mb') || lower.includes('image')) return 'Invalid Payment Receipt';
+  if (lower.includes('delivery date') || lower.includes('scheduled')) return 'Invalid Schedule Date';
+  return 'Request Creation Failed';
+};
 
 const QUICK_TIMES = [
   '08:00 AM',
@@ -92,14 +113,7 @@ export default function CreateRequestModal({
     setForm((prev) => ({ ...prev, total_price: calcPrice }));
   }, [form.distance_km, form.weight, pricingRates]);
 
-  // Auto-dismiss popup error message
-  useEffect(() => {
-    if (!formError) return;
-    const timer = setTimeout(() => {
-      setFormError('');
-    }, 5000);
-    return () => clearTimeout(timer);
-  }, [formError]);
+  // Clear popup error when modal closes (keep visible until dismissed or resubmitted)
 
   const clearFieldError = (field) => {
     if (errors[field]) {
@@ -207,7 +221,11 @@ export default function CreateRequestModal({
       newErrors.receiver_phone = 'Invalid phone number';
     }
 
-    if (!form.email?.trim()) newErrors.email = 'Missing output';
+    if (!form.email?.trim()) {
+      newErrors.email = 'Missing output';
+    } else if (!validateEmail(form.email)) {
+      newErrors.email = 'Please enter a valid email address';
+    }
 
     // Cargo Information
     if (!form.item_name?.trim()) newErrors.item_name = 'Missing output';
@@ -239,7 +257,7 @@ export default function CreateRequestModal({
       if (!form.scheduled_date) {
         newErrors.scheduled_date = 'Please select a delivery date';
       } else {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalTodayDateStr();
         if (form.scheduled_date < todayStr) {
           newErrors.scheduled_date = 'Scheduled delivery date cannot be in the past';
         }
@@ -254,16 +272,21 @@ export default function CreateRequestModal({
     setErrors(validationErrors);
 
     if (Object.keys(validationErrors).length > 0) {
-      if (validationErrors.pickup?.includes('Mindanao') || validationErrors.dropoff?.includes('Mindanao')) {
+      const hasMissing = Object.values(validationErrors).includes('Missing output');
+      if (hasMissing) {
+        setFormError('Please fill in all highlighted required fields (missing output).');
+      } else if (validationErrors.pickup?.includes('Mindanao') || validationErrors.dropoff?.includes('Mindanao')) {
         setFormError('Pick-up and Drop-off locations must be strictly within Mindanao only.');
       } else if (validationErrors.phone === 'Invalid phone number') {
         setFormError('Contact number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
       } else if (validationErrors.receiver_phone === 'Invalid phone number') {
         setFormError('Receiver contact number must start with "09" and be exactly 11 digits (e.g. 09123456789).');
+      } else if (validationErrors.email === 'Please enter a valid email address') {
+        setFormError('Please enter a valid email address (e.g. name@example.com).');
       } else if (validationErrors.scheduled_date) {
         setFormError(validationErrors.scheduled_date);
       } else {
-        setFormError('Please fill in all highlighted required fields (missing output).');
+        setFormError('Please check the highlighted fields and try again.');
       }
       return;
     }
@@ -307,17 +330,39 @@ export default function CreateRequestModal({
       }
       formData.append('is_draft', asDraft ? '1' : '0');
 
-      await api.post('/delivery-requests/create-with-customer', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      await api.post('/delivery-requests/create-with-customer', formData);
 
       setShowCreateModal(false);
       await loadData();
     } catch (err) {
       console.error('Create request failed:', err.response?.data || err);
-      const backendErrors = err.response?.data?.errors;
-      const message = err.response?.data?.message;
-      setFormError(backendErrors ? Object.values(backendErrors)[0][0] : message || 'Failed to create request.');
+      const status = err.response?.status;
+      const data = err.response?.data;
+      const backendErrors = data?.errors;
+      const message = data?.message || data?.error;
+
+      if (backendErrors && typeof backendErrors === 'object') {
+        const fieldKeyMap = {
+          pickup_address: 'pickup',
+          dropoff_address: 'dropoff',
+        };
+        const mappedErrors = {};
+        const allMessages = [];
+        Object.entries(backendErrors).forEach(([key, msgs]) => {
+          const uiKey = fieldKeyMap[key] || key;
+          if (Array.isArray(msgs) && msgs[0]) {
+            mappedErrors[uiKey] = msgs[0];
+            allMessages.push(msgs[0]);
+          }
+        });
+        setErrors((prev) => ({ ...prev, ...mappedErrors }));
+        setFormError(allMessages.join(' ') || message || 'Validation failed.');
+      } else if (err.response) {
+        const rawText = typeof data === 'string' ? data.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 180) : '';
+        setFormError(message || rawText || `Server error (HTTP ${status || 'unknown'}).`);
+      } else {
+        setFormError(`Network error: ${err.message || 'Cannot reach backend server.'}`);
+      }
     } finally {
       setSaving(false);
     }
@@ -341,7 +386,7 @@ export default function CreateRequestModal({
                 <i className="fas fa-exclamation"></i>
               </div>
               <div className="sweet-alert-body">
-                <h4 className="sweet-alert-title">Incomplete Required Fields</h4>
+                <h4 className="sweet-alert-title">{getAlertTitle(formError)}</h4>
                 <p className="sweet-alert-desc">{formError}</p>
               </div>
               <button
@@ -367,7 +412,7 @@ export default function CreateRequestModal({
                     className={`form-input ${errors.first_name ? 'input-error' : ''}`}
                     placeholder={errors.first_name ? 'Missing output' : 'Enter first name'}
                     value={form.first_name}
-                    onChange={(e) => handleInputChange('first_name', e.target.value)}
+                    onChange={(e) => handleInputChange('first_name', formatNameInput(e.target.value))}
                   />
                   {errors.first_name && <span className="input-missing-tag">Missing output</span>}
                 </div>
@@ -382,7 +427,7 @@ export default function CreateRequestModal({
                     className={`form-input ${errors.last_name ? 'input-error' : ''}`}
                     placeholder={errors.last_name ? 'Missing output' : 'Enter last name'}
                     value={form.last_name}
-                    onChange={(e) => handleInputChange('last_name', e.target.value)}
+                    onChange={(e) => handleInputChange('last_name', formatNameInput(e.target.value))}
                   />
                   {errors.last_name && <span className="input-missing-tag">Missing output</span>}
                 </div>
@@ -415,7 +460,7 @@ export default function CreateRequestModal({
                       }
                     }}
                   />
-                  {errors.phone && <span className="input-missing-tag">Missing output</span>}
+                  {errors.phone === 'Missing output' && <span className="input-missing-tag">Missing output</span>}
                 </div>
                 {errors.phone && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.phone}</div>}
               </div>
@@ -428,9 +473,17 @@ export default function CreateRequestModal({
                     className={`form-input ${errors.email ? 'input-error' : ''}`}
                     placeholder={errors.email ? 'Missing output' : 'name@example.com'}
                     value={form.email}
-                    onChange={(e) => handleInputChange('email', e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setForm((prev) => ({ ...prev, email: val }));
+                      if (val.trim() && !validateEmail(val)) {
+                        setErrors((prev) => ({ ...prev, email: 'Please enter a valid email address' }));
+                      } else {
+                        clearFieldError('email');
+                      }
+                    }}
                   />
-                  {errors.email && <span className="input-missing-tag">Missing output</span>}
+                  {errors.email === 'Missing output' && <span className="input-missing-tag">Missing output</span>}
                 </div>
                 {errors.email && <div className="input-error-msg"><i className="fas fa-circle-exclamation"></i> {errors.email}</div>}
               </div>
@@ -500,14 +553,22 @@ export default function CreateRequestModal({
                 <label>Cargo Type:</label>
                 <select className="form-select" value={form.cargo_type} onChange={(e) => handleInputChange('cargo_type', e.target.value)}>
                   <option value="Construction Materials & Parts">Construction Materials & Parts</option>
-                  <option value="Electronics & Devices">Electronics & Devices</option>
-                  <option value="Food & Perishables">Food & Perishables</option>
-                  <option value="Vehicles & Automotive Parts">Vehicles & Automotive Parts</option>
                   <option value="Hardware & Industrial Tools">Hardware & Industrial Tools</option>
-                  <option value="Fitness & Gym Equipment">Fitness & Gym Equipment</option>
-                  <option value="Glassware & Ceramics">Glassware & Ceramics</option>
-                  <option value="Chemicals & Hazardous Goods">Chemicals & Hazardous Goods</option>
+                  <option value="Industrial Machinery & Heavy Equipment">Industrial Machinery & Heavy Equipment</option>
+                  <option value="Agricultural Produce & Grains">Agricultural Produce & Grains</option>
+                  <option value="Food & Perishables">Food & Perishables</option>
+                  <option value="Frozen & Chilled Goods (Cold Chain)">Frozen & Chilled Goods (Cold Chain)</option>
+                  <option value="Livestock, Feeds & Agri-Supplies">Livestock, Feeds & Agri-Supplies</option>
+                  <option value="FMCG, Groceries & Beverages">FMCG, Groceries & Beverages</option>
+                  <option value="Lumber, Wood & Forestry Products">Lumber, Wood & Forestry Products</option>
+                  <option value="Vehicles & Automotive Parts">Vehicles & Automotive Parts</option>
+                  <option value="Electronics & Devices">Electronics & Devices</option>
+                  <option value="Appliances & Office Equipment">Appliances & Office Equipment</option>
                   <option value="Furniture & Household Goods">Furniture & Household Goods</option>
+                  <option value="Glassware & Ceramics">Glassware & Ceramics</option>
+                  <option value="Medical & Pharmaceutical Supplies">Medical & Pharmaceutical Supplies</option>
+                  <option value="Chemicals & Hazardous Goods">Chemicals & Hazardous Goods</option>
+                  <option value="Containerized / Palletized Freight">Containerized / Palletized Freight</option>
                   <option value="General Cargo / Other">General Cargo / Other</option>
                 </select>
               </div>
@@ -515,7 +576,7 @@ export default function CreateRequestModal({
               <div className="form-group">
                 <label>Cargo Fragility:</label>
                 <select className="form-select" value={form.fragility} onChange={(e) => handleInputChange('fragility', e.target.value)}>
-                  <option value="low">Standard</option><option value="medium">Fragile</option><option value="high">Extremely Fragile</option>
+                  <option value="low">Standard</option><option value="medium">Fragile</option><option value="high">Extremely Fragile</option><option value="perishable">Perishable</option>
                 </select>
               </div>
 
@@ -556,7 +617,7 @@ export default function CreateRequestModal({
                         clearFieldError('pickup');
                       }}
                     />
-                    {errors.pickup && <span className="input-missing-tag">Missing output</span>}
+                    {errors.pickup === 'Missing output' && <span className="input-missing-tag">Missing output</span>}
                   </div>
                   <button type="button" onClick={() => locateAddress('pickup')} disabled={locating === 'pickup'} style={{ padding: '0 12px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
                     {locating === 'pickup' ? '...' : 'Locate'}
@@ -580,7 +641,7 @@ export default function CreateRequestModal({
                         clearFieldError('dropoff');
                       }}
                     />
-                    {errors.dropoff && <span className="input-missing-tag">Missing output</span>}
+                    {errors.dropoff === 'Missing output' && <span className="input-missing-tag">Missing output</span>}
                   </div>
                   <button type="button" onClick={() => locateAddress('dropoff')} disabled={locating === 'dropoff'} style={{ padding: '0 12px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', cursor: 'pointer', fontWeight: 600 }}>
                     {locating === 'dropoff' ? '...' : 'Locate'}
@@ -596,7 +657,7 @@ export default function CreateRequestModal({
                   className="form-input"
                   placeholder="e.g. Juan Dela Cruz (leave blank if same as customer)"
                   value={form.receiver_name || ''}
-                  onChange={(e) => handleInputChange('receiver_name', e.target.value)}
+                  onChange={(e) => handleInputChange('receiver_name', formatNameInput(e.target.value))}
                 />
               </div>
 
@@ -678,12 +739,12 @@ export default function CreateRequestModal({
                     <div style={{ position: 'relative' }}>
                       <input
                         type="date"
-                        min={new Date().toISOString().split('T')[0]}
+                        min={getLocalTodayDateStr()}
                         className={`form-input ${errors.scheduled_date ? 'input-error' : ''}`}
                         value={form.scheduled_date || ''}
                         onChange={(e) => handleInputChange('scheduled_date', e.target.value)}
                       />
-                      {errors.scheduled_date && <span className="input-missing-tag">Missing output</span>}
+                      {errors.scheduled_date === 'Missing output' && <span className="input-missing-tag">Missing output</span>}
                     </div>
                     {errors.scheduled_date && (
                       <div className="input-error-msg">

@@ -411,6 +411,10 @@ export const cancelDeliveryOnAccident = async (deliveryId, reason) => {
   });
 };
 
+export const getMyRewardStatus = async () => {
+  return request("/rewards/my-status");
+};
+
 
 
 

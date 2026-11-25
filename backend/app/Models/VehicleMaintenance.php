@@ -24,6 +24,8 @@ class VehicleMaintenance extends Model
         'maintenance_cost',
         'odometer_at_service',
         'status',
+        'parts_status',
+        'parts_transaction_no',
     ];
 
     public function vehicle()

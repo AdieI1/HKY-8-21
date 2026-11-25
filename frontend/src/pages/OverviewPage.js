@@ -5,7 +5,7 @@ import Sidebar from '../components/Sidebar';
 import NotificationBell from '../components/NotificationBell';
 import Pagination from '../components/Pagination';
 import TableSkeleton from '../components/TableSkeleton';
-import { validatePhoneNumber, formatPhoneInput } from '../utils/validation';
+import { validatePhoneNumber, formatPhoneInput, formatNameInput, getFormAlertTitle } from '../utils/validation';
 import { getOverdueRequestConfig } from '../utils/systemRules';
 
 const ACTIVE_STATUSES = [
@@ -736,7 +736,7 @@ function OverviewPage() {
 
   const totalVehiclesCount = vehicles.length || 1;
   const activeVehicles = vehicles.filter((v) => v.status === 'in_use' || v.status === 'active' || !!activeDeliveryMap[v.vehicle_id]);
-  const maintenanceVehicles = vehicles.filter((v) => v.status === 'maintenance' || v.status === 'broken' || v.status === 'repair');
+  const maintenanceVehicles = vehicles.filter((v) => v.status === 'maintenance' || v.status === 'waiting_part_confirmation' || v.status === 'broken' || v.status === 'repair');
   const availableVehicles = vehicles.filter(
     (v) => !activeVehicles.some((av) => av.vehicle_id === v.vehicle_id) && !maintenanceVehicles.some((mv) => mv.vehicle_id === v.vehicle_id)
   );
@@ -2280,7 +2280,7 @@ function OverviewPage() {
                 <div className="form-row">
                   <div className="form-group">
                     <label>Full Name<span className="required">*</span></label>
-                    <input type="text" value={editForm.full_name} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} />
+                    <input type="text" value={editForm.full_name} onChange={(e) => setEditForm({ ...editForm, full_name: formatNameInput(e.target.value) })} />
                   </div>
                 </div>
                 <div className="form-row">
@@ -2553,7 +2553,7 @@ function OverviewPage() {
                     <i className="fas fa-exclamation"></i>
                   </div>
                   <div className="sweet-alert-body">
-                    <h4 className="sweet-alert-title">Incomplete Required Fields</h4>
+                    <h4 className="sweet-alert-title">{getFormAlertTitle(formError)}</h4>
                     <p className="sweet-alert-desc">{formError}</p>
                   </div>
                   <button
@@ -2696,7 +2696,7 @@ function OverviewPage() {
                         className={addFormErrors.first_name ? 'input-error' : ''}
                         placeholder="e.g. Juan"
                         value={addForm.first_name}
-                        onChange={(e) => handleAddFormFieldChange('first_name', e.target.value)}
+                        onChange={(e) => handleAddFormFieldChange('first_name', formatNameInput(e.target.value))}
                       />
                       {addFormErrors.first_name && <span className="field-error-text">{addFormErrors.first_name}</span>}
                     </div>
@@ -2709,7 +2709,7 @@ function OverviewPage() {
                         className={addFormErrors.middle_name ? 'input-error' : ''}
                         placeholder="e.g. Santos (or N/A)"
                         value={addForm.middle_name}
-                        onChange={(e) => handleAddFormFieldChange('middle_name', e.target.value)}
+                        onChange={(e) => handleAddFormFieldChange('middle_name', formatNameInput(e.target.value))}
                       />
                       {addFormErrors.middle_name && <span className="field-error-text">{addFormErrors.middle_name}</span>}
                     </div>
@@ -2722,7 +2722,7 @@ function OverviewPage() {
                         className={addFormErrors.last_name ? 'input-error' : ''}
                         placeholder="e.g. Dela Cruz"
                         value={addForm.last_name}
-                        onChange={(e) => handleAddFormFieldChange('last_name', e.target.value)}
+                        onChange={(e) => handleAddFormFieldChange('last_name', formatNameInput(e.target.value))}
                       />
                       {addFormErrors.last_name && <span className="field-error-text">{addFormErrors.last_name}</span>}
                     </div>

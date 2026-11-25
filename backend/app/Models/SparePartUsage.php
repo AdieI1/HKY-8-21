@@ -11,6 +11,7 @@ class SparePartUsage extends Model
     protected $primaryKey = 'usage_id';
 
     protected $fillable = [
+        'transaction_no',
         'permit_id',
         'part_id',
         'transaction_type',
@@ -22,8 +23,21 @@ class SparePartUsage extends Model
         'unit_price',
         'total_value',
         'purpose',
+        'status',
+        'confirmed_by',
+        'confirmed_at',
+        'notes',
         'used_date',
     ];
+
+    protected $casts = [
+        'confirmed_at' => 'datetime',
+    ];
+
+    public function confirmer()
+    {
+        return $this->belongsTo(User::class, 'confirmed_by', 'user_id');
+    }
 
     public function permit()
     {

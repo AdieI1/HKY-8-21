@@ -31,7 +31,7 @@ L.Icon.Default.mergeOptions({
 
 // Cagayan de Oro City Center Fallbacks
 const CDO_DEFAULT_CENTER = { lat: 8.4862, lng: 124.6522 };
-const DEFAULT_HQ = { lat: 8.4982, lng: 124.6540 };
+const DEFAULT_HQ = { lat: 8.504390, lng: 124.646337 };
 
 function toCoordinate(latitude, longitude) {
   if (latitude == null || latitude === '' || longitude == null || longitude === '') {

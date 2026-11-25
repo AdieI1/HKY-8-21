@@ -171,8 +171,11 @@ export default function SettingsPage() {
     }
   }, []);
 
-  const loadBugReports = useCallback(async () => {
-    setLoadingBugs(true);
+  const loadBugReports = useCallback(async (options = {}) => {
+    const silent = options?.silent === true;
+    if (!silent) {
+      setLoadingBugs(true);
+    }
     try {
       const res = await api.get('/bug-reports', { skipCache: true });
       if (Array.isArray(res.data)) {
@@ -181,7 +184,9 @@ export default function SettingsPage() {
     } catch (err) {
       console.error('Failed to load bug reports:', err);
     } finally {
-      setLoadingBugs(false);
+      if (!silent) {
+        setLoadingBugs(false);
+      }
     }
   }, []);
 
@@ -191,12 +196,19 @@ export default function SettingsPage() {
 
     // Real-time live updates via Laravel Reverb WebSocket
     const unsubscribe = reverb.subscribe('system-notifications', 'notification.created', () => {
-      loadBugReports();
+      loadBugReports({ silent: true });
     });
+
+    // Poll every 5 seconds so new bug reports appear automatically without manual refresh
+    const pollInterval = setInterval(() => {
+      if (!document.hidden) {
+        loadBugReports({ silent: true });
+      }
+    }, 5000);
 
     const handleFocus = () => {
       if (!document.hidden) {
-        loadBugReports();
+        loadBugReports({ silent: true });
       }
     };
     window.addEventListener('focus', handleFocus);
@@ -204,10 +216,17 @@ export default function SettingsPage() {
 
     return () => {
       unsubscribe();
+      clearInterval(pollInterval);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleFocus);
     };
   }, [loadSettings, loadBugReports]);
+
+  useEffect(() => {
+    if (activeTab === 'bugs') {
+      loadBugReports({ silent: true });
+    }
+  }, [activeTab, loadBugReports]);
 
   const handleSave = async (e) => {
     e?.preventDefault?.();
@@ -1034,7 +1053,7 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     className="btn-refresh-bugs"
-                    onClick={loadBugReports}
+                    onClick={() => loadBugReports()}
                     disabled={loadingBugs}
                     title="Refresh reports"
                   >

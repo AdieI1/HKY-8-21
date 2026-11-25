@@ -45,18 +45,21 @@ class VehicleController extends Controller
         }
 
         $validated = $request->validate([
-            'plate_number' => ['required', 'string', 'regex:/^[A-Z]{3}-\d{4}$/', 'unique:vehicles,plate_number'],
-            'engine_number' => ['required', 'string', 'min:10', 'max:14', 'regex:/^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{3,6}-\d{6,7}$/', 'unique:vehicles,engine_number'],
+            'plate_number' => ['required', 'string', 'regex:/^[A-Z]{3}-\d{3,4}$/', 'unique:vehicles,plate_number'],
+            'engine_number' => ['required', 'string', 'min:10', 'max:14', 'regex:/^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{3,6}-(?=.*\d)[A-Z0-9]{5,7}$/', 'unique:vehicles,engine_number'],
             'chassis_number' => ['required', 'string', 'min:10', 'max:17', 'regex:/^(?:[A-Z]{2,4}[A-Z0-9]{1,4}-\d{5,7}|(?=.*[A-Z])(?=.*\d)[A-HJ-NPR-Z0-9]{17})$/', 'unique:vehicles,chassis_number'],
             'model' => 'required|string|max:100',
             'brand' => 'nullable|string|max:100',
-            'year_model' => 'nullable|integer',
+            'year_model' => 'nullable|integer|min:1901|max:' . ((int) date('Y') + 1),
             'vehicle_type' => 'required|string|max:50',
             'classification' => 'nullable|string|max:50',
-            'vehicle_category' => 'nullable|string|max:20',
+            'vehicle_category' => 'nullable|string|max:50',
             'body_type' => 'nullable|string|max:80',
+            'piston_displacement' => 'nullable|numeric|min:0',
             'color' => 'required|string|max:50',
-            'capacity' => 'nullable|numeric',
+            'capacity' => 'nullable|numeric|min:0',
+            'gross_weight' => 'nullable|numeric|min:0',
+            'net_weight' => 'nullable|numeric|min:0',
             'passenger_capacity' => 'nullable|integer|min:1|max:60',
             'mileage' => 'nullable|numeric',
             'odometer_reading' => 'nullable|numeric',
@@ -67,7 +70,7 @@ class VehicleController extends Controller
             'last_maintenance_date' => 'nullable|date',
             'next_maintenance_date' => 'nullable|date',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
-            'status' => 'nullable|in:available,in_use,maintenance,broken,decommissioned',
+            'status' => 'nullable|in:available,in_use,maintenance,waiting_part_confirmation,broken,decommissioned',
             'insurance_provider' => 'nullable|string|max:150',
             'insurance_policy_number' => ['nullable', 'string', 'min:8', 'max:30', 'regex:/^(?=(?:.*\d){4,})[A-Z]{2,5}(?:-[A-Z0-9]{1,10}){1,6}$/', 'unique:vehicles,insurance_policy_number'],
             'insurance_coverage_type' => 'nullable|string|max:100',
@@ -158,16 +161,22 @@ class VehicleController extends Controller
         }
 
         $validated = $request->validate([
-            'plate_number' => ['sometimes', 'string', 'regex:/^[A-Z]{3}-\d{4}$/', 'unique:vehicles,plate_number,' . $vehicle->vehicle_id . ',vehicle_id'],
-            'engine_number' => ['nullable', 'string', 'min:10', 'max:14', 'regex:/^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{3,6}-\d{6,7}$/', 'unique:vehicles,engine_number,' . $vehicle->vehicle_id . ',vehicle_id'],
+            'plate_number' => ['sometimes', 'string', 'regex:/^[A-Z]{3}-\d{3,4}$/', 'unique:vehicles,plate_number,' . $vehicle->vehicle_id . ',vehicle_id'],
+            'model' => 'sometimes|string|max:100',
+            'brand' => 'nullable|string|max:100',
+            'year_model' => 'nullable|integer|min:1901|max:' . ((int) date('Y') + 1),
+            'engine_number' => ['nullable', 'string', 'min:10', 'max:14', 'regex:/^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{3,6}-(?=.*\d)[A-Z0-9]{5,7}$/', 'unique:vehicles,engine_number,' . $vehicle->vehicle_id . ',vehicle_id'],
             'chassis_number' => ['nullable', 'string', 'min:10', 'max:17', 'regex:/^(?:[A-Z]{2,4}[A-Z0-9]{1,4}-\d{5,7}|(?=.*[A-Z])(?=.*\d)[A-HJ-NPR-Z0-9]{17})$/', 'unique:vehicles,chassis_number,' . $vehicle->vehicle_id . ',vehicle_id'],
             'classification' => 'nullable|string|max:50',
-            'vehicle_category' => 'nullable|string|max:20',
+            'vehicle_category' => 'nullable|string|max:50',
             'body_type' => 'nullable|string|max:80',
+            'piston_displacement' => 'nullable|numeric|min:0',
+            'gross_weight' => 'nullable|numeric|min:0',
+            'net_weight' => 'nullable|numeric|min:0',
             'passenger_capacity' => 'nullable|integer|min:1|max:60',
             'fuel_type' => 'sometimes|in:diesel,gasoline,electric,hybrid',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
-            'status' => 'sometimes|in:available,in_use,maintenance,broken,decommissioned',
+            'status' => 'sometimes|in:available,in_use,maintenance,waiting_part_confirmation,broken,decommissioned',
             'odometer_reading' => 'nullable|numeric|min:0',
             'insurance_provider' => 'nullable|string|max:150',
             'insurance_policy_number' => ['nullable', 'string', 'min:8', 'max:30', 'regex:/^(?=(?:.*\d){4,})[A-Z]{2,5}(?:-[A-Z0-9]{1,10}){1,6}$/', 'unique:vehicles,insurance_policy_number,' . $vehicle->vehicle_id . ',vehicle_id'],
@@ -210,6 +219,18 @@ class VehicleController extends Controller
         ];
 
         $data = $request->except(array_keys($fileFields));
+
+        if ($vehicle->status === 'waiting_part_confirmation') {
+            return response()->json([
+                'message' => 'This vehicle is waiting for maintenance parts confirmation and cannot be edited, archived, or reassigned.',
+            ], 422);
+        }
+
+        if ($vehicle->status === 'maintenance' && isset($data['status']) && $data['status'] === 'decommissioned') {
+            return response()->json([
+                'message' => 'This vehicle is under maintenance and cannot be archived or decommissioned.',
+            ], 422);
+        }
 
         foreach ($fileFields as $field => $folder) {
             if ($request->hasFile($field)) {

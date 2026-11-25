@@ -24,6 +24,7 @@ const STATUS_CONFIG = {
 export default function ActiveDeliveryCard({
   delivery,
   onViewDetails,
+  showHeader = true,
 }) {
   const { isDark, colors } = useTheme();
   const isRelief = Boolean(delivery?.is_relief);
@@ -39,13 +40,17 @@ export default function ActiveDeliveryCard({
     : (STATUS_CONFIG[delivery.status] || STATUS_CONFIG.pending);
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark ? 1 : 0 }]}>
-      {/* TITLE */}
-      <Text style={styles.title}>
-        Active Deliveries
-      </Text>
+    <View style={[styles.card, !showHeader && styles.compactCard, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: isDark || !showHeader ? 1 : 0 }]}>
+      {showHeader && (
+        <>
+          {/* TITLE */}
+          <Text style={styles.title}>
+            Active Deliveries
+          </Text>
 
-      <View style={[styles.divider, { backgroundColor: colors.divider }]} />
+          <View style={[styles.divider, { backgroundColor: colors.divider }]} />
+        </>
+      )}
 
       {/* CARGO */}
       <View style={styles.deliveryRow}>
@@ -129,6 +134,11 @@ const styles = StyleSheet.create({
     marginTop: height * 0.02,
     overflow: "hidden",
   },
+  compactCard: {
+    borderRadius: 10,
+    marginTop: 0,
+    marginBottom: 10,
+  },
 
   title: {
     color: "#DE2226",
@@ -162,7 +172,9 @@ const styles = StyleSheet.create({
 
   cargoInfo: {
     flex: 1,
+    flexShrink: 1,
     marginLeft: width * 0.025,
+    marginRight: 6,
   },
 
   cargoName: {
@@ -173,8 +185,10 @@ const styles = StyleSheet.create({
 
   statusRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
     marginTop: 4,
+    gap: 4,
   },
 
   statusLabel: {
@@ -225,8 +239,10 @@ const styles = StyleSheet.create({
   },
 
   route: {
+    flex: 1,
+    flexShrink: 1,
     color: "#273342",
-    fontSize: width * 0.043,
+    fontSize: width * 0.041,
     fontWeight: "700",
     marginLeft: 6,
   },

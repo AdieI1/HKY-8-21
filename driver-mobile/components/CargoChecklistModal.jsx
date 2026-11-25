@@ -12,6 +12,8 @@ import {
   Platform,
   KeyboardAvoidingView,
 } from "react-native";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { saveDeliveryChecklist } from "../services/api";
 
@@ -84,15 +86,43 @@ export default function CargoChecklistModal({
   const config = STAGE_CONFIG[stage] || STAGE_CONFIG.pre_loading;
 
   const [itemStates, setItemStates] = useState({});
+  const [photos, setPhotos] = useState([]);
   const [remarks, setRemarks] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (visible) {
       setItemStates({});
+      setPhotos([]);
       setRemarks("");
       setSubmitting(false);
     }
+  }, [visible, stage]);
+
+  // Recover photo if Android killed/recreated Activity while camera was open
+  useEffect(() => {
+    if (!visible || Platform.OS !== "android") return;
+    let active = true;
+    ImagePicker.getPendingResultAsync?.()
+      .then((results) => {
+        if (!active || !Array.isArray(results) || results.length === 0) return;
+        const latest = results[0];
+        if (latest && !latest.canceled && latest.assets?.[0]?.uri) {
+          const asset = latest.assets[0];
+          setPhotos((prev) => [
+            ...prev.slice(0, 2),
+            {
+              uri: asset.uri,
+              fileName: asset.fileName || `cargo-${stage}-${Date.now()}.jpg`,
+              mimeType: asset.mimeType || "image/jpeg",
+            },
+          ]);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, [visible, stage]);
 
   const deliveryId = delivery?.delivery_id || delivery?.id;
@@ -143,6 +173,51 @@ export default function CargoChecklistModal({
     setItemStates(next);
   };
 
+  const handleTakePhoto = async () => {
+    if (photos.length >= 3) {
+      Alert.alert("Limit Reached", "You can attach up to 3 photos per checklist.");
+      return;
+    }
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Camera Permission Required",
+          "Permission to access camera is required to take cargo proof photos."
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 0.35,
+        exif: false,
+        base64: false,
+      });
+
+      if (!result.canceled && result.assets?.length) {
+        const asset = result.assets[0];
+        setPhotos((prev) => [
+          ...prev,
+          {
+            uri: asset.uri,
+            fileName: asset.fileName || `cargo-${stage}-${Date.now()}.jpg`,
+            mimeType: asset.mimeType || "image/jpeg",
+          },
+        ]);
+      }
+    } catch {
+      Alert.alert("Camera Error", "Could not capture photo. Please try again.");
+    }
+  };
+
+  const handleRemovePhoto = (idx) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const canSubmit = allAnswered && photos.length > 0;
+
   const handleClose = () => {
     if (submitting) return;
     onClose?.();
@@ -153,6 +228,14 @@ export default function CargoChecklistModal({
       Alert.alert(
         "Checklist Incomplete",
         `Please check all ${totalCount} cargo items before continuing.`
+      );
+      return;
+    }
+
+    if (photos.length === 0) {
+      Alert.alert(
+        "Photo Proof Required",
+        "Please take at least one photo proof of the cargo condition before continuing."
       );
       return;
     }
@@ -173,6 +256,7 @@ export default function CargoChecklistModal({
       const payload = {
         type: stage,
         items: itemsPayload,
+        photos,
       };
 
       if (remarks.trim()) {
@@ -351,6 +435,47 @@ export default function CargoChecklistModal({
               </View>
             )}
 
+            {/* Required Cargo Photo Proof */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>
+                Cargo Photo Proof <Text style={styles.requiredTag}>*</Text>
+              </Text>
+              <Text style={styles.photoHelp}>
+                Take at least 1 photo of the cargo / truck bay as proof ({photos.length}/3).
+              </Text>
+
+              {photos.length > 0 && (
+                <View style={styles.photoGrid}>
+                  {photos.map((p, idx) => (
+                    <View key={`${p.uri}-${idx}`} style={styles.photoThumbWrap}>
+                      <Image source={{ uri: p.uri }} style={styles.photoThumb} contentFit="cover" />
+                      <TouchableOpacity
+                        style={styles.removePhotoBtn}
+                        onPress={() => handleRemovePhoto(idx)}
+                        disabled={submitting}
+                      >
+                        <Ionicons name="close" size={14} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {photos.length < 3 && (
+                <TouchableOpacity
+                  style={[styles.cameraButton, photos.length === 0 && styles.cameraButtonRequired]}
+                  onPress={handleTakePhoto}
+                  activeOpacity={0.8}
+                  disabled={submitting}
+                >
+                  <Ionicons name="camera" size={18} color="#B91F27" />
+                  <Text style={styles.cameraButtonText}>
+                    {photos.length === 0 ? "Take Photo Proof (Required)" : "Take Another Photo"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
             {/* Optional Remarks */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>
@@ -373,10 +498,10 @@ export default function CargoChecklistModal({
             <TouchableOpacity
               style={[
                 styles.submitButton,
-                (!allAnswered || submitting) && styles.submitButtonDisabled,
+                (!canSubmit || submitting) && styles.submitButtonDisabled,
               ]}
               onPress={handleSubmit}
-              disabled={!allAnswered || submitting}
+              disabled={!canSubmit || submitting}
               activeOpacity={0.85}
             >
               {submitting ? (
@@ -613,6 +738,68 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#9CA3AF",
     fontWeight: "400",
+  },
+  requiredTag: {
+    fontSize: 13,
+    color: "#DC2626",
+    fontWeight: "700",
+  },
+  photoHelp: {
+    fontSize: 11.5,
+    color: "#6B7280",
+    marginBottom: 8,
+  },
+  photoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 10,
+  },
+  photoThumbWrap: {
+    width: 82,
+    height: 82,
+    borderRadius: 10,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    position: "relative",
+    backgroundColor: "#E5E7EB",
+  },
+  photoThumb: {
+    width: "100%",
+    height: "100%",
+  },
+  removePhotoBtn: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(17, 24, 39, 0.75)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cameraButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+  },
+  cameraButtonRequired: {
+    borderStyle: "dashed",
+    borderColor: "#B91F27",
+    backgroundColor: "#FEF2F2",
+  },
+  cameraButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#B91F27",
   },
   textInput: {
     backgroundColor: "#FFFFFF",

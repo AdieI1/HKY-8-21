@@ -59,6 +59,7 @@ const EMPTY_FORM = {
 
 function RequestsPage() {
   const [requests, setRequests] = useState([]);
+  const [vipCustomerMap, setVipCustomerMap] = useState({});
   const [overdueConfig, setOverdueConfig] = useState(() => getOverdueRequestConfig(null));
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -92,11 +93,19 @@ function RequestsPage() {
     }
     setLoadError('');
     try {
-      const [res, settingsRes] = await Promise.all([
+      const [res, settingsRes, rewardsRes] = await Promise.all([
         api.get('/delivery-requests', { skipCache: true }),
         isInitial ? api.get('/system-settings', { skipCache: true }).catch(() => ({ data: null })) : Promise.resolve(null),
+        api.get('/rewards/summary', { skipCache: true }).catch(() => ({ data: null })),
       ]);
       setRequests(res.data);
+      if (rewardsRes?.data?.top_customers) {
+        const nextVip = {};
+        rewardsRes.data.top_customers.forEach((c) => {
+          nextVip[Number(c.user_id)] = c;
+        });
+        setVipCustomerMap(nextVip);
+      }
       if (settingsRes?.data) {
         setOverdueConfig(getOverdueRequestConfig(settingsRes.data));
       }
@@ -415,7 +424,47 @@ function RequestsPage() {
                               <td className="request-id">
                                 {overdue && <i className="fas fa-exclamation-triangle status-icon"></i>} {requestCode(r.request_id)}
                               </td>
-                              <td>{r.customer?.full_name || '—'}</td>
+                              <td>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  <span>{r.customer?.full_name || '—'}</span>
+                                  {vipCustomerMap[Number(r.customer_id)] && (
+                                    <span
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        padding: '1px 7px',
+                                        borderRadius: 999,
+                                        fontSize: 10.5,
+                                        fontWeight: 700,
+                                        background: '#FEF3C7',
+                                        color: '#B45309',
+                                        border: '1px solid #FDE68A',
+                                      }}
+                                      title={`Top ${vipCustomerMap[Number(r.customer_id)].rank} VIP Customer (Standard equal queue)`}
+                                    >
+                                      <i className="fas fa-crown" style={{ fontSize: 9 }}></i> VIP
+                                    </span>
+                                  )}
+                                  {Number(r.vip_voucher_amount || 0) > 0 && (
+                                    <span
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        padding: '1px 6px',
+                                        borderRadius: 999,
+                                        fontSize: 10,
+                                        fontWeight: 700,
+                                        background: '#ECFDF5',
+                                        color: '#047857',
+                                        border: '1px solid #A7F3D0',
+                                      }}
+                                    >
+                                      -₱{Number(r.vip_voucher_amount).toLocaleString('en-PH', { maximumFractionDigits: 0 })} Voucher
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
                               <td>
                                 <span className={`status-badge status-${overdue ? 'overdue' : r.status}`}>
                                   {overdue ? 'Overdue' : r.status.charAt(0).toUpperCase() + r.status.slice(1)}
@@ -534,6 +583,7 @@ function RequestsPage() {
 
       <RequestDetailsModal
         selectedRequest={selectedRequest}
+        vipInfo={selectedRequest ? vipCustomerMap[Number(selectedRequest.customer_id)] || null : null}
         closeDetails={closeDetails}
         approveRequest={approveRequest}
         approving={approving}

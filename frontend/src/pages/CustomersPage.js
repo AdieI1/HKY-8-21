@@ -332,6 +332,20 @@ function CustomersPage() {
     [deliveries]
   );
 
+  const vipRanks = useMemo(() => {
+    const ranked = customers
+      .map((c) => ({ user_id: c.user_id, spend: spendFor(c.user_id) }))
+      .filter((x) => x.spend > 0)
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 5);
+    const map = {};
+    ranked.forEach((entry, idx) => {
+      const rank = idx + 1;
+      map[Number(entry.user_id)] = { rank, voucher: rank === 1 ? 300 : 200 };
+    });
+    return map;
+  }, [customers, spendFor]);
+
   const stats = useMemo(() => {
     const total = customers.length;
     const active = customers.filter((c) => c.status === 'active').length;
@@ -632,7 +646,28 @@ function CustomersPage() {
                             }}
                             onError={(e) => { e.currentTarget.src = '/images/defaultavatar.png'; }}
                           />
-                          <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>{c.full_name || '—'}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>{c.full_name || '—'}</span>
+                            {vipRanks[Number(c.user_id)] && (
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  padding: '1px 7px',
+                                  borderRadius: 999,
+                                  fontSize: 10.5,
+                                  fontWeight: 700,
+                                  background: '#FEF3C7',
+                                  color: '#B45309',
+                                  border: '1px solid #FDE68A',
+                                }}
+                                title={`Top ${vipRanks[Number(c.user_id)].rank} VIP • ₱${vipRanks[Number(c.user_id)].voucher}/mo Voucher`}
+                              >
+                                <i className="fas fa-crown" style={{ fontSize: 9 }}></i> VIP
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td>{c.phone || '—'}</td>

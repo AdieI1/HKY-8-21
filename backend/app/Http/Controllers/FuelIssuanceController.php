@@ -97,9 +97,14 @@ class FuelIssuanceController extends Controller
 
                 $delivery = $fuelIssuance->delivery;
                 if ($delivery) {
+                    $existingFuel = $delivery->vehicle?->fuel_level;
+                    $resolvedStartingFuel = ($delivery->starting_fuel !== null && (float) $delivery->starting_fuel >= $liters)
+                        ? (float) $delivery->starting_fuel
+                        : (($existingFuel !== null ? (float) $existingFuel : 0.0) + $liters);
+
                     $delivery->update([
                         'fuel_issued' => $liters,
-                        'starting_fuel' => $liters,
+                        'starting_fuel' => $resolvedStartingFuel,
                         'fuel_receipt_no' => $receiptNo,
                         'fuel_issuance_status' => 'confirmed',
                         'status' => 'assigned',

@@ -73,7 +73,12 @@ class AuthController extends Controller
      */
     public function me(Request $request)
     {
-        return $request->user()->load(['role', 'driver']);
+        $user = $request->user()->load(['role', 'driver']);
+        if ($user->driver) {
+            $user->driver->syncLeaveAndDutyStatus();
+            $user->load(['role', 'driver.leaves']);
+        }
+        return $user;
     }
 
     /**
@@ -81,9 +86,17 @@ class AuthController extends Controller
      */
     public function logout(Request $request)
     {
-        $user = $request->user();
+        $user = $request->user()?->load('driver');
 
         if ($user) {
+            // Auto clock driver off-duty on logout unless they are currently mid-delivery or on leave
+            if (
+                $user->driver
+                && $user->driver->availability_status === 'available'
+                && !$user->driver->hasActiveDelivery()
+            ) {
+                $user->driver->update(['availability_status' => 'off_duty']);
+            }
             // Automatically record logout system log
             $logoutLog = SystemLog::create([
                 'user_id' => $user->user_id,

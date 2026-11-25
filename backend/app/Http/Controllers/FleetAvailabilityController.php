@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Delivery;
 use App\Models\DeliveryRequest;
 use App\Models\Driver;
+use App\Models\DriverLeave;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -26,12 +27,19 @@ class FleetAvailabilityController extends Controller
      */
     public function forecast(Request $request)
     {
+        Driver::syncAllStatuses();
+
         $drivers = Driver::with('user')->get();
         $totalDrivers = $drivers->count();
+        $approvedLeaves = DriverLeave::where('status', 'approved')->get();
 
-        // Active trips currently in-transit or dispatched
+        // Active trips where driver has not yet completed HQ return
         $activeDeliveries = Delivery::with(['driver.user', 'request', 'vehicle'])
             ->whereIn('status', self::ACTIVE_TRIP_STATUSES)
+            ->where(function ($q) {
+                $q->where('status', '!=', 'returning_to_hq')
+                  ->orWhereNull('hq_arrived_at');
+            })
             ->get();
 
         $busyDrivers = [];
@@ -77,9 +85,33 @@ class FleetAvailabilityController extends Controller
             ];
         }
 
-        // Available drivers right now (not in active trips and not on break)
+        // Available drivers right now (On Duty and not in active trips / leave)
         $busyDriverIds = array_keys($driverBusyUntil);
-        $availableNowCount = $drivers->whereNotIn('driver_id', $busyDriverIds)->count();
+        $activeDrivers = $drivers->where('status', 'active');
+        $availableNowCount = $activeDrivers
+            ->where('availability_status', 'available')
+            ->whereNotIn('driver_id', $busyDriverIds)
+            ->count();
+
+        $busyDriversCount = count($busyDriverIds);
+        $offDutyDriversCount = $activeDrivers
+            ->whereIn('availability_status', ['off_duty', 'offline'])
+            ->whereNotIn('driver_id', $busyDriverIds)
+            ->count();
+        $onLeaveDriversCount = $activeDrivers
+            ->whereIn('availability_status', ['on_leave', 'pending_leave'])
+            ->whereNotIn('driver_id', $busyDriverIds)
+            ->count();
+
+        if ($availableNowCount > 0) {
+            $availabilityReason = 'available';
+        } elseif ($busyDriversCount > 0) {
+            $availabilityReason = 'all_busy';
+        } elseif ($offDutyDriversCount > 0) {
+            $availabilityReason = 'all_off_duty';
+        } else {
+            $availabilityReason = 'unavailable';
+        }
 
         // Forecast availability for the next 14 days
         $daysForecast = [];
@@ -101,13 +133,25 @@ class FleetAvailabilityController extends Controller
                 }
             }
 
+            // Count drivers on approved leave on this date
+            $onLeaveDriverIds = $approvedLeaves
+                ->filter(function ($leave) use ($dateStr) {
+                    $s = $leave->start_date?->toDateString();
+                    $e = $leave->end_date?->toDateString() ?: $s;
+                    return $s && $dateStr >= $s && $dateStr <= $e;
+                })
+                ->pluck('driver_id')
+                ->unique()
+                ->reject(fn ($id) => in_array($id, $busyDriverIds, true))
+                ->count();
+
             // Count deliveries already scheduled for this date
             $scheduledOnDate = DeliveryRequest::where('is_scheduled', true)
                 ->whereDate('scheduled_date', $dateStr)
                 ->whereNotIn('status', ['cancelled', 'rejected'])
                 ->count();
 
-            $freeCapacity = max(0, $totalDrivers - $busyOnDate - $scheduledOnDate);
+            $freeCapacity = max(0, $totalDrivers - $busyOnDate - $onLeaveDriverIds - $scheduledOnDate);
 
             $isBlocked = ($freeCapacity === 0);
             if ($isBlocked) {
@@ -135,6 +179,10 @@ class FleetAvailabilityController extends Controller
         return response()->json([
             'total_drivers' => $totalDrivers,
             'available_drivers_now' => $availableNowCount,
+            'busy_drivers_count' => $busyDriversCount,
+            'off_duty_drivers_count' => $offDutyDriversCount,
+            'on_leave_drivers_count' => $onLeaveDriversCount,
+            'availability_reason' => $availabilityReason,
             'earliest_available_date' => $earliestAvailableDate,
             'earliest_available_label' => $earliestLabel,
             'earliest_available_slot' => '09:00 AM',

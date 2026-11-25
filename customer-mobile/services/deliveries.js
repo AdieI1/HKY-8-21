@@ -44,6 +44,11 @@ export const formatDeliveryRequest = (request) => {
         })
       : "",
     driver: driver?.full_name || "",
+    driverPhoto: driver?.profile_photo_path
+      ? driver?.profile_photo_url || null
+      : driver?.profile_photo_url && !driver.profile_photo_url.endsWith("/images/defaultavatar.png")
+      ? driver.profile_photo_url
+      : null,
     vehicle: [vehicle?.brand, vehicle?.model].filter(Boolean).join(" "),
     plate: vehicle?.plate_number || "",
     distance: request.distance_km ? `${request.distance_km} km` : "",

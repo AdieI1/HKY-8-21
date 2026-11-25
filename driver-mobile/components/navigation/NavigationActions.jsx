@@ -17,6 +17,9 @@ export default function NavigationActions({
   onStatusChange,
   onRequestProofOfDelivery,
   onRequestCargoChecklist,
+  onConfirmHqArrival,
+  isNearHq = false,
+  hqDistanceMeters = null,
   delivery,
 }) {
   const router = useRouter();
@@ -54,6 +57,16 @@ export default function NavigationActions({
       return "Finish Delivery (Submit POD)";
     }
 
+    if (navigationState === "returning_to_hq") {
+      if (changing) {
+        return "Confirming HQ Arrival...";
+      }
+      if (isNearHq) {
+        return `Arrived at HJY Headquarters (${hqDistanceMeters ?? 0}m)`;
+      }
+      return "Arrived at HJY Headquarters";
+    }
+
     return "Delivery Completed";
   };
 
@@ -76,6 +89,22 @@ export default function NavigationActions({
         onRequestProofOfDelivery();
         return;
       }
+    }
+
+    if (navigationState === "returning_to_hq") {
+      if (!onConfirmHqArrival) return;
+      try {
+        setChanging(true);
+        await onConfirmHqArrival();
+      } catch (error) {
+        Alert.alert(
+          "Unable to Confirm HQ Arrival",
+          error?.message || "Could not connect to the server."
+        );
+      } finally {
+        setChanging(false);
+      }
+      return;
     }
 
     const transitions = {
@@ -139,6 +168,8 @@ export default function NavigationActions({
       <TouchableOpacity
         style={[
           styles.mainButton,
+          navigationState === "returning_to_hq" && styles.returningButton,
+          navigationState === "returning_to_hq" && isNearHq && styles.nearHqButton,
           navigationState === "completed" &&
             styles.completedButton,
         ]}
@@ -163,7 +194,7 @@ export default function NavigationActions({
 
 const styles = StyleSheet.create({
   actions: {
-    marginTop: 12,
+    marginTop: 2,
   },
 
   mainButton: {
@@ -180,6 +211,15 @@ const styles = StyleSheet.create({
 
   completedButton: {
     backgroundColor: "#4E9F63",
+  },
+  returningButton: {
+    backgroundColor: "#EA580C",
+  },
+  nearHqButton: {
+    backgroundColor: "#16A34A",
+    borderWidth: 2,
+    borderColor: "#DCFCE7",
+    elevation: 6,
   },
 
   mainButtonText: {

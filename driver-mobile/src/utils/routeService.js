@@ -4,10 +4,10 @@
  */
 
 export const DEFAULT_HQ_COORDINATES = {
-  latitude: 8.4982,
-  longitude: 124.6540,
-  address: "536 Block 1 Puntod, Cagayan de Oro City",
-  name: "HJY Trucking HQ",
+  latitude: 8.504390,
+  longitude: 124.646337,
+  address: "HJY Headquarters, Cagayan de Oro City",
+  name: "HJY Headquarters",
 };
 
 // In-memory cache for OSRM routes to avoid spamming the free server

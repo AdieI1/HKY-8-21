@@ -83,6 +83,8 @@ class DashboardController extends Controller
      */
     public function dispatchOverview(Request $request)
     {
+        Driver::syncAllStatuses();
+
         $deliveries = Delivery::with([
             'request.customer',
             'driver.user',

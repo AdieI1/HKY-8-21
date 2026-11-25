@@ -232,10 +232,14 @@ export default function DispatchDetailsModal({ delivery, onClose }) {
                   </span>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #F3F4F6' }}>
                   <span style={{ color: '#6B7280' }}>Fuel Issued:</span>
                   <span style={{ fontWeight: 600, color: '#111827', display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    {delivery.fuel_issued ? `${delivery.fuel_issued} Liters` : 'None issued'}
+                    {delivery.fuel_issued != null && delivery.fuel_issued !== ''
+                      ? (Number(delivery.fuel_issued) === 0
+                        ? '0 Liters (Existing Tank)'
+                        : `${Number(delivery.fuel_issued).toLocaleString()} Liters`)
+                      : 'None issued'}
                     {delivery.fuel_receipt_no && (
                       <span
                         style={{
@@ -267,6 +271,13 @@ export default function DispatchDetailsModal({ delivery, onClose }) {
                         Pending Fuel Issuance
                       </span>
                     )}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#6B7280' }}>Trip Cost:</span>
+                  <span style={{ fontWeight: 700, color: Number(delivery.fuel_allowance || 0) > 0 ? '#0F766E' : '#6B7280' }}>
+                    ₱{Number(delivery.fuel_allowance || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>
@@ -308,17 +319,10 @@ export default function DispatchDetailsModal({ delivery, onClose }) {
                   </span>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #F3F4F6' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#6B7280' }}>Weight / Volume:</span>
                   <span style={{ fontWeight: 600, color: '#111827' }}>
                     {req.weight ? `${req.weight} kg` : '—'}
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#6B7280' }}>Estimated Duration:</span>
-                  <span style={{ fontWeight: 600, color: '#111827' }}>
-                    {delivery.estimated_duration_days || 2} Day(s)
                   </span>
                 </div>
               </div>

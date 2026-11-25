@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { formatTripDuration, getFuelMetrics } from './PostDeliveryMetricsPanel';
+import InspectionActivitiesSection from './InspectionActivitiesSection';
 
 function deliveryCode(id) {
   return `DLV${String(id).padStart(4, '0')}`;
@@ -683,6 +684,11 @@ export default function CompletedDeliveryDetailsModal({
                 </div>
               </div>
             )}
+
+            <InspectionActivitiesSection
+              checklists={delivery.checklists}
+              deliveryCode={deliveryCode(delivery.delivery_id)}
+            />
           </div>
         </div>
 

@@ -12,7 +12,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { getRouteWeather } from "../../services/api";
 
-const DEFAULT_HQ = { lat: 8.4542, lng: 124.6319 };
+const DEFAULT_HQ = { lat: 8.504390, lng: 124.646337 };
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 export default function WeatherRouteAdvisory({
@@ -21,10 +21,10 @@ export default function WeatherRouteAdvisory({
   navigationState,
 }) {
   const [advisory, setAdvisory] = useState(null);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
-  // Drag-and-drop position handler
-  const pan = useRef(new Animated.ValueXY({ x: 14, y: 70 })).current;
+  // Drag-and-drop position handler (starts cleanly below NavigationRoutePreview)
+  const pan = useRef(new Animated.ValueXY({ x: 14, y: 94 })).current;
 
   const panResponder = useRef(
     PanResponder.create({
@@ -60,13 +60,19 @@ export default function WeatherRouteAdvisory({
       navigationState === "in_transit_pickup" ||
       navigationState === "arrived_pickup";
 
-    const targetLat = isPickupLeg
-      ? Number(request.pickup_latitude || delivery.pickup_latitude || DEFAULT_HQ.lat)
-      : Number(request.delivery_latitude || delivery.delivery_latitude || DEFAULT_HQ.lat);
+    const isHqLeg = navigationState === "returning_to_hq";
 
-    const targetLng = isPickupLeg
-      ? Number(request.pickup_longitude || delivery.pickup_longitude || DEFAULT_HQ.lng)
-      : Number(request.delivery_longitude || delivery.delivery_longitude || DEFAULT_HQ.lng);
+    const targetLat = isHqLeg
+      ? DEFAULT_HQ.lat
+      : isPickupLeg
+        ? Number(request.pickup_latitude || request.pickup_lat || delivery.pickup_latitude || DEFAULT_HQ.lat)
+        : Number(request.delivery_latitude || request.dropoff_lat || delivery.delivery_latitude || DEFAULT_HQ.lat);
+
+    const targetLng = isHqLeg
+      ? DEFAULT_HQ.lng
+      : isPickupLeg
+        ? Number(request.pickup_longitude || request.pickup_lng || delivery.pickup_longitude || DEFAULT_HQ.lng)
+        : Number(request.delivery_longitude || request.dropoff_lng || delivery.delivery_longitude || DEFAULT_HQ.lng);
 
     const originLat = currentLocation?.latitude || DEFAULT_HQ.lat;
     const originLng = currentLocation?.longitude || DEFAULT_HQ.lng;
@@ -76,7 +82,7 @@ export default function WeatherRouteAdvisory({
       originLng,
       targetLat,
       targetLng,
-      legName: isPickupLeg ? "Pickup Point" : "Drop-off Location",
+      legName: isHqLeg ? "HJY Headquarters" : isPickupLeg ? "Pickup Point" : "Drop-off Location",
     };
   }, [delivery, currentLocation, navigationState]);
 
@@ -222,6 +228,7 @@ const styles = StyleSheet.create({
   },
   collapsedWrapper: {
     alignSelf: "flex-start",
+    maxWidth: SCREEN_WIDTH - 150,
   },
 
   /* ── Full Card (White & Red Theme) ── */

@@ -64,9 +64,11 @@ export default function InspectionChecklistCard({
   onItemChange,
   odometer = "",
   onOdometerChange,
-  endingFuel = "",
-  onEndingFuelChange,
-  startingFuel = null,
+  startingOdometer = null,
+  fuel = "",
+  onFuelChange,
+  fuelReference = null,
+  fieldErrors = {},
   photos = [],
   onPhotosChange,
   onProgressChange,
@@ -154,30 +156,50 @@ export default function InspectionChecklistCard({
       ))}
 
       <View style={[styles.inputSection, { borderTopColor: theme.border }]}>
-        <Text style={[styles.inputLabel, { color: theme.text }]}>{isPost ? "Ending Odometer (km) *" : "Starting Odometer (km) *"}</Text>
+        <Text style={[styles.inputLabel, { color: theme.text }]}>
+          {isPost ? "Ending Odometer (km) *" : "Starting Odometer (km) *"}
+          {isPost && startingOdometer != null ? `  (Start: ${Number(startingOdometer).toLocaleString()} km)` : ""}
+        </Text>
         <TextInput
-          style={[styles.textInput, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
+          style={[
+            styles.textInput,
+            {
+              backgroundColor: theme.surface,
+              borderColor: fieldErrors?.odometer ? "#EF4444" : theme.border,
+              color: theme.text,
+            },
+          ]}
           value={odometer}
           onChangeText={onOdometerChange}
           placeholder={isPost ? "Enter ending odometer (e.g. 68000)" : "Enter starting odometer (e.g. 67000)"}
           placeholderTextColor={theme.textSecondary}
           keyboardType="decimal-pad"
         />
+        {!!fieldErrors?.odometer && <Text style={styles.errorText}>{fieldErrors.odometer}</Text>}
       </View>
 
       {isPost && (
         <View style={[styles.inputSection, { borderTopColor: theme.border, marginTop: 10, paddingTop: 10 }]}>
           <Text style={[styles.inputLabel, { color: theme.text }]}>
-            Ending Fuel (Liters) *{startingFuel != null ? `  (Issued: ${Number(startingFuel).toLocaleString()} L)` : ""}
+            Ending Fuel (Liters) *
+            {fuelReference != null ? `  (Start: ${Number(fuelReference).toLocaleString()} L)` : ""}
           </Text>
           <TextInput
-            style={[styles.textInput, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
-            value={endingFuel}
-            onChangeText={onEndingFuelChange}
+            style={[
+              styles.textInput,
+              {
+                backgroundColor: theme.surface,
+                borderColor: fieldErrors?.fuel ? "#EF4444" : theme.border,
+                color: theme.text,
+              },
+            ]}
+            value={fuel}
+            onChangeText={onFuelChange}
             placeholder="Enter remaining fuel in liters (e.g. 120)"
             placeholderTextColor={theme.textSecondary}
             keyboardType="decimal-pad"
           />
+          {!!fieldErrors?.fuel && <Text style={styles.errorText}>{fieldErrors.fuel}</Text>}
         </View>
       )}
 
@@ -299,6 +321,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     fontSize: 12,
     color: "#1F2937",
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 4,
   },
   photoSection: {
     marginTop: 10,

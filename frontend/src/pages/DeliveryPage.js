@@ -14,6 +14,7 @@ import TableSkeleton from '../components/TableSkeleton';
 import DelayActionModal from '../components/delivery/DelayActionModal';
 import CollectionReceiptModal from '../components/delivery/CollectionReceiptModal';
 import CompletedDeliveryDetailsModal from '../components/delivery/CompletedDeliveryDetailsModal';
+import InspectionActivitiesSection from '../components/delivery/InspectionActivitiesSection';
 
 const STATUS_STEPS = [
   { key: 'pending', label: 'Pending Dispatch' },
@@ -25,6 +26,7 @@ const STATUS_STEPS = [
   { key: 'arrived_dropoff', label: 'Arrived at Drop-off' },
   { key: 'unloading_cargo', label: 'Unloading Cargo' },
   { key: 'returning_to_hq', label: 'Returning to HQ' },
+  { key: 'arrived_hq', label: 'Awaiting Post-Trip Inspection' },
   { key: 'completed', label: 'Complete' },
 ];
 
@@ -239,7 +241,7 @@ function statusLabel(d) {
   } else {
     if (d.fuel_issuance_status === 'pending' && d.status === 'pending') {
       baseLabel = 'Pending Fuel Issuance';
-    } else if (d.status === 'returning_to_hq' && (d.delivered_at || d.proof_of_delivery_path || d.receipt_photo)) {
+    } else if (d.status === 'returning_to_hq' && d.hq_arrived_at) {
       baseLabel = 'Awaiting Post-Trip Inspection';
     } else {
       const step = STATUS_STEPS.find((s) => s.key === d.status);
@@ -417,6 +419,7 @@ function DeliveryPage() {
   const [receiptModalOpen, setReceiptModalOpen] = useState(false);
   const [receiptModalDelivery, setReceiptModalDelivery] = useState(null);
   const [receiptModalReadOnly, setReceiptModalReadOnly] = useState(false);
+  const [inspectionModalOpen, setInspectionModalOpen] = useState(false);
 
   const openReceiptModal = (d, isReadOnly = false) => {
     setReceiptModalDelivery(d);
@@ -776,7 +779,11 @@ function DeliveryPage() {
   const openMapModal = () => { setEta(null); setDetectedHazards([]); setShowMapModal(true); };
   const closeMapModal = () => { setShowMapModal(false); setDetectedHazards([]); };
 
-  const currentStepIndex = selectedDelivery ? STATUS_STEPS.findIndex((s) => s.key === selectedDelivery.status) : -1;
+  const currentStepIndex = selectedDelivery
+    ? selectedDelivery.status === 'returning_to_hq' && selectedDelivery.hq_arrived_at
+      ? STATUS_STEPS.findIndex((s) => s.key === 'arrived_hq')
+      : STATUS_STEPS.findIndex((s) => s.key === selectedDelivery.status)
+    : -1;
 
   const sortedTracking = useMemo(() => {
     const tracking = selectedDelivery?.tracking || [];
@@ -826,7 +833,11 @@ function DeliveryPage() {
   const timeForStep = (stepKey) => {
     if (!selectedDelivery) return '';
     const entry = (selectedDelivery.tracking || []).find((t) => t.status_update === stepKey);
-    return entry ? formatTime(entry.timestamp) : '';
+    if (entry) return formatTime(entry.timestamp);
+    if (stepKey === 'arrived_hq' && selectedDelivery.hq_arrived_at) {
+      return formatTime(selectedDelivery.hq_arrived_at);
+    }
+    return '';
   };
 
   return (
@@ -1478,6 +1489,22 @@ function DeliveryPage() {
                           </span>
                         </div>
                         <div className="panel-detail">
+                          <span className="panel-detail-label">Fuel Issued:</span>
+                          <span className="panel-detail-value">
+                            {selectedDelivery.fuel_issued !== null && selectedDelivery.fuel_issued !== undefined && selectedDelivery.fuel_issued !== ''
+                              ? (Number(selectedDelivery.fuel_issued) === 0
+                                ? '0 L (Existing Tank)'
+                                : `${Number(selectedDelivery.fuel_issued).toLocaleString()} ${selectedDelivery.fuel_unit || 'Liters'}`)
+                              : '—'}
+                          </span>
+                        </div>
+                        <div className="panel-detail">
+                          <span className="panel-detail-label">Trip Cost:</span>
+                          <span className="panel-detail-value" style={{ fontWeight: 700, color: Number(selectedDelivery.fuel_allowance || 0) > 0 ? '#5EEAD4' : '#CBD5E1' }}>
+                            ₱{Number(selectedDelivery.fuel_allowance || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="panel-detail">
                           <span className="panel-detail-label">Starting Fuel:</span>
                           <span className="panel-detail-value">
                             {startingFuel !== null && startingFuel !== undefined && startingFuel !== ''
@@ -1496,6 +1523,16 @@ function DeliveryPage() {
                       </>
                     );
                   })()}
+
+                  <div className="panel-divider"></div>
+
+                  <InspectionActivitiesSection
+                    checklists={selectedDelivery.checklists}
+                    deliveryCode={deliveryCode(selectedDelivery.delivery_id)}
+                    compact={true}
+                    summaryOnly={true}
+                    onOpenModal={() => setInspectionModalOpen(true)}
+                  />
 
                   <div className="panel-divider"></div>
 
@@ -1983,6 +2020,91 @@ function DeliveryPage() {
         }}
         onSuccess={handleReceiptSuccess}
       />
+
+      {inspectionModalOpen && selectedDelivery && (
+        <div
+          onClick={() => setInspectionModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.6)',
+            zIndex: 1350,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            style={{
+              width: '100%',
+              maxWidth: 820,
+              maxHeight: '88vh',
+              background: '#F8FAFC',
+              borderRadius: 14,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 24px 48px rgba(0, 0, 0, 0.3)',
+            }}
+          >
+            <div
+              style={{
+                background: '#1E293B',
+                color: '#FFFFFF',
+                padding: '14px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <i className="fas fa-clipboard-check" style={{ color: '#38BDF8', fontSize: 18 }}></i>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 15.5, fontWeight: 700, color: '#FFFFFF' }}>
+                    Inspection Activities &amp; Photos
+                  </h3>
+                  <div style={{ fontSize: 11.5, color: '#94A3B8', marginTop: 2 }}>
+                    {deliveryCode(selectedDelivery.delivery_id)} • Real-time Pre-Trip, Cargo &amp; Post-Trip Records
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInspectionModalOpen(false)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.12)',
+                  border: 'none',
+                  color: '#FFFFFF',
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  fontSize: 15,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                aria-label="Close"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+            <div style={{ padding: '4px 20px 20px', overflowY: 'auto' }}>
+              <InspectionActivitiesSection
+                checklists={selectedDelivery.checklists}
+                deliveryCode={deliveryCode(selectedDelivery.delivery_id)}
+                compact={false}
+                dark={false}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

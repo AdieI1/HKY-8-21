@@ -15,7 +15,7 @@ import CargoSection from "./sections/CargoSection";
 import DeliverySection from "./sections/DeliverySection";
 import OverviewSection from "./sections/OverviewSection";
 import PaymentSection from "./sections/PaymentSection";
-import { createDeliveryRequest, getRouteDistance } from "../services/api";
+import { createDeliveryRequest, getMyRewardStatus, getRouteDistance } from "../services/api";
 import {
   saveActiveProgress,
   getActiveProgress,
@@ -29,6 +29,7 @@ const { width, height } = Dimensions.get("window");
 
 export default function RequestSheet({
   initialDraft = null,
+  vipReward: externalVipReward = null,
   onClose,
   onDraftSaved,
   onRequestCreated,
@@ -52,6 +53,26 @@ export default function RequestSheet({
   const [schedule, setSchedule] = useState({ isScheduled: false, date: '', timeSlot: '' });
   const [reviewVisible, setReviewVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [vipReward, setVipReward] = useState(externalVipReward);
+  const [useVipVoucher, setUseVipVoucher] = useState(false);
+
+  useEffect(() => {
+    if (externalVipReward !== null) {
+      setVipReward(externalVipReward);
+      return;
+    }
+    let active = true;
+    getMyRewardStatus()
+      .then((res) => {
+        if (active && res?.customer_vip) {
+          setVipReward(res.customer_vip);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [externalVipReward]);
 
   // Restore initial draft or in-progress crash-recovery data
   useEffect(() => {
@@ -111,8 +132,29 @@ export default function RequestSheet({
     const distanceFee = Number(distanceKm || 0) * 80;
     const weightFee = Number(cargo.weight || 0);
     const laborFee = 800;
-    return { distanceFee, weightFee, laborFee, total: distanceFee + weightFee + laborFee };
-  }, [distanceKm, cargo.weight]);
+    const subtotal = distanceFee + weightFee + laborFee;
+    const minTrip = Number(vipReward?.min_trip_amount || 1500);
+    const eligible = Boolean(vipReward?.is_vip && vipReward?.available_this_month && subtotal >= minTrip);
+    const voucherDiscount = eligible && useVipVoucher
+      ? Math.min(Number(vipReward?.voucher_amount || 0), subtotal)
+      : 0;
+    return {
+      distanceFee,
+      weightFee,
+      laborFee,
+      subtotal,
+      voucherDiscount,
+      voucherCode: voucherDiscount > 0 ? vipReward?.voucher_code : null,
+      total: Math.max(0, subtotal - voucherDiscount),
+    };
+  }, [distanceKm, cargo.weight, vipReward, useVipVoucher]);
+
+  useEffect(() => {
+    const minTrip = Number(vipReward?.min_trip_amount || 1500);
+    if (useVipVoucher && (!vipReward?.is_vip || !vipReward?.available_this_month || pricing.subtotal < minTrip)) {
+      setUseVipVoucher(false);
+    }
+  }, [useVipVoucher, vipReward, pricing.subtotal]);
 
   useEffect(() => {
     if (!pickup || !dropoff) {
@@ -135,9 +177,11 @@ export default function RequestSheet({
 
   const buildPayload = (isDraft) => {
     const fragilityMap = {
+      Standard: "low",
       Normal: "low",
       Fragile: "medium",
-      Perishable: "high",
+      "Extremely Fragile": "high",
+      Perishable: "perishable",
     };
     const paymentTermMap = { half: "downpayment", full: "full" };
     const paymentMethodMap = { bank: "bank_transfer", cash: "cash" };
@@ -168,6 +212,7 @@ export default function RequestSheet({
       is_scheduled: schedule.isScheduled,
       scheduled_date: schedule.isScheduled ? schedule.date : null,
       scheduled_time_slot: schedule.isScheduled ? schedule.timeSlot : null,
+      apply_vip_voucher: Boolean(!isDraft && useVipVoucher && pricing.voucherDiscount > 0),
       is_draft: isDraft,
     };
   };
@@ -321,6 +366,9 @@ export default function RequestSheet({
           distanceKm={distanceKm}
           weightKg={cargo.weight}
           pricing={pricing}
+          vipReward={vipReward}
+          useVipVoucher={useVipVoucher}
+          onToggleVipVoucher={() => setUseVipVoucher((prev) => !prev)}
           reviewVisible={reviewVisible}
           reviewDetails={{
             serviceType: cargo.serviceType || "standard",

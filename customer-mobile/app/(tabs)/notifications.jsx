@@ -2,7 +2,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-  ActivityIndicator,
   Dimensions,
   RefreshControl,
   ScrollView,
@@ -15,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import AppHeader from "../../components/AppHeader";
 import NotificationCard from "../../components/NotificationsCard";
+import { NotificationListSkeleton } from "../../components/SkeletonLoader";
 import {
   getCustomerNotifications,
   getToken,
@@ -159,11 +159,14 @@ export default function Notifications() {
           </View>
         </View>
 
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#E53935" />
-            <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading notifications...</Text>
-          </View>
+        {loading && notifications.length === 0 ? (
+          <ScrollView
+            style={{ flex: 1, backgroundColor: colors.bg }}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[styles.list, { backgroundColor: colors.bg }]}
+          >
+            <NotificationListSkeleton count={4} />
+          </ScrollView>
         ) : (
           <ScrollView
             style={{ flex: 1, backgroundColor: colors.bg }}

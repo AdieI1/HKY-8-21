@@ -17,15 +17,13 @@ class DriverController extends Controller
 {
     public function index()
     {
-        // Auto-sync: if driver is marked busy but has no active ongoing deliveries, reset to available
-        Driver::where('availability_status', 'busy')
-            ->whereDoesntHave('deliveries', function ($q) {
-                $q->whereNotIn('status', ['completed', 'delivered', 'rejected', 'cancelled']);
-            })
-            ->update(['availability_status' => 'available']);
+        Driver::syncAllStatuses();
 
         return Driver::with([
             'user',
+            'leaves' => function ($q) {
+                $q->orderByDesc('leave_id');
+            },
             'deliveries' => function ($q) {
                 $q->with(['vehicle', 'request.customer', 'incidents'])->orderByDesc('delivery_id');
             }
@@ -43,15 +41,16 @@ class DriverController extends Controller
             'profile_photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
 
-            'license_number' => ['nullable', 'string', 'regex:/^[A-Z]\d{2}-\d{2}-\d{6}$/i'],
+            'license_number' => ['nullable', 'string', 'min:3', 'max:30', 'regex:/^[A-Z0-9-]+$/i'],
             'license_type' => 'nullable|string|max:50',
             'restriction_code' => 'nullable|string|max:50',
+            'agency_code' => 'nullable|string|max:30',
             'license_date_issued' => 'nullable|date',
             'license_expiry_date' => 'nullable|date|after:today',
             'authorized_by' => 'nullable|string|max:100',
             'license_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
 
-            'availability_status' => 'nullable|in:available,busy,offline',
+            'availability_status' => 'nullable|in:available,busy,off_duty,on_leave,pending_leave,offline',
 
             'experience_years' => 'nullable|integer|min:0',
             'health_condition' => 'nullable|string|max:255',
@@ -125,13 +124,14 @@ class DriverController extends Controller
                 'license_number' => $request->license_number,
                 'license_type' => $request->license_type,
                 'restriction_code' => $request->restriction_code,
+                'agency_code' => $request->agency_code,
                 'license_date_issued' => $request->license_date_issued,
                 'license_expiry_date' => $request->license_expiry_date,
                 'authorized_by' => $request->authorized_by,
                 'license_file' => $docPaths['license_file'] ?? null,
 
                 'availability_status' =>
-                    $request->availability_status ?? 'available',
+                    $request->availability_status ?? 'off_duty',
 
                 'experience_years' =>
                     $request->experience_years ?? 0,
@@ -240,9 +240,7 @@ class DriverController extends Controller
 
     public function update(Request $request, Driver $driver)
     {
-        $hasActiveDelivery = $driver->deliveries()
-            ->whereNotIn('status', ['completed', 'delivered', 'rejected', 'cancelled'])
-            ->exists();
+        $hasActiveDelivery = $driver->hasActiveDelivery();
 
         if ($hasActiveDelivery) {
             $isArchiving = $request->input('status') === 'inactive';
@@ -266,7 +264,8 @@ class DriverController extends Controller
 
             'phone' => ['nullable', 'string', 'regex:/^09\d{9}$/'],
             'birthdate' => 'nullable|date|before_or_equal:today',
-            'license_number' => ['nullable', 'string', 'regex:/^[A-Z]\d{2}-\d{2}-\d{6}$/i'],
+            'license_number' => ['nullable', 'string', 'min:3', 'max:30', 'regex:/^[A-Z0-9-]+$/i'],
+            'agency_code' => 'nullable|string|max:30',
             'license_expiry_date' => 'nullable|date|after:today',
             'contract_end' => 'nullable|date|after:today',
             'license_file' => 'nullable|file|mimes:jpeg,png,jpg,webp,pdf|max:10240',
@@ -279,7 +278,7 @@ class DriverController extends Controller
             'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
 
             'availability_status' =>
-                'nullable|in:available,busy,offline',
+                'nullable|in:available,busy,off_duty,on_leave,pending_leave,offline',
 
             'status' =>
                 'nullable|in:active,inactive',
@@ -302,6 +301,7 @@ class DriverController extends Controller
                 'license_number',
                 'license_type',
                 'restriction_code',
+                'agency_code',
                 'license_date_issued',
                 'license_expiry_date',
                 'authorized_by',
@@ -419,9 +419,7 @@ class DriverController extends Controller
 
     public function destroy(Driver $driver)
     {
-        $hasActiveDelivery = $driver->deliveries()
-            ->whereNotIn('status', ['completed', 'delivered', 'rejected', 'cancelled'])
-            ->exists();
+        $hasActiveDelivery = $driver->hasActiveDelivery();
 
         if ($hasActiveDelivery) {
             return response()->json([
@@ -443,6 +441,67 @@ class DriverController extends Controller
 
         return response()->json([
             'message' => 'Driver deleted successfully.'
+        ]);
+    }
+
+    /**
+     * Toggle driver On Duty (available) vs Off Duty (off_duty), enforcing leave and active-trip guards.
+     */
+    public function toggleDutyStatus(Request $request)
+    {
+        $validated = $request->validate([
+            'availability_status' => 'required|in:available,off_duty',
+            'driver_id' => 'nullable|exists:drivers,driver_id',
+        ]);
+
+        $user = $request->user()->load(['role', 'driver']);
+        $roleName = strtolower($user->role?->role_name ?? '');
+
+        $driver = ($roleName === 'driver' || empty($validated['driver_id']))
+            ? $user->driver
+            : Driver::with('user')->find($validated['driver_id']);
+
+        if (!$driver) {
+            return response()->json(['message' => 'Driver record not found.'], 404);
+        }
+
+        $driver = $driver->syncLeaveAndDutyStatus();
+
+        if ($driver->hasActiveDelivery() && $validated['availability_status'] === 'off_duty') {
+            return response()->json([
+                'message' => 'Cannot go Off Duty while you have an active delivery in progress.',
+            ], 422);
+        }
+
+        if ($validated['availability_status'] === 'available') {
+            if ($driver->status !== 'active') {
+                return response()->json([
+                    'message' => 'Driver account is inactive and cannot go On Duty.',
+                ], 422);
+            }
+            if (in_array($driver->availability_status, ['on_leave', 'pending_leave'], true)) {
+                return response()->json([
+                    'message' => $driver->availability_status === 'on_leave'
+                        ? 'Driver is currently On Leave today and cannot go On Duty.'
+                        : 'Pending Sick/Emergency Leave covers today — awaiting staff review before going On Duty.',
+                ], 422);
+            }
+
+            $driver->update([
+                'availability_status' => 'available',
+                'last_duty_date' => now()->toDateString(),
+            ]);
+        } else {
+            $driver->update([
+                'availability_status' => 'off_duty',
+            ]);
+        }
+
+        return response()->json([
+            'message' => $validated['availability_status'] === 'available'
+                ? 'Driver is now On Duty and ready for dispatch.'
+                : 'Driver is now Off Duty.',
+            'driver' => $driver->fresh()->load(['user', 'leaves']),
         ]);
     }
 }

@@ -11,11 +11,13 @@ import { router } from "expo-router";
 import {
     getActiveAcceptedDeliveryId,
     setActiveAcceptedDeliveryId,
+    acceptDriverDelivery,
 } from "../../services/api";
 
 export default function RouteInfo({ delivery }) {
     const request = delivery?.request;
     const [isSavedAccepted, setIsSavedAccepted] = useState(false);
+    const [accepting, setAccepting] = useState(false);
 
     useEffect(() => {
         let mounted = true;
@@ -73,7 +75,20 @@ export default function RouteInfo({ delivery }) {
         ].includes(delivery?.status);
 
     const handleAcceptAssignment = async () => {
+        if (accepting) return;
         const id = delivery?.delivery_id;
+
+        if (!isAcceptedOrActive && id) {
+            try {
+                setAccepting(true);
+                await acceptDriverDelivery(id);
+            } catch (err) {
+                console.log("ACCEPT DELIVERY NOTIFY ERROR:", err?.message);
+            } finally {
+                setAccepting(false);
+            }
+        }
+
         if (id) {
             await setActiveAcceptedDeliveryId(id);
         }
@@ -159,6 +174,7 @@ export default function RouteInfo({ delivery }) {
             <TouchableOpacity
                 style={styles.acceptButton}
                 onPress={handleAcceptAssignment}
+                disabled={accepting}
                 activeOpacity={0.8}
             >
                 <Text style={styles.acceptText}>
